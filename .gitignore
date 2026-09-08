@@ -1,0 +1,29 @@
+# Node / extension build
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Python / server
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Model weights — large binaries; document source + checksum in extension/models/README.md
+extension/models/**/*.onnx
+extension/models/**/*.bin
+extension/models/**/*.wasm
+
+# Local secrets & config
+.env
+.env.local
+
+# Eval outputs
+eval/results/
+eval/**/*.local.json
+
+# OS / editor
+.DS_Store
+*.swp
