@@ -27,3 +27,6 @@ eval/**/*.local.json
 # OS / editor
 .DS_Store
 *.swp
+
+# esbuild-installed platform binaries
+extension/node_modules/

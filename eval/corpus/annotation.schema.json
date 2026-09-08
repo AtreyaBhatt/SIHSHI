@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ppva.local/eval/annotation.schema.json",
+  "title": "PPVA corpus annotation",
+  "description": "Ground truth for one screen. Records what is sensitive and where — never the value itself.",
+  "type": "object",
+  "required": ["screen_id", "source", "viewport", "annotations"],
+  "additionalProperties": false,
+  "properties": {
+    "screen_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Matches the PNG basename."
+    },
+    "source": {
+      "enum": ["fixture", "mock", "synthetic-populated"],
+      "description": "Where the screen came from. Real user sessions are not permitted in the corpus."
+    },
+    "page_url": {
+      "type": ["string", "null"],
+      "description": "Fixture path or mock URL. Must not contain real tokens or identifiers."
+    },
+    "viewport": {
+      "type": "object",
+      "required": ["width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "device_pixel_ratio": { "type": "number", "minimum": 0.5, "default": 1 }
+      }
+    },
+    "annotator": { "type": "string" },
+    "notes": { "type": "string" },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "tier", "modality", "bbox"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Unique within this screen, e.g. \"a1\"." },
+          "type": {
+            "enum": [
+              "password", "otp", "card_number", "card_expiry", "cvv",
+              "aadhaar", "pan", "ssn", "passport", "bank_account", "ifsc", "face",
+              "email", "phone", "address", "person_name", "date_of_birth"
+            ]
+          },
+          "tier": {
+            "enum": [1, 2],
+            "description": "Per PRD §4.3, and must agree with TIER_BY_TYPE in the extension schema. Tier 3 is not annotated — it is everything we deliberately pass through."
+          },
+          "modality": { "enum": ["text", "pixel", "both"] },
+          "bbox": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "[x1, y1, x2, y2] in viewport CSS pixels, top-left origin."
+          },
+          "dom_path": {
+            "type": ["string", "null"],
+            "description": "CSS selector, when the item corresponds to an element."
+          },
+          "value_present": {
+            "type": "boolean",
+            "default": true,
+            "description": "False for an empty-but-sensitive field (an unfilled password box). Still annotated; the detector must flag it."
+          },
+          "notes": { "type": "string", "description": "Reasoning for borderline calls." }
+        }
+      }
+    }
+  }
+}

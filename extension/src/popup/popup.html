@@ -1,0 +1,52 @@
+<link rel="stylesheet" href="popup.css" />
+<div class="app">
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>PPVA</h1>
+        <p class="sub">Privacy-Preserving Vision Agent · M1 capture</p>
+      </div>
+    </div>
+    <button id="capture" class="primary">Capture tab</button>
+  </header>
+
+  <div id="egress" class="banner ok">
+    <strong>Network egress disabled.</strong>
+    This build declares no host permissions — nothing here can leave the machine.
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-pane="pane-capture" role="tab">Raw capture</button>
+    <button class="tab" data-pane="pane-nodes" role="tab">Snapshot <span id="node-count" class="pill">0</span></button>
+    <button class="tab" data-pane="pane-outbound" role="tab">Outbound payload</button>
+  </nav>
+
+  <main>
+    <section id="pane-capture" class="pane active">
+      <div id="stats" class="stats hidden"></div>
+      <label class="toggle"><input type="checkbox" id="show-boxes" checked /> Show captured element boxes</label>
+      <div id="shot-wrap" class="shot-wrap">
+        <p class="empty">No capture yet. Open an http(s) page and press <strong>Capture tab</strong>.</p>
+      </div>
+    </section>
+
+    <section id="pane-nodes" class="pane">
+      <p class="note">Local only — real values, never sent. Password values are omitted at capture time.</p>
+      <div id="nodes" class="nodes"><p class="empty">No capture yet.</p></div>
+    </section>
+
+    <section id="pane-outbound" class="pane">
+      <div class="banner blocked">
+        <strong>Blocked — no payload can be constructed yet.</strong>
+        The redaction engine (M2) is the only thing permitted to build an
+        <code>AgentRequest</code>. Until it exists there is no sanitized payload, and the
+        raw snapshot is not a substitute for one.
+      </div>
+      <p class="note">When M2 lands, this pane shows the exact bytes bound for the server, beside the redaction manifest that explains every removal.</p>
+    </section>
+  </main>
+
+  <div id="status" class="status"></div>
+</div>
+<script type="module" src="popup.js"></script>

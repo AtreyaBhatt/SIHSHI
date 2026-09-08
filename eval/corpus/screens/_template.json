@@ -1,0 +1,86 @@
+{
+  "screen_id": "bank-login-01",
+  "source": "fixture",
+  "page_url": "eval/fixtures/bank-login.html",
+  "viewport": { "width": 1280, "height": 800, "device_pixel_ratio": 1 },
+  "annotator": "",
+  "notes": "TEMPLATE — copy to screens/<screen_id>.json and re-measure every bbox against your own PNG. The boxes below are structurally correct (right items, right types, right tiers) but the coordinates are placeholders and WILL score wrong if left as-is. Files beginning with _ are skipped by run_eval.py.",
+  "annotations": [
+    {
+      "id": "a1",
+      "type": "password",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "input#password",
+      "value_present": true,
+      "notes": "Box the input contents, not the 'NetBanking password' label — the label is Tier 3 and the server needs it."
+    },
+    {
+      "id": "a2",
+      "type": "pan",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "input#pan",
+      "value_present": true
+    },
+    {
+      "id": "a3",
+      "type": "bank_account",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "dd#account-number",
+      "value_present": true,
+      "notes": "Rendered text, not a form value — the detector has to reach text nodes, not just inputs."
+    },
+    {
+      "id": "a4",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "dd#card-number",
+      "value_present": true,
+      "notes": "Luhn-valid test number, space-separated in groups of four."
+    },
+    {
+      "id": "a5",
+      "type": "ifsc",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "dd#ifsc",
+      "value_present": true
+    },
+    {
+      "id": "a6",
+      "type": "email",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "input#reg-email",
+      "value_present": true
+    },
+    {
+      "id": "a7",
+      "type": "phone",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "input#reg-phone",
+      "value_present": true
+    },
+    {
+      "id": "a8",
+      "type": "person_name",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [0, 0, 0, 0],
+      "dom_path": "aside dd:nth-of-type(1)",
+      "value_present": true,
+      "notes": "The value 'Ada Lovelace' is Tier 2. The 'Account holder' dt beside it is Tier 3 and is not annotated."
+    }
+  ]
+}

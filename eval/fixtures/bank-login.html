@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meridian Bank — Sign in</title>
+<!--
+  Fixture for PRD §10 Scenario A. Every value here is synthetic and every
+  identifier is fictional; nothing on this page corresponds to a real person,
+  account, or institution. Do not replace these with real values — this file is
+  committed and screenshots of it go into the eval corpus.
+
+  Detector targets planted here:
+    Tier 1  password field (DOM heuristic), card number (Luhn-valid test number),
+            PAN, account number
+    Tier 2  email, phone, person name
+    Tier 3  every label, button, heading and nav item — these MUST survive
+            redaction, and boxing them in an annotation counts against precision
+-->
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #16202c; background: #eef2f7; }
+  header { background: #0b3d6b; color: #fff; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+  header .logo { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  nav a { color: #cfe0f0; text-decoration: none; margin-left: 22px; font-size: 14px; }
+  main { max-width: 1000px; margin: 32px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 320px; gap: 28px; align-items: start; }
+  .card { background: #fff; border: 1px solid #d7dfe8; border-radius: 10px; padding: 24px 26px; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .lede { color: #5b6b7d; font-size: 13.5px; margin: 0 0 20px; }
+  label { display: block; font-size: 13px; font-weight: 550; margin-bottom: 5px; }
+  input[type=text], input[type=password], input[type=email], input[type=tel] {
+    width: 100%; padding: 9px 11px; border: 1px solid #c3cedb; border-radius: 6px; font-size: 14px; font-family: inherit;
+  }
+  .field { margin-bottom: 16px; }
+  button {
+    background: #0b3d6b; color: #fff; border: 0; border-radius: 6px;
+    padding: 10px 20px; font-size: 14px; font-weight: 550; cursor: pointer;
+  }
+  .row { display: flex; gap: 16px; }
+  .row .field { flex: 1; }
+  aside .card { padding: 18px 20px; }
+  aside h2 { font-size: 14px; margin: 0 0 10px; }
+  dl { margin: 0; font-size: 13px; }
+  dt { color: #5b6b7d; margin-top: 10px; }
+  dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+  footer { max-width: 1000px; margin: 0 auto; padding: 20px 24px 40px; color: #5b6b7d; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Meridian Bank</div>
+  <nav>
+    <a href="#locate">Locate a branch</a>
+    <a href="#help">Help</a>
+    <a href="#open">Open an account</a>
+  </nav>
+</header>
+
+<main>
+  <section class="card">
+    <h1>Sign in to NetBanking</h1>
+    <p class="lede">Use your customer ID and NetBanking password.</p>
+
+    <form id="login" action="#" method="post" autocomplete="on">
+      <div class="field">
+        <label for="customer-id">Customer ID</label>
+        <input type="text" id="customer-id" name="customerId" value="MB4470193" autocomplete="username" />
+      </div>
+
+      <div class="field">
+        <label for="password">NetBanking password</label>
+        <input type="password" id="password" name="password" value="hunter2-not-real" autocomplete="current-password" />
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="reg-email">Registered email</label>
+          <input type="email" id="reg-email" name="email" value="ada.lovelace@example.org" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label for="reg-phone">Registered mobile</label>
+          <input type="tel" id="reg-phone" name="phone" value="+91 98765 43210" autocomplete="tel" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="pan">PAN (for tax statements)</label>
+        <input type="text" id="pan" name="panNumber" value="ABCDE1234F" />
+      </div>
+
+      <button type="submit" id="submit">Sign in</button>
+    </form>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>Linked account</h2>
+      <dl>
+        <dt>Account holder</dt>
+        <dd>Ada Lovelace</dd>
+        <dt>Account number</dt>
+        <dd id="account-number">50100247716839</dd>
+        <dt>IFSC</dt>
+        <dd id="ifsc">MERD0001234</dd>
+        <dt>Debit card</dt>
+        <dd id="card-number">4539 1488 0343 6467</dd>
+      </dl>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  Meridian Bank never asks for your password over email or phone.
+  This is a test fixture; all values shown are fictional.
+</footer>
+</body>
+</html>
