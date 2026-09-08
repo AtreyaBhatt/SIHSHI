@@ -12,9 +12,15 @@
  */
 import { api, isRestrictedUrl } from '../shared/browser';
 import type { CaptureResult } from '../shared/schema';
-import type { ContentToWorker, PayloadPreview, PopupToWorker, WorkerReply } from '../shared/messages';
+import type {
+  ContentToWorker, ExecutionResult, HealthReport, PayloadPreview, PlanPreview, PopupToWorker, WorkerReply,
+} from '../shared/messages';
+import type { AgentAction, AgentRequest, AgentResponse } from '../shared/schema';
+import type { ExecutableAction } from '../executor/execute';
 import { buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId } from '../redaction/tokens';
+import { checkHealth, getServerUrl, requestPlan } from './agent-client';
+import { resolveValueRef } from '../shared/vault';
 
 /**
  * The cached capture holds a raw snapshot with real values. chrome.storage.session
@@ -34,8 +40,16 @@ let lastCapture: CaptureResult | null = null;
  */
 let tokens = new TokenRegistry(newSessionId());
 
+/** Multi-turn history for PRD §7.1. Verbs and selectors only — never a result. */
+let priorActions: AgentAction[] = [];
+
+/** The plan the user may execute. Held only until the next plan replaces it. */
+let lastPlan: { request: AgentRequest; response: AgentResponse } | null = null;
+
 function resetSession(): string {
   tokens = new TokenRegistry(newSessionId());
+  priorActions = [];
+  lastPlan = null;
   return tokens.session_id;
 }
 
@@ -49,6 +63,7 @@ async function buildPayload(threshold: number, taskInstruction: string): Promise
       taskInstruction,
       tokens,
       threshold,
+      priorActions,
     });
     return {
       session_id: tokens.session_id,
@@ -86,7 +101,11 @@ async function runCapture(): Promise<CaptureResult> {
   });
 
   const domResponse = (await api.tabs.sendMessage(tabId, { type: 'ppva:capture-dom' })) as ContentToWorker;
-  if (!domResponse?.ok) throw new Error(domResponse?.error ?? 'Content script returned no snapshot.');
+  if (!domResponse?.ok || !('snapshot' in domResponse)) {
+    throw new Error(
+      domResponse && 'error' in domResponse ? domResponse.error : 'Content script returned no snapshot.',
+    );
+  }
   const snapshot = domResponse.snapshot;
 
   // Screenshot is best-effort: a snapshot without pixels is still useful for the
@@ -132,6 +151,88 @@ async function getLastCapture(): Promise<CaptureResult | null> {
   return lastCapture;
 }
 
+/**
+ * Capture → redact → send → plan. The only path that reaches the network, and it
+ * runs through buildAgentRequest first by construction: requestPlan's parameter
+ * type is the one that function alone produces.
+ */
+async function requestPlanFlow(threshold: number, taskInstruction: string): Promise<PlanPreview> {
+  const preview = await buildPayload(threshold, taskInstruction);
+  if (!preview.request) {
+    return { preview, response: null, network_ms: 0, error: preview.error ?? 'No payload was built.' };
+  }
+
+  const started = performance.now();
+  try {
+    const response = await requestPlan(preview.request);
+    lastPlan = { request: preview.request, response };
+    return {
+      preview,
+      response,
+      network_ms: Math.round((performance.now() - started) * 100) / 100,
+      error: null,
+    };
+  } catch (err) {
+    lastPlan = null;
+    return {
+      preview,
+      response: null,
+      network_ms: Math.round((performance.now() - started) * 100) / 100,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Resolves value_refs locally, then hands concrete values to the content script.
+ * This is the only moment a secret exists outside the vault, and it never leaves
+ * the extension: the server named the slot, the browser filled it.
+ */
+async function executePlanFlow(): Promise<ExecutionResult> {
+  if (!lastPlan) throw new Error('No plan to execute — request one first.');
+
+  const actions: ExecutableAction[] = [];
+  for (const action of lastPlan.response.actions) {
+    const executable: ExecutableAction = { action: action.action };
+    if (action.selector) executable.selector = action.selector;
+    if (action.value_ref) {
+      executable.value = await resolveValueRef(action.value_ref);
+      executable.value_ref = action.value_ref;
+    } else if (action.value !== undefined) {
+      executable.value = action.value;
+    }
+    actions.push(executable);
+  }
+
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error('No active tab.');
+  await api.scripting.executeScript({ target: { tabId: tab.id }, files: ['capture/content-script.js'] });
+
+  const started = performance.now();
+  const reply = (await api.tabs.sendMessage(tab.id, {
+    type: 'ppva:execute',
+    actions,
+    allowed_selectors: lastPlan.request.dom_summary.map((node) => node.path),
+  })) as ContentToWorker;
+
+  if (!reply?.ok || !('outcomes' in reply)) {
+    throw new Error(reply && 'error' in reply ? reply.error : 'Executor returned nothing.');
+  }
+
+  // Only what was attempted, never what was read or typed.
+  priorActions = [...priorActions, ...lastPlan.response.actions];
+
+  return {
+    outcomes: reply.outcomes,
+    execute_ms: Math.round((performance.now() - started) * 100) / 100,
+  };
+}
+
+async function health(): Promise<HealthReport> {
+  const report = await checkHealth();
+  return { ...report, server_url: await getServerUrl() };
+}
+
 api.runtime.onMessage.addListener(
   (message: PopupToWorker, _sender, sendResponse: (r: WorkerReply<never>) => void) => {
     const fail = (err: unknown) =>
@@ -154,6 +255,18 @@ api.runtime.onMessage.addListener(
     if (message?.type === 'ppva:reset-session') {
       ok({ session_id: resetSession() });
       return false;
+    }
+    if (message?.type === 'ppva:request-plan') {
+      requestPlanFlow(message.threshold, message.task_instruction).then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'ppva:execute-plan') {
+      executePlanFlow().then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'ppva:check-health') {
+      health().then(ok).catch(fail);
+      return true;
     }
     return false;
   },

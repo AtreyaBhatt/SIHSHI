@@ -14,13 +14,17 @@ const targets = [
   { in: 'src/background/service-worker.ts', out: 'dist/background/service-worker.js', format: 'esm' },
   { in: 'src/capture/content-script.ts', out: 'dist/capture/content-script.js', format: 'iife' },
   { in: 'src/popup/popup.ts', out: 'dist/popup/popup.js', format: 'esm' },
+  { in: 'src/options/options.ts', out: 'dist/options/options.js', format: 'esm' },
 ];
 
 async function copyStatic() {
   await mkdir('dist/popup', { recursive: true });
+  await mkdir('dist/options', { recursive: true });
   await cp('manifest.json', 'dist/manifest.json');
   await cp('src/popup/popup.html', 'dist/popup/popup.html');
   await cp('src/popup/popup.css', 'dist/popup/popup.css');
+  await cp('src/options/options.html', 'dist/options/options.html');
+  await cp('src/popup/popup.css', 'dist/options/options.css');
 }
 
 const common = {

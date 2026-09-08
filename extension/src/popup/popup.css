@@ -115,4 +115,20 @@ main { flex: 1; overflow: hidden; }
 
 .status { padding: 7px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); min-height: 30px; }
 .status.error { color: var(--warn-fg); }
+.row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.text {
+  flex: 1; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font: inherit; font-size: 12.5px;
+}
+.text.short { flex: 0 0 180px; }
+
+.plan { font-size: 12px; }
+.plan .summary { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+.act { display: flex; gap: 8px; align-items: baseline; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; margin-bottom: 5px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.act .verb { font-weight: 650; min-width: 46px; }
+.act .sel { color: var(--accent); word-break: break-all; }
+.act .ref { color: var(--tier1); }
+.act.failed { border-color: var(--tier1); }
+.act .outcome { margin-left: auto; color: var(--muted); white-space: nowrap; }
+
 .hidden { display: none !important; }

@@ -7,6 +7,7 @@
  * MutationObserver-gated trigger (PRD §6.2.5) arrives with the agent loop.
  */
 import { captureDomSnapshot } from './dom-snapshot';
+import { executeActions } from '../executor/execute';
 import type { ContentToWorker, WorkerToContent } from '../shared/messages';
 
 declare global {
@@ -20,13 +21,28 @@ if (!window.__PPVA_INSTALLED__) {
 
   chrome.runtime.onMessage.addListener(
     (message: WorkerToContent, _sender, sendResponse: (r: ContentToWorker) => void) => {
-      if (message?.type !== 'ppva:capture-dom') return false;
-      try {
-        sendResponse({ ok: true, snapshot: captureDomSnapshot() });
-      } catch (err) {
+      const fail = (err: unknown) =>
         sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+
+      if (message?.type === 'ppva:capture-dom') {
+        try {
+          sendResponse({ ok: true, snapshot: captureDomSnapshot() });
+        } catch (err) {
+          fail(err);
+        }
+        return false; // responded synchronously
       }
-      return false; // responded synchronously
+
+      if (message?.type === 'ppva:execute') {
+        // Values arrive already resolved from the local vault; they are used here
+        // and never travel any further.
+        executeActions(message.actions, message.allowed_selectors)
+          .then((outcomes) => sendResponse({ ok: true, outcomes }))
+          .catch(fail);
+        return true; // async
+      }
+
+      return false;
     },
   );
 }

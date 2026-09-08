@@ -201,10 +201,18 @@ export interface AgentAction {
   value_ref?: string;
 }
 
-/** PRD §7.2. */
+/**
+ * PRD §7.2, plus one addition.
+ *
+ * `guardrail_rejections` is not in the PRD's response shape. It carries the
+ * actions the server's planner refused and why — an invented selector, a literal
+ * aimed at a Tier 1 field. A silent refusal would make the guardrail invisible
+ * exactly when it matters, and PRD §5 story 4 asks for an auditable trail.
+ */
 export interface AgentResponse {
   session_id: string;
   reasoning_summary: string;
   actions: AgentAction[];
   requires_client_secret: boolean;
+  guardrail_rejections?: string[];
 }

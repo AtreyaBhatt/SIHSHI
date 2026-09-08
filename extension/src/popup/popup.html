@@ -12,15 +12,16 @@
   </header>
 
   <div class="banner ok">
-    <strong>Network egress disabled.</strong>
-    No host permissions, and no <code>fetch</code>/<code>WebSocket</code> anywhere in the source.
-    The payload below is built locally and goes nowhere.
+    <strong>Egress limited to one origin.</strong>
+    The manifest grants access to the reasoning server alone, and the single <code>fetch</code>
+    in this codebase accepts only a payload the redaction engine produced.
   </div>
 
   <nav class="tabs" role="tablist">
     <button class="tab active" data-pane="pane-capture" role="tab">Raw screen</button>
     <button class="tab" data-pane="pane-detections" role="tab">Detected <span id="det-count" class="pill">0</span></button>
     <button class="tab" data-pane="pane-outbound" role="tab">Outbound payload</button>
+    <button class="tab" data-pane="pane-plan" role="tab">Plan</button>
   </nav>
 
   <main>
@@ -58,6 +59,16 @@
         <h3>Request body</h3>
         <pre id="payload" class="code"></pre>
       </div>
+    </section>
+    <section id="pane-plan" class="pane">
+      <div class="row">
+        <input type="text" id="task" class="text" value="Log me in to this portal." />
+        <button id="plan" class="primary">Send &amp; plan</button>
+      </div>
+      <p class="note">
+        Sends the sanitized payload from the previous pane — nothing else — and shows what came back.
+      </p>
+      <div id="plan-body"><p class="empty">No plan yet.</p></div>
     </section>
   </main>
 

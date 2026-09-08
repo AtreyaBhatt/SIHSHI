@@ -1,0 +1,22 @@
+[project]
+name = "ppva-server"
+version = "0.1.0"
+description = "Redaction-aware reasoning backend for the Privacy-Preserving Vision Agent"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "anthropic>=0.40",
+    "httpx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

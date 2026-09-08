@@ -1,0 +1,292 @@
+{
+  "session_id": "test-session",
+  "task_instruction": "Log me in.",
+  "screenshot_redacted": null,
+  "dom_summary": [
+    {
+      "path": "body > header > div",
+      "role": null,
+      "label": null,
+      "value": "Meridian Bank"
+    },
+    {
+      "path": "body > header > nav > a:nth-of-type(1)",
+      "role": "link",
+      "label": "Locate a branch",
+      "value": null
+    },
+    {
+      "path": "body > header > nav > a:nth-of-type(2)",
+      "role": "link",
+      "label": "Help",
+      "value": null
+    },
+    {
+      "path": "body > header > nav > a:nth-of-type(3)",
+      "role": "link",
+      "label": "Open an account",
+      "value": null
+    },
+    {
+      "path": "body > main > section > h1",
+      "role": "heading",
+      "label": "Sign in to NetBanking",
+      "value": "Sign in to NetBanking"
+    },
+    {
+      "path": "body > main > section > p",
+      "role": null,
+      "label": null,
+      "value": "Use your customer ID and NetBanking password."
+    },
+    {
+      "path": "form#login > div:nth-of-type(1) > label",
+      "role": null,
+      "label": "Customer ID",
+      "value": null
+    },
+    {
+      "path": "input#customer-id",
+      "role": "textbox",
+      "label": "Customer ID",
+      "value": "MB4470193"
+    },
+    {
+      "path": "form#login > div:nth-of-type(2) > label",
+      "role": null,
+      "label": "NetBanking password",
+      "value": null
+    },
+    {
+      "path": "input#password",
+      "role": "textbox",
+      "label": "NetBanking password",
+      "value": "[REDACTED:PASSWORD]"
+    },
+    {
+      "path": "form#login > div:nth-of-type(3) > div:nth-of-type(1) > label",
+      "role": null,
+      "label": "Registered email",
+      "value": null
+    },
+    {
+      "path": "input#reg-email",
+      "role": "textbox",
+      "label": "Registered email",
+      "value": "a***@***.org"
+    },
+    {
+      "path": "form#login > div:nth-of-type(3) > div:nth-of-type(2) > label",
+      "role": null,
+      "label": "Registered mobile",
+      "value": null
+    },
+    {
+      "path": "input#reg-phone",
+      "role": "textbox",
+      "label": "Registered mobile",
+      "value": "[PHONE_1]"
+    },
+    {
+      "path": "form#login > div:nth-of-type(4) > label",
+      "role": null,
+      "label": "PAN (for tax statements)",
+      "value": null
+    },
+    {
+      "path": "input#pan",
+      "role": "textbox",
+      "label": "PAN (for tax statements)",
+      "value": "[REDACTED:PAN]"
+    },
+    {
+      "path": "button#submit",
+      "role": "button",
+      "label": "Sign in",
+      "value": null
+    },
+    {
+      "path": "body > main > aside > div > h2",
+      "role": "heading",
+      "label": "Linked account",
+      "value": "Linked account"
+    },
+    {
+      "path": "body > main > aside > div > dl > dt:nth-of-type(1)",
+      "role": null,
+      "label": null,
+      "value": "Account holder"
+    },
+    {
+      "path": "body > main > aside > div > dl > dd:nth-of-type(1)",
+      "role": null,
+      "label": null,
+      "value": "[PERSON_NAME_1]"
+    },
+    {
+      "path": "body > main > aside > div > dl > dt:nth-of-type(2)",
+      "role": null,
+      "label": null,
+      "value": "Account number"
+    },
+    {
+      "path": "dd#account-number",
+      "role": null,
+      "label": null,
+      "value": "[REDACTED:BANK_ACCOUNT]"
+    },
+    {
+      "path": "body > main > aside > div > dl > dt:nth-of-type(3)",
+      "role": null,
+      "label": null,
+      "value": "IFSC"
+    },
+    {
+      "path": "dd#ifsc",
+      "role": null,
+      "label": null,
+      "value": "[REDACTED:IFSC]"
+    },
+    {
+      "path": "body > main > aside > div > dl > dt:nth-of-type(4)",
+      "role": null,
+      "label": null,
+      "value": "Debit card"
+    },
+    {
+      "path": "dd#card-number",
+      "role": null,
+      "label": null,
+      "value": "[REDACTED:CARD_NUMBER]"
+    },
+    {
+      "path": "body > footer",
+      "role": "contentinfo",
+      "label": null,
+      "value": "Meridian Bank never asks for your password over email or phone. This is a test fixture; all values shown are fictional."
+    }
+  ],
+  "redaction_manifest": [
+    {
+      "id": "PASSWORD_1",
+      "type": "password",
+      "tier": 1,
+      "bbox": [
+        191,
+        293,
+        741,
+        332
+      ],
+      "dom_path": "input#password",
+      "masking": "blackbox",
+      "detector": "dom:input-type-password",
+      "confidence": 0.99
+    },
+    {
+      "id": "EMAIL_1",
+      "type": "email",
+      "tier": 2,
+      "bbox": [
+        191,
+        373,
+        458,
+        412
+      ],
+      "dom_path": "input#reg-email",
+      "masking": "partial",
+      "detector": "dom:email",
+      "confidence": 0.9
+    },
+    {
+      "id": "PHONE_1",
+      "type": "phone",
+      "tier": 2,
+      "bbox": [
+        474,
+        373,
+        741,
+        412
+      ],
+      "dom_path": "input#reg-phone",
+      "masking": "token",
+      "detector": "dom:phone",
+      "confidence": 0.88
+    },
+    {
+      "id": "PAN_1",
+      "type": "pan",
+      "tier": 1,
+      "bbox": [
+        191,
+        452,
+        741,
+        491
+      ],
+      "dom_path": "input#pan",
+      "masking": "blackbox",
+      "detector": "dom:pan",
+      "confidence": 0.9
+    },
+    {
+      "id": "PERSON_NAME_1",
+      "type": "person_name",
+      "tier": 2,
+      "bbox": [
+        817,
+        160,
+        1095,
+        180
+      ],
+      "dom_path": "body > main > aside > div > dl > dd:nth-of-type(1)",
+      "masking": "token",
+      "detector": "dom:person-name",
+      "confidence": 0.82
+    },
+    {
+      "id": "BANK_ACCOUNT_1",
+      "type": "bank_account",
+      "tier": 1,
+      "bbox": [
+        817,
+        211,
+        1095,
+        231
+      ],
+      "dom_path": "dd#account-number",
+      "masking": "blackbox",
+      "detector": "dom:bank-account",
+      "confidence": 0.88
+    },
+    {
+      "id": "IFSC_1",
+      "type": "ifsc",
+      "tier": 1,
+      "bbox": [
+        817,
+        262,
+        1095,
+        282
+      ],
+      "dom_path": "dd#ifsc",
+      "masking": "blackbox",
+      "detector": "dom:ifsc",
+      "confidence": 0.88
+    },
+    {
+      "id": "CARD_NUMBER_1",
+      "type": "card_number",
+      "tier": 1,
+      "bbox": [
+        817,
+        313,
+        1095,
+        333
+      ],
+      "dom_path": "dd#card-number",
+      "masking": "blackbox",
+      "detector": "dom:cc-number",
+      "confidence": 0.95
+    }
+  ],
+  "prior_actions": []
+}

@@ -1,0 +1,49 @@
+<link rel="stylesheet" href="options.css" />
+<div class="app" style="height:auto">
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <h1>PPVA settings</h1>
+        <p class="sub">Reasoning server and local credential vault</p>
+      </div>
+    </div>
+  </header>
+
+  <main style="overflow:visible">
+    <section class="pane active">
+      <h3>Reasoning server</h3>
+      <p class="note">
+        Must match a host in the extension manifest. The extension can reach this origin and
+        nothing else.
+      </p>
+      <div class="row">
+        <input type="text" id="server-url" class="text" placeholder="http://127.0.0.1:8787" />
+        <button id="save-url" class="primary">Save</button>
+        <button id="test-url" class="link">Test</button>
+      </div>
+      <p id="health" class="note"></p>
+
+      <h3>Local credential vault</h3>
+      <div class="banner blocked">
+        <strong>This is a demo vault, not a password manager.</strong>
+        Values are stored unencrypted in <code>chrome.storage.local</code>, readable by anything
+        with storage access to this browser profile. Chrome exposes no API for reading the real
+        password manager, so this is the only way to demonstrate <code>value_ref</code>. Use
+        throwaway test credentials.
+      </div>
+      <p class="note">
+        The server never sees these. It returns <code>value_ref: "user_saved:password"</code> and
+        the slot is resolved here, locally, at execution time.
+      </p>
+      <div id="slots"></div>
+      <div class="row">
+        <input type="text" id="new-slot" class="text short" placeholder="slot (e.g. username)" />
+        <input type="text" id="new-value" class="text" placeholder="value" />
+        <button id="add-slot" class="primary">Add</button>
+      </div>
+      <p id="vault-status" class="note"></p>
+    </section>
+  </main>
+</div>
+<script type="module" src="options.js"></script>

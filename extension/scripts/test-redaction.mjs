@@ -114,6 +114,13 @@ try {
   const result = JSON.parse(await evaluate(`${bundle}; PPVA.run(0.5).then(r => JSON.stringify(r))`));
   const payload = JSON.stringify(result.request);
 
+  // The server's tests plan against real client output rather than a hand-written
+  // payload, so a contract drift between the two shows up as a test failure.
+  if (process.env.PPVA_EMIT_PAYLOAD) {
+    await writeFile(process.env.PPVA_EMIT_PAYLOAD, JSON.stringify(result.request, null, 2));
+    console.log(`emitted payload -> ${process.env.PPVA_EMIT_PAYLOAD}`);
+  }
+
   console.log(`fixture      ${fixture}`);
   console.log(`nodes        ${result.nodes}`);
   console.log(`detections   ${result.detections.length}`);

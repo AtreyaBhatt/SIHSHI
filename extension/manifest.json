@@ -2,15 +2,20 @@
   "manifest_version": 3,
   "name": "PPVA — Privacy-Preserving Vision Agent",
   "version": "0.1.0",
-  "description": "Local perception and redaction for browser agents. M1 build: capture only, no network egress.",
+  "description": "Local perception and redaction for browser agents. Only sanitized context reaches the reasoning server.",
   "minimum_chrome_version": "116",
   "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
+  ],
   "background": {
     "service_worker": "background/service-worker.js",
     "type": "module"
   },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "PPVA — capture & inspect"
-  }
+    "default_title": "PPVA — capture, redact, plan"
+  },
+  "options_page": "options/options.html"
 }

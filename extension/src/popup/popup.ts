@@ -8,7 +8,9 @@
  */
 import { api } from '../shared/browser';
 import type { BBox, CaptureResult, RedactionManifestEntry } from '../shared/schema';
-import type { PayloadPreview, PopupToWorker, ResponseFor, WorkerReply } from '../shared/messages';
+import type {
+  ExecutionResult, PayloadPreview, PlanPreview, PopupToWorker, ResponseFor, WorkerReply,
+} from '../shared/messages';
 import type { Detection } from '../pii-detection/types';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -22,6 +24,8 @@ const sessionEl = $<HTMLElement>('session-id');
 
 let capture: CaptureResult | null = null;
 let preview: PayloadPreview | null = null;
+let plan: PlanPreview | null = null;
+let execution: ExecutionResult | null = null;
 
 async function send<M extends PopupToWorker>(message: M): Promise<ResponseFor<M>> {
   const reply = (await api.runtime.sendMessage(message)) as WorkerReply<ResponseFor<M>>;
@@ -204,11 +208,79 @@ function renderOutboundPane(): void {
   );
 }
 
+function renderPlanPane(): void {
+  const body = $('plan-body');
+  if (!plan) {
+    body.innerHTML = '<p class="empty">No plan yet.</p>';
+    return;
+  }
+  if (plan.error || !plan.response) {
+    body.innerHTML = `<div class="banner blocked"><strong>No plan.</strong> ${esc(plan.error ?? 'unknown')}</div>`;
+    return;
+  }
+
+  const response = plan.response;
+  const outcomes = execution?.outcomes ?? [];
+
+  const actions = response.actions
+    .map((action, index) => {
+      const outcome = outcomes[index];
+      const status = outcome
+        ? outcome.ok ? `ok ${outcome.duration_ms} ms` : `failed — ${esc(outcome.error ?? '')}`
+        : '';
+      // A value_ref is shown as the slot name, never resolved here: the popup is
+      // a page like any other and the resolved secret belongs only in the executor.
+      const source = action.value_ref
+        ? `<span class="ref">${esc(action.value_ref)}</span>`
+        : action.value !== undefined ? `"${esc(action.value)}"` : '';
+      return `<div class="act${outcome && !outcome.ok ? ' failed' : ''}">
+          <span class="verb">${esc(action.action)}</span>
+          <span class="sel">${esc(action.selector ?? '—')}</span>
+          ${source}
+          <span class="outcome">${status}</span>
+        </div>`;
+    })
+    .join('');
+
+  const rejections = response.guardrail_rejections?.length
+    ? `<div class="banner blocked"><strong>Server guardrails dropped ${response.guardrail_rejections.length} action(s):</strong>
+        ${response.guardrail_rejections.map(esc).join('<br />')}</div>`
+    : '';
+
+  body.innerHTML = `
+    <div class="plan">
+      <div class="summary">${esc(response.reasoning_summary)}</div>
+      ${rejections}
+      ${actions || '<p class="empty">The planner returned no actions.</p>'}
+      <div class="row" style="margin-top:10px">
+        <button id="execute" class="primary"${response.actions.length ? '' : ' disabled'}>
+          Execute on the live page
+        </button>
+        <span class="note" style="margin:0">
+          round trip ${plan.network_ms} ms${response.requires_client_secret ? ' · resolves a local credential' : ''}
+        </span>
+      </div>
+    </div>`;
+
+  document.getElementById('execute')?.addEventListener('click', async () => {
+    setStatus('Executing…');
+    try {
+      execution = await send({ type: 'ppva:execute-plan' });
+      const failed = execution.outcomes.filter((o) => !o.ok).length;
+      setStatus(failed ? `${failed} action(s) failed.` : `Executed in ${execution.execute_ms} ms.`, failed > 0);
+      renderPlanPane();
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err), true);
+    }
+  });
+}
+
 function renderAll(): void {
   renderStats();
   renderRawPane();
   renderDetectionsPane();
   renderOutboundPane();
+  renderPlanPane();
 }
 
 // --- actions ----------------------------------------------------------------
@@ -236,6 +308,28 @@ captureBtn.addEventListener('click', async () => {
     setStatus(err instanceof Error ? err.message : String(err), true);
   } finally {
     captureBtn.disabled = false;
+  }
+});
+
+$('plan').addEventListener('click', async () => {
+  const button = $<HTMLButtonElement>('plan');
+  button.disabled = true;
+  setStatus('Capturing, redacting, sending…');
+  try {
+    if (!capture) capture = await send({ type: 'ppva:run-capture' });
+    execution = null;
+    plan = await send({
+      type: 'ppva:request-plan',
+      threshold: Number(thresholdInput.value),
+      task_instruction: $<HTMLInputElement>('task').value,
+    });
+    preview = plan.preview;
+    renderAll();
+    setStatus(plan.error ? plan.error : `Plan received in ${plan.network_ms} ms.`, Boolean(plan.error));
+  } catch (err) {
+    setStatus(err instanceof Error ? err.message : String(err), true);
+  } finally {
+    button.disabled = false;
   }
 });
 
