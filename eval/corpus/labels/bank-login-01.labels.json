@@ -1,0 +1,20 @@
+{
+  "screen_id": "bank-login-01",
+  "page": "fixtures/bank-login.html",
+  "source": "fixture",
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "The customer ID in input#customer-id (MB4470193) is deliberately NOT annotated. It is identifying, but no type in the PRD §4.3 taxonomy covers a service-specific account identifier, and inventing one would change the taxonomy the corpus and demo script assume. It is therefore neither a true positive nor a false negative here — it is out of scope, and named as such rather than quietly omitted.",
+  "items": [
+    { "id": "a1", "selector": "input#password", "type": "password", "tier": 1, "modality": "text", "value_present": true,
+      "notes": "The value is never read at capture time; the DOM heuristic alone must flag it." },
+    { "id": "a2", "selector": "input#pan", "type": "pan", "tier": 1, "modality": "text", "value_present": true },
+    { "id": "a3", "selector": "input#reg-email", "type": "email", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "a4", "selector": "input#reg-phone", "type": "phone", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "a5", "selector": "dd#account-number", "type": "bank_account", "tier": 1, "modality": "text", "value_present": true,
+      "notes": "Rendered text rather than a form value — reachable only if the walk covers text nodes." },
+    { "id": "a6", "selector": "dd#ifsc", "type": "ifsc", "tier": 1, "modality": "text", "value_present": true },
+    { "id": "a7", "selector": "dd#card-number", "type": "card_number", "tier": 1, "modality": "text", "value_present": true },
+    { "id": "a8", "selector": "aside dl dd:nth-of-type(1)", "type": "person_name", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "Named only by the adjacent <dt>Account holder</dt>; no attribute on the value itself." }
+  ]
+}

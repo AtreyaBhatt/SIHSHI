@@ -36,7 +36,16 @@ export interface FaceDetection {
 export interface FaceDetectionResult {
   faces: FaceDetection[];
   runtime: RuntimeInfo;
+  /** session.run() only. */
   inference_ms: number;
+  /**
+   * Resize, pixel read and RGB planar conversion. Split out because the two are
+   * worth telling apart when tuning: measured at ~1 ms against ~14 ms of
+   * inference on a 1280x713 frame, so the model is the cost and preprocessing is
+   * noise. (An earlier reading that made preprocessing look dominant was the
+   * benchmark re-creating the ONNX session inside the measured window.)
+   */
+  preprocess_ms: number;
 }
 
 export type ImageSource = ImageBitmap | OffscreenCanvas | HTMLCanvasElement | HTMLImageElement;
@@ -129,7 +138,7 @@ async function runOne(
   source: ImageSource,
   crop: BBox | null,
   options: DetectOptions,
-): Promise<{ faces: FaceDetection[]; inference_ms: number; runtime: RuntimeInfo }> {
+): Promise<{ faces: FaceDetection[]; inference_ms: number; preprocess_ms: number; runtime: RuntimeInfo }> {
   const { session, info } = await getSession(options.modelUrl, options.wasmBaseUrl);
 
   let input: ImageSource = source;
@@ -151,7 +160,10 @@ async function runOne(
     offsetY = y1;
   }
 
+  const preprocessStarted = performance.now();
   const tensor = new ort.Tensor('float32', toTensorData(input), [1, 3, INPUT_HEIGHT, INPUT_WIDTH]);
+  const preprocessMs = Math.round((performance.now() - preprocessStarted) * 100) / 100;
+
   const started = performance.now();
   const output = await session.run({ input: tensor });
   const inferenceMs = Math.round((performance.now() - started) * 100) / 100;
@@ -166,19 +178,21 @@ async function runOne(
     offsetX * scale,
     offsetY * scale,
   );
-  return { faces, inference_ms: inferenceMs, runtime: info };
+  return { faces, inference_ms: inferenceMs, preprocess_ms: preprocessMs, runtime: info };
 }
 
 export async function detectFaces(source: ImageSource, options: DetectOptions): Promise<FaceDetectionResult> {
   const passes: (BBox | null)[] = [null, ...(options.regions ?? [])];
   const all: FaceDetection[] = [];
   let totalMs = 0;
+  let preprocessMs = 0;
   let runtime: RuntimeInfo | null = null;
 
   for (const crop of passes) {
     const result = await runOne(source, crop, options);
     all.push(...result.faces);
     totalMs += result.inference_ms;
+    preprocessMs += result.preprocess_ms;
     runtime = result.runtime;
   }
 
@@ -187,6 +201,7 @@ export async function detectFaces(source: ImageSource, options: DetectOptions): 
     // twice at slightly different coordinates — suppress across passes too.
     faces: nonMaxSuppression(all),
     inference_ms: Math.round(totalMs * 100) / 100,
+    preprocess_ms: Math.round(preprocessMs * 100) / 100,
     runtime: runtime!,
   };
 }

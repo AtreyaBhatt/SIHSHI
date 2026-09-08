@@ -1,0 +1,129 @@
+{
+  "screen_id": "bank-login-01",
+  "source": "fixture",
+  "page_url": "fixtures/bank-login.html",
+  "viewport": {
+    "width": 1280,
+    "height": 713,
+    "device_pixel_ratio": 1
+  },
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "The customer ID in input#customer-id (MB4470193) is deliberately NOT annotated. It is identifying, but no type in the PRD §4.3 taxonomy covers a service-specific account identifier, and inventing one would change the taxonomy the corpus and demo script assume. It is therefore neither a true positive nor a false negative here — it is out of scope, and named as such rather than quietly omitted.",
+  "annotations": [
+    {
+      "id": "a1",
+      "type": "password",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        191,
+        293.25,
+        741,
+        332.25
+      ],
+      "dom_path": "input#password",
+      "value_present": true,
+      "notes": "The value is never read at capture time; the DOM heuristic alone must flag it."
+    },
+    {
+      "id": "a2",
+      "type": "pan",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        191,
+        452.25,
+        741,
+        491.25
+      ],
+      "dom_path": "input#pan",
+      "value_present": true
+    },
+    {
+      "id": "a3",
+      "type": "email",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        191,
+        372.75,
+        458,
+        411.75
+      ],
+      "dom_path": "input#reg-email",
+      "value_present": true
+    },
+    {
+      "id": "a4",
+      "type": "phone",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        474,
+        372.75,
+        741,
+        411.75
+      ],
+      "dom_path": "input#reg-phone",
+      "value_present": true
+    },
+    {
+      "id": "a5",
+      "type": "bank_account",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        817,
+        211,
+        1095,
+        230.5
+      ],
+      "dom_path": "dd#account-number",
+      "value_present": true,
+      "notes": "Rendered text rather than a form value — reachable only if the walk covers text nodes."
+    },
+    {
+      "id": "a6",
+      "type": "ifsc",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        817,
+        262,
+        1095,
+        281.5
+      ],
+      "dom_path": "dd#ifsc",
+      "value_present": true
+    },
+    {
+      "id": "a7",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        817,
+        313,
+        1095,
+        332.5
+      ],
+      "dom_path": "dd#card-number",
+      "value_present": true
+    },
+    {
+      "id": "a8",
+      "type": "person_name",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        817,
+        160,
+        1095,
+        179.5
+      ],
+      "dom_path": "aside dl dd:nth-of-type(1)",
+      "value_present": true,
+      "notes": "Named only by the adjacent <dt>Account holder</dt>; no attribute on the value itself."
+    }
+  ]
+}

@@ -13,10 +13,47 @@ compressed at the end — annotate continuously, starting now.
 eval/corpus/
   README.md
   annotation.schema.json         # JSON Schema for one annotation file
+  labels/
+    <screen_id>.labels.json      # hand-authored: WHAT is sensitive, by CSS selector
   screens/
     <screen_id>.png              # the screenshot
-    <screen_id>.json             # its annotation
+    <screen_id>.json             # the annotation, with measured boxes
 ```
+
+## A screenshot alone is not enough
+
+This build's detectors are DOM-based: attribute heuristics first, then regex over
+extracted text. Replaying them needs the **page**, not only a picture of it. A
+corpus entry whose `page_url` does not resolve to a loadable page can only be
+scored for face detection, and `predict.mjs` will say so and skip it.
+
+So a corpus screen is a screenshot **plus** the page that produced it — a saved
+HTML file under `eval/fixtures/`, or a stable local URL. That is a property of
+the approach rather than an oversight, and it is worth knowing before spending a
+day annotating PNGs that cannot be scored.
+
+## Two ways to produce an annotation
+
+**By hand.** Draw the boxes, write `screens/<id>.json` directly against
+`annotation.schema.json`. This is the path for screens captured from real pages.
+
+**From labels.** For a fixture, write `labels/<id>.labels.json` naming each
+sensitive item by CSS selector (and, for something inside prose, the exact text),
+then run:
+
+```
+node eval/measure_labels.mjs
+```
+
+which resolves every selector to a measured bounding box, captures the PNG, and
+writes `screens/<id>.json` in the same format. The judgement — what counts as
+sensitive, of which type, at which tier — is still yours; only the geometry is
+automated.
+
+**Ground truth must never be derived from the detectors.** Neither path imports
+anything from `extension/src/pii-detection` or `extension/src/redaction`. If it
+did, the eval would be measuring the detectors against themselves and every
+number would come back 1.0.
 
 `<screen_id>` is lowercase kebab-case and stable: `bank-login-01`, `kyc-form-03`,
 `video-grid-02`. The `.png` and `.json` basenames must match.

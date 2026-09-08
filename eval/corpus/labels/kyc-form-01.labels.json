@@ -1,0 +1,31 @@
+{
+  "screen_id": "kyc-form-01",
+  "page": "fixtures/kyc-form.html",
+  "source": "fixture",
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "td#cust-ref (SU-2019-884210) is not annotated, for the same reason as the bank fixture's customer ID: no PRD §4.3 type covers it. The four prose items in p#agent-note are annotated at their exact text ranges, which is where this build's node-granular pixel geometry is expected to cost redaction precision.",
+  "items": [
+    { "id": "b1", "selector": "input#applicant-name", "type": "person_name", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b2", "selector": "input#dob", "type": "date_of_birth", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b3", "selector": "input#aadhaar", "type": "aadhaar", "tier": 1, "modality": "text", "value_present": true,
+      "notes": "Verhoeff-valid, so the checksum path is actually exercised." },
+    { "id": "b4", "selector": "input#pan", "type": "pan", "tier": 1, "modality": "text", "value_present": false,
+      "notes": "Empty but sensitive. Per the corpus rules an unfilled sensitive field is still annotated: the detector must flag it." },
+    { "id": "b5", "selector": "input#mobile", "type": "phone", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b6", "selector": "input#otp", "type": "otp", "tier": 1, "modality": "text", "value_present": false,
+      "notes": "Empty. An OTP has no recognisable surface form, so only the DOM heuristic can ever catch this." },
+    { "id": "b7", "selector": "input#street", "type": "address", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b8", "selector": "input#pincode", "type": "address", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b9", "selector": "td#reg-email", "type": "email", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b10", "selector": "td#alt-aadhaar", "type": "aadhaar", "tier": 1, "modality": "text", "value_present": true },
+    { "id": "b11", "selector": "td#refund-account", "type": "bank_account", "tier": 1, "modality": "text", "value_present": true },
+    { "id": "b12", "selector": "td#refund-ifsc", "type": "ifsc", "tier": 1, "modality": "text", "value_present": true },
+
+    { "id": "b13", "selector": "p#agent-note", "text": "Rohan Iyer", "type": "person_name", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "Free prose. Expected to be missed — needs the local NER model cut from this build." },
+    { "id": "b14", "selector": "p#agent-note", "text": "42 Nandidurga Road, Benson Town, Bengaluru 560046", "type": "address", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "Free prose. Expected to be missed for the same reason." },
+    { "id": "b15", "selector": "p#agent-note", "text": "9845012345", "type": "phone", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b16", "selector": "p#agent-note", "text": "rohan.iyer@example.net", "type": "email", "tier": 2, "modality": "text", "value_present": true }
+  ]
+}

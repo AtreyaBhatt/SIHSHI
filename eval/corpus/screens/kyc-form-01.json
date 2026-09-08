@@ -1,0 +1,245 @@
+{
+  "screen_id": "kyc-form-01",
+  "source": "fixture",
+  "page_url": "fixtures/kyc-form.html",
+  "viewport": {
+    "width": 1280,
+    "height": 713,
+    "device_pixel_ratio": 1
+  },
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "td#cust-ref (SU-2019-884210) is not annotated, for the same reason as the bank fixture's customer ID: no PRD §4.3 type covers it. The four prose items in p#agent-note are annotated at their exact text ranges, which is where this build's node-granular pixel geometry is expected to cost redaction precision.",
+  "annotations": [
+    {
+      "id": "b1",
+      "type": "person_name",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        87,
+        178.03,
+        363.59,
+        212.17
+      ],
+      "dom_path": "input#applicant-name",
+      "value_present": true
+    },
+    {
+      "id": "b2",
+      "type": "date_of_birth",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        377.59,
+        178.03,
+        654.2,
+        212.17
+      ],
+      "dom_path": "input#dob",
+      "value_present": true
+    },
+    {
+      "id": "b3",
+      "type": "aadhaar",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        87,
+        242.77,
+        363.59,
+        276.91
+      ],
+      "dom_path": "input#aadhaar",
+      "value_present": true,
+      "notes": "Verhoeff-valid, so the checksum path is actually exercised."
+    },
+    {
+      "id": "b4",
+      "type": "pan",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        377.59,
+        242.77,
+        654.2,
+        276.91
+      ],
+      "dom_path": "input#pan",
+      "value_present": false,
+      "notes": "Empty but sensitive. Per the corpus rules an unfilled sensitive field is still annotated: the detector must flag it."
+    },
+    {
+      "id": "b5",
+      "type": "phone",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        87,
+        307.5,
+        363.59,
+        341.64
+      ],
+      "dom_path": "input#mobile",
+      "value_present": true
+    },
+    {
+      "id": "b6",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        377.59,
+        307.5,
+        654.2,
+        341.64
+      ],
+      "dom_path": "input#otp",
+      "value_present": false,
+      "notes": "Empty. An OTP has no recognisable surface form, so only the DOM heuristic can ever catch this."
+    },
+    {
+      "id": "b7",
+      "type": "address",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        87,
+        372.23,
+        363.59,
+        406.38
+      ],
+      "dom_path": "input#street",
+      "value_present": true
+    },
+    {
+      "id": "b8",
+      "type": "address",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        377.59,
+        372.23,
+        654.2,
+        406.38
+      ],
+      "dom_path": "input#pincode",
+      "value_present": true
+    },
+    {
+      "id": "b9",
+      "type": "email",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        872.2,
+        153.52,
+        1192.98,
+        181.89
+      ],
+      "dom_path": "td#reg-email",
+      "value_present": true
+    },
+    {
+      "id": "b10",
+      "type": "aadhaar",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        872.2,
+        181.89,
+        1192.98,
+        210.27
+      ],
+      "dom_path": "td#alt-aadhaar",
+      "value_present": true
+    },
+    {
+      "id": "b11",
+      "type": "bank_account",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        872.2,
+        210.27,
+        1192.98,
+        238.64
+      ],
+      "dom_path": "td#refund-account",
+      "value_present": true
+    },
+    {
+      "id": "b12",
+      "type": "ifsc",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        872.2,
+        238.64,
+        1192.98,
+        267.02
+      ],
+      "dom_path": "td#refund-ifsc",
+      "value_present": true
+    },
+    {
+      "id": "b13",
+      "type": "person_name",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        1084.5,
+        371.81,
+        1146.39,
+        388.81
+      ],
+      "dom_path": "p#agent-note",
+      "value_present": true,
+      "notes": "Free prose. Expected to be missed — needs the local NER model cut from this build. Measured as a text range inside p#agent-note."
+    },
+    {
+      "id": "b14",
+      "type": "address",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        833.67,
+        410.56,
+        1153.97,
+        427.56
+      ],
+      "dom_path": "p#agent-note",
+      "value_present": true,
+      "notes": "Free prose. Expected to be missed for the same reason. Measured as a text range inside p#agent-note."
+    },
+    {
+      "id": "b15",
+      "type": "phone",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        786.52,
+        429.94,
+        858.03,
+        446.94
+      ],
+      "dom_path": "p#agent-note",
+      "value_present": true,
+      "notes": "Measured as a text range inside p#agent-note."
+    },
+    {
+      "id": "b16",
+      "type": "email",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        892.02,
+        429.94,
+        1036.09,
+        446.94
+      ],
+      "dom_path": "p#agent-note",
+      "value_present": true,
+      "notes": "Measured as a text range inside p#agent-note."
+    }
+  ]
+}
