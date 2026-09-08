@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Confer — Weekly sync</title>
+<!--
+  Fixture for PRD §10 Scenario B. The agent is asked to find and click "Mute",
+  which it must do from structure alone while every face on screen is blurred
+  before the screenshot leaves the machine.
+
+  The participant tiles are crops of a single test photograph, positioned to put
+  one face in each. That photograph is NOT committed — it is a picture of real
+  people, and this repository's rule is that real faces do not live in it. Fetch
+  it with `npm run fetch:demo-faces` from extension/. Without it the tiles render
+  as empty placeholders and the DOM half of the scenario still works.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #16181c; color: #e9ecf1; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .shell { display: grid; grid-template-columns: 1fr 280px; grid-template-rows: 46px 1fr 62px; height: 100vh; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid #262a31; }
+  header .title { font-weight: 600; }
+  header .meta { color: #98a1ae; font-size: 12.5px; }
+  .stage { padding: 14px 16px; overflow: hidden; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .tile { position: relative; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; background: #22262d center/cover no-repeat; }
+  .tile::after { content: attr(data-who); position: absolute; left: 8px; bottom: 7px; background: rgba(0,0,0,.62); padding: 2px 7px; border-radius: 4px; font-size: 11.5px; }
+  .tile.empty { display: grid; place-items: center; color: #5d6672; font-size: 11.5px; }
+  aside { border-left: 1px solid #262a31; padding: 14px; overflow: hidden; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #98a1ae; margin: 0 0 10px; }
+  .msg { margin-bottom: 10px; font-size: 12.5px; }
+  .msg b { display: block; font-size: 11.5px; color: #98a1ae; font-weight: 500; }
+  footer { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 10px; border-top: 1px solid #262a31; }
+  button { background: #2b303a; color: #e9ecf1; border: 1px solid #383e4a; border-radius: 7px; padding: 9px 18px; font: inherit; font-size: 13px; cursor: pointer; }
+  button.leave { background: #7a2620; border-color: #93332b; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="title">Weekly sync</div>
+    <div class="meta">6 participants · recording off</div>
+  </header>
+
+  <main class="stage">
+    <div class="grid" id="participants">
+      <div class="tile" id="tile-1" data-who="Priya Raman"   style="background-image:url(assets/faces-2.jpg); background-position:-547px -261px; background-size:1024px auto"></div>
+      <div class="tile" id="tile-2" data-who="Daniel Okafor" style="background-image:url(assets/faces-2.jpg); background-position:-201px -97px;  background-size:1024px auto"></div>
+      <div class="tile" id="tile-3" data-who="Mei Lin"       style="background-image:url(assets/faces-2.jpg); background-position:-304px -167px; background-size:1024px auto"></div>
+      <div class="tile" id="tile-4" data-who="Tom Whitfield" style="background-image:url(assets/faces-2.jpg); background-position:-726px -169px; background-size:1024px auto"></div>
+      <div class="tile" id="tile-5" data-who="Aisha Bello"   style="background-image:url(assets/faces-2.jpg); background-position:-159px -251px; background-size:1024px auto"></div>
+      <div class="tile" id="tile-6" data-who="You"           style="background-image:url(assets/faces-2.jpg); background-position:-682px -255px; background-size:1024px auto"></div>
+    </div>
+  </main>
+
+  <aside>
+    <h2>Chat</h2>
+    <div class="msg"><b>Daniel Okafor</b>Slides are in the shared drive.</div>
+    <div class="msg"><b>Mei Lin</b>Can you send the notes to mei.lin@example.co afterwards?</div>
+    <div class="msg"><b>Priya Raman</b>Starting in two minutes.</div>
+  </aside>
+
+  <footer>
+    <button id="mute" aria-label="Mute microphone">Mute</button>
+    <button id="camera" aria-label="Turn off camera">Stop video</button>
+    <button id="share" aria-label="Share your screen">Share screen</button>
+    <button id="participants-btn" aria-label="Show participants">Participants</button>
+    <button id="leave" class="leave" aria-label="Leave the call">Leave</button>
+  </footer>
+</div>
+<script>
+  // Placeholder tiles when the (uncommitted) test photograph is absent.
+  const probe = new Image();
+  probe.onerror = () => {
+    for (const tile of document.querySelectorAll('.tile')) {
+      tile.classList.add('empty');
+      tile.style.backgroundImage = 'none';
+      tile.textContent = 'camera off';
+    }
+  };
+  probe.src = 'assets/faces-2.jpg';
+</script>
+</body>
+</html>

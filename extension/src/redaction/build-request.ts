@@ -27,6 +27,7 @@ import { PATTERNS } from '../pii-detection/patterns';
 import { applySpans, maskingFor, replacementFor, type SpanReplacement } from './redact-text';
 import { redactScreenshot, type RedactionRegion } from './redact-image';
 import type { TokenRegistry } from './tokens';
+import type { FaceDetection } from '../perception/face-detect';
 
 export interface BuildOptions {
   snapshot: RawSnapshot;
@@ -35,6 +36,13 @@ export interface BuildOptions {
   tokens: TokenRegistry;
   threshold?: number;
   priorActions?: AgentAction[];
+  /**
+   * Faces found by the local detector. They arrive separately from the text
+   * cascade because they have no DOM representation — a face is pixels in a
+   * region, not a value in a node — so they contribute manifest entries and
+   * pixel regions but never touch dom_summary.
+   */
+  faces?: FaceDetection[];
 }
 
 export interface BuildResult {
@@ -187,11 +195,24 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
     });
   }
 
+  for (const [index, face] of (options.faces ?? []).entries()) {
+    manifest.push({
+      id: tokens.idFor('face', null, `face:${index}`),
+      type: 'face',
+      tier: TIER_BY_TYPE.face,
+      bbox: face.bbox,
+      dom_path: null,
+      masking: 'blur',
+      detector: 'onnx:ultraface-rfb320',
+      confidence: face.score,
+    });
+  }
+
   let screenshotRedacted: string | null = null;
   if (screenshotDataUrl) {
     const regions: RedactionRegion[] = manifest
       .filter((entry) => entry.bbox !== null)
-      .map((entry) => ({ bbox: entry.bbox!, tier: entry.tier }));
+      .map((entry) => ({ bbox: entry.bbox!, masking: entry.masking }));
     screenshotRedacted = await redactScreenshot(screenshotDataUrl, regions, snapshot.viewport.width);
   }
 
@@ -205,5 +226,19 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
   };
 
   assertNoRawPii(request);
-  return { request, detections };
+
+  // Faces join the returned detections for the viewer's benefit only — they were
+  // never part of the node-keyed grouping above.
+  const faceDetections: Detection[] = (options.faces ?? []).map((face, index) => ({
+    node_path: `(face ${index + 1})`,
+    field: 'text',
+    type: 'face',
+    tier: TIER_BY_TYPE.face,
+    detector: 'onnx:ultraface-rfb320',
+    confidence: face.score,
+    span: null,
+    bbox: face.bbox,
+  }));
+
+  return { request, detections: [...detections, ...faceDetections] };
 }

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sampark Utilities — KYC verification</title>
+<!--
+  Fixture for PRD §10 Scenario C. Every value is synthetic and every identifier
+  fictional. The Aadhaar numbers are Verhoeff-valid but belong to no one — they
+  were generated to satisfy the checksum so the validator is actually exercised
+  rather than short-circuited.
+
+  This fixture deliberately differs from bank-login.html in shape: values sit in
+  a table and in prose, not only in labelled inputs, so it exercises the regex
+  stage rather than the DOM-attribute stage. It also plants three things the
+  build is expected to MISS, so the eval reports a real recall gap instead of a
+  flattering one:
+    - a person's name in free prose (needs the NER model that was cut)
+    - a postal address in prose
+    - a customer reference (no type exists for it in the PRD §4.3 taxonomy)
+-->
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1b1d21; background: #f4f5f7; }
+  header { background: #17603f; color: #fff; padding: 10px 28px; }
+  header .logo { font-size: 17px; font-weight: 650; }
+  header .tag { font-size: 12.5px; color: #b9dcc9; }
+  /* Everything must fit the 1280x800 corpus viewport: capture is viewport-only,
+     so content below the fold is never snapshotted, never redacted and never
+     sent — real behaviour, but it would silently shrink this fixture's coverage. */
+  main {
+    max-width: 1180px; margin: 16px auto; padding: 0 20px;
+    display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; align-items: start;
+  }
+  .card { background: #fff; border: 1px solid #dcdfe4; border-radius: 9px; padding: 14px 16px; }
+  h1 { font-size: 17px; margin: 0 0 2px; }
+  h2 { font-size: 13.5px; margin: 0 0 8px; }
+  .lede { color: #5c646f; font-size: 12.5px; margin: 0 0 12px; }
+  label { display: block; font-size: 12px; font-weight: 550; margin-bottom: 3px; }
+  input, select { width: 100%; padding: 6px 9px; border: 1px solid #c6ccd4; border-radius: 5px; font: inherit; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 14px; }
+  .field { margin-bottom: 0; }
+  .req { color: #b3261e; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table { font-size: 12.5px; }
+  th { text-align: left; color: #5c646f; font-weight: 550; padding: 4px 6px; border-bottom: 1px solid #e4e7ea; width: 168px; }
+  td { padding: 4px 6px; border-bottom: 1px solid #e4e7ea; font-variant-numeric: tabular-nums; }
+  .prose { font-size: 12.5px; color: #3d434b; margin: 0; }
+  button { background: #17603f; color: #fff; border: 0; border-radius: 5px; padding: 8px 16px; font-size: 13px; font-weight: 550; cursor: pointer; }
+  .stack { display: grid; gap: 16px; }
+  footer { max-width: 1180px; margin: 0 auto; padding: 4px 20px 20px; color: #5c646f; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Sampark Utilities</div>
+  <div class="tag">Know Your Customer — verification pending</div>
+</header>
+
+<main>
+  <section class="card">
+    <h1>Complete your KYC</h1>
+    <p class="lede">Three fields are still required before your connection can be activated.</p>
+
+    <form id="kyc" action="#" method="post">
+      <div class="grid">
+        <div class="field">
+          <label for="applicant-name">Full name <span class="req">*</span></label>
+          <input type="text" id="applicant-name" name="fullName" value="Rohan Iyer" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="dob">Date of birth <span class="req">*</span></label>
+          <input type="text" id="dob" name="dateOfBirth" value="14/03/1991" autocomplete="bday" />
+        </div>
+        <div class="field">
+          <label for="aadhaar">Aadhaar number <span class="req">*</span></label>
+          <input type="text" id="aadhaar" name="aadhaarNumber" value="2345 6789 0124" inputmode="numeric" maxlength="14" />
+        </div>
+        <div class="field">
+          <label for="pan">PAN</label>
+          <input type="text" id="pan" name="panNumber" value="" placeholder="ABCDE1234F" />
+        </div>
+        <div class="field">
+          <label for="mobile">Mobile number <span class="req">*</span></label>
+          <input type="tel" id="mobile" name="mobile" value="9845012345" autocomplete="tel" />
+        </div>
+        <div class="field">
+          <label for="otp">OTP sent to your mobile</label>
+          <input type="text" id="otp" name="otp" value="" autocomplete="one-time-code" maxlength="6" />
+        </div>
+        <div class="field">
+          <label for="street">Address line 1</label>
+          <input type="text" id="street" name="addressLine1" value="42 Nandidurga Road" autocomplete="street-address" />
+        </div>
+        <div class="field">
+          <label for="pincode">PIN code</label>
+          <input type="text" id="pincode" name="postalCode" value="560046" autocomplete="postal-code" />
+        </div>
+      </div>
+      <p style="margin-top:12px;margin-bottom:0"><button type="submit" id="verify">Verify and submit</button></p>
+    </form>
+  </section>
+
+  <div class="stack">
+  <section class="card">
+    <h2>Details already on file</h2>
+    <table>
+      <tbody>
+        <tr><th>Customer reference</th><td id="cust-ref">SU-2019-884210</td></tr>
+        <tr><th>Registered email</th><td id="reg-email">rohan.iyer@example.net</td></tr>
+        <tr><th>Alternate Aadhaar on file</th><td id="alt-aadhaar">3987 6543 2109</td></tr>
+        <tr><th>Bank account for refunds</th><td id="refund-account">918020045512367</td></tr>
+        <tr><th>IFSC</th><td id="refund-ifsc">SMPK0000456</td></tr>
+        <tr><th>Connection status</th><td>Awaiting verification</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Note from your field agent</h2>
+    <p class="prose" id="agent-note">
+      Visited on 3 September. Meter reading confirmed. The applicant, Rohan Iyer, was not carrying
+      a physical PAN card, so only the Aadhaar was verified on site. Delivery address confirmed as
+      42 Nandidurga Road, Benson Town, Bengaluru 560046. Reachable on 9845012345 or at
+      rohan.iyer@example.net.
+    </p>
+  </section>
+  </div>
+</main>
+
+<footer>Test fixture. All values shown are fictional and correspond to no real person or account.</footer>
+</body>
+</html>

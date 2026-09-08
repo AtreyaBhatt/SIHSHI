@@ -30,3 +30,6 @@ eval/**/*.local.json
 
 # esbuild-installed platform binaries
 extension/node_modules/
+
+# Test photographs of real people. Fetched on demand, never committed.
+eval/fixtures/assets/

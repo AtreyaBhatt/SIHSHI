@@ -9,7 +9,11 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-capture.mjs",
     "test:redaction": "node scripts/test-redaction.mjs",
-    "test:e2e": "node scripts/test-e2e.mjs"
+    "test:e2e": "node scripts/test-e2e.mjs",
+    "test:faces": "node scripts/test-faces.mjs",
+    "fetch:model": "curl -sSL --create-dirs -o models/version-RFB-320.onnx https://github.com/onnx/models/raw/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx",
+    "fetch:demo-faces": "curl -sSL --create-dirs -o ../eval/fixtures/assets/faces-2.jpg https://raw.githubusercontent.com/onnx/models/main/validated/vision/body_analysis/ultraface/dependencies/2.jpg",
+    "test:scenario-b": "node scripts/test-scenario-b.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.9",
@@ -18,5 +22,8 @@
   },
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.29.0"
   }
 }

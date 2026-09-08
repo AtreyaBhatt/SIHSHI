@@ -21,6 +21,8 @@ import { buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId } from '../redaction/tokens';
 import { checkHealth, getServerUrl, requestPlan } from './agent-client';
 import { resolveValueRef } from '../shared/vault';
+import type { FaceDetection } from '../perception/face-detect';
+import type { DetectFacesReply } from '../perception/offscreen';
 
 /**
  * The cached capture holds a raw snapshot with real values. chrome.storage.session
@@ -53,10 +55,63 @@ function resetSession(): string {
   return tokens.session_id;
 }
 
+const OFFSCREEN_PATH = 'perception/offscreen.html';
+let offscreenReady: Promise<void> | null = null;
+
+/**
+ * Creates the perception document once and reuses it, so the ONNX session and
+ * its 13 MB wasm binary are initialised a single time per worker lifetime
+ * rather than per capture. Session init is ~235 ms; inference is ~30 ms.
+ */
+async function ensureOffscreen(): Promise<void> {
+  if (offscreenReady) return offscreenReady;
+  offscreenReady = (async () => {
+    const existing = await api.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT' as chrome.runtime.ContextType] });
+    if (existing.length > 0) return;
+    await api.offscreen.createDocument({
+      url: OFFSCREEN_PATH,
+      reasons: ['WORKERS' as chrome.offscreen.Reason],
+      justification: 'Runs the local face detector (ONNX Runtime Web) off the visited page.',
+    });
+  })().catch((err) => {
+    offscreenReady = null;
+    throw err;
+  });
+  return offscreenReady;
+}
+
+/**
+ * Best-effort by design: a page with no faces, an absent model file, or a
+ * machine where the runtime will not start must not cost the user their text
+ * redaction. Failures are reported, not thrown.
+ */
+async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetection[]; note: string | null }> {
+  if (!capture.screenshot_data_url) return { faces: [], note: 'no screenshot to scan' };
+  try {
+    await ensureOffscreen();
+    const regions = capture.snapshot.nodes.filter((n) => n.media).map((n) => n.bbox);
+    const reply = (await api.runtime.sendMessage({
+      type: 'ppva:detect-faces',
+      screenshot_data_url: capture.screenshot_data_url,
+      regions,
+      viewport_width: capture.snapshot.viewport.width,
+    })) as DetectFacesReply;
+
+    if (!reply?.ok) return { faces: [], note: reply?.error ?? 'face detector returned nothing' };
+    return {
+      faces: reply.faces,
+      note: `${reply.faces.length} face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
+    };
+  } catch (err) {
+    return { faces: [], note: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 async function buildPayload(threshold: number, taskInstruction: string): Promise<PayloadPreview> {
   if (!lastCapture) throw new Error('Nothing captured yet.');
   const started = performance.now();
   try {
+    const { faces, note } = await detectFaces(lastCapture);
     const { request, detections } = await buildAgentRequest({
       snapshot: lastCapture.snapshot,
       screenshotDataUrl: lastCapture.screenshot_data_url,
@@ -64,12 +119,14 @@ async function buildPayload(threshold: number, taskInstruction: string): Promise
       tokens,
       threshold,
       priorActions,
+      faces,
     });
     return {
       session_id: tokens.session_id,
       request,
       detections,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
+      perception_note: note,
       error: null,
     };
   } catch (err) {
@@ -80,6 +137,7 @@ async function buildPayload(threshold: number, taskInstruction: string): Promise
       request: null,
       detections: [],
       build_ms: Math.round((performance.now() - started) * 100) / 100,
+      perception_note: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }

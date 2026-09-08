@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "description": "Local perception and redaction for browser agents. Only sanitized context reaches the reasoning server.",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "offscreen"
+  ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
     "http://localhost:8787/*"
@@ -17,5 +22,8 @@
     "default_popup": "popup/popup.html",
     "default_title": "PPVA — capture, redact, plan"
   },
-  "options_page": "options/options.html"
+  "options_page": "options/options.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
 }

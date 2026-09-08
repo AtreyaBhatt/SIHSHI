@@ -30,6 +30,8 @@ export interface PayloadPreview {
   request: AgentRequest | null;
   detections: Detection[];
   build_ms: number;
+  /** What the local face detector did, or why it did nothing. */
+  perception_note: string | null;
   error: string | null;
 }
 

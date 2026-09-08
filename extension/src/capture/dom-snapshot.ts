@@ -18,8 +18,21 @@ import { SCHEMA_VERSION } from '../shared/schema';
 
 /** Bounds payload size and walk latency. Snapshots that hit this are flagged `truncated`. */
 const MAX_NODES = 400;
-const MAX_TEXT_CHARS = 200;
 const MAX_PATH_SEGMENTS = 8;
+
+/**
+ * Text clipping is a payload-size bound, and it must never be mistaken for a
+ * privacy control. The invariant that matters is that we only ever send what we
+ * scanned — the detectors run over exactly this clipped string, so nothing
+ * unscanned can leave. What clipping costs is context accuracy (PRD G3), and
+ * setting it too low quietly hides prose from the detectors *and* from the
+ * server, which reads as "no PII found" when it was really "no PII looked at".
+ *
+ * 600 covers ordinary paragraph text. Labels stay short because an accessible
+ * name that long is a page bug, not a label.
+ */
+const MAX_TEXT_CHARS = 600;
+const MAX_LABEL_CHARS = 200;
 
 const SKIP_TAGS = new Set([
   'script', 'style', 'noscript', 'template', 'meta', 'link', 'head', 'title', 'br', 'hr',
@@ -36,9 +49,9 @@ const LABELLING_TAGS = new Set(['dt', 'th', 'label', 'strong', 'b']);
 
 const INTERACTIVE_ROLE = /^(button|link|textbox|searchbox|checkbox|radio|combobox|listbox|menuitem|menuitemcheckbox|menuitemradio|option|tab|switch|slider|spinbutton)$/;
 
-function clip(s: string): string {
+function clip(s: string, limit: number = MAX_LABEL_CHARS): string {
   const collapsed = s.replace(/\s+/g, ' ').trim();
-  return collapsed.length > MAX_TEXT_CHARS ? `${collapsed.slice(0, MAX_TEXT_CHARS)}…` : collapsed;
+  return collapsed.length > limit ? `${collapsed.slice(0, limit)}…` : collapsed;
 }
 
 /** Text belonging to this element directly — not to its descendants. Keeps one node per visible string. */
@@ -47,7 +60,7 @@ function directText(el: Element): string {
   for (const child of el.childNodes) {
     if (child.nodeType === Node.TEXT_NODE) out += child.nodeValue ?? '';
   }
-  return clip(out);
+  return clip(out, MAX_TEXT_CHARS);
 }
 
 // ---------------------------------------------------------------------------

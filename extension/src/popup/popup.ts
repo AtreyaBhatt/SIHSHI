@@ -96,6 +96,7 @@ function renderStats(): void {
     ['DOM walk', `${timings.dom_walk_ms} ms`],
     ['screenshot', `${timings.screenshot_ms} ms`],
     ['detect + redact', preview ? `${preview.build_ms} ms` : '—'],
+    ['face detector', preview?.perception_note ?? '—'],
     ['viewport', `${snapshot.viewport.width}×${snapshot.viewport.height}`],
   ];
   const el = $('stats');
