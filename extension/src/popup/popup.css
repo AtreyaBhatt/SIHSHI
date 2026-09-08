@@ -12,6 +12,8 @@
   --warn-fg: #93321f;
   --warn-line: #f3c9c1;
   --box: rgba(47, 109, 246, 0.9);
+  --tier1: #d1342f;
+  --tier2: #b26a00;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -29,6 +31,8 @@
     --warn-fg: #f0a493;
     --warn-line: #4c2b24;
     --box: rgba(107, 155, 255, 0.9);
+    --tier1: #ff7b72;
+    --tier2: #e3a33c;
   }
 }
 

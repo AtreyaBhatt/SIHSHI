@@ -100,6 +100,13 @@ export interface RawDomNode {
   label: string | null;
   /** Direct text content of this element only (not descendants), whitespace-collapsed and clipped. */
   text: string | null;
+  /**
+   * Text of an adjacent labelling element (a preceding <dt>/<th>/<label>/<strong>)
+   * for nodes that have no accessible name of their own. Near-zero cost and it
+   * turns an anonymous `<dd>50100247716839</dd>` into one the heuristics can
+   * classify from its `<dt>Account number</dt>`.
+   */
+  context_label: string | null;
   /** Raw form value. Deliberately null for password fields — see `value_omitted`. */
   value: string | null;
   /**

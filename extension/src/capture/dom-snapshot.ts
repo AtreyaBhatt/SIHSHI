@@ -31,6 +31,9 @@ const INTERACTIVE_TAGS = new Set([
 
 const MEDIA_TAGS = new Set(['img', 'video', 'canvas', 'svg', 'picture']);
 
+/** Elements that label a sibling rather than themselves. */
+const LABELLING_TAGS = new Set(['dt', 'th', 'label', 'strong', 'b']);
+
 const INTERACTIVE_ROLE = /^(button|link|textbox|searchbox|checkbox|radio|combobox|listbox|menuitem|menuitemcheckbox|menuitemradio|option|tab|switch|slider|spinbutton)$/;
 
 function clip(s: string): string {
@@ -204,6 +207,19 @@ function accessibleName(el: Element, tag: string): string | null {
   return null;
 }
 
+/**
+ * The label sitting beside a value that carries no name of its own —
+ * `<dt>Account number</dt><dd>5010…</dd>`. Definition-list and table-row
+ * structure is the cheapest classification signal on a page after the input
+ * attributes themselves.
+ */
+function siblingLabel(el: Element): string | null {
+  const prev = el.previousElementSibling;
+  if (!prev || !LABELLING_TAGS.has(prev.tagName.toLowerCase())) return null;
+  const text = clip(prev.textContent ?? '');
+  return text || null;
+}
+
 // ---------------------------------------------------------------------------
 // The walk
 // ---------------------------------------------------------------------------
@@ -296,6 +312,7 @@ export function captureDomSnapshot(): RawSnapshot {
             role: elRole,
             label: accessibleName(el, tag),
             text: text || null,
+            context_label: siblingLabel(el),
             value,
             value_omitted: omitted,
             input_type: inputType,

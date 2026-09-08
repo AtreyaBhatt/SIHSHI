@@ -12,12 +12,63 @@
  */
 import { api, isRestrictedUrl } from '../shared/browser';
 import type { CaptureResult } from '../shared/schema';
-import type { ContentToWorker, PopupToWorker, WorkerToPopup } from '../shared/messages';
+import type { ContentToWorker, PayloadPreview, PopupToWorker, WorkerReply } from '../shared/messages';
+import { buildAgentRequest } from '../redaction/build-request';
+import { TokenRegistry, newSessionId } from '../redaction/tokens';
 
+/**
+ * The cached capture holds a raw snapshot with real values. chrome.storage.session
+ * is memory-backed and not written to disk, and it is unreadable from content
+ * scripts, so this stays inside the same trust boundary as the worker itself —
+ * do not switch it to storage.local, which would put page values on disk.
+ */
 const LAST_CAPTURE_KEY = 'ppva:last-capture';
 
 /** Kept in worker memory so the popup can reopen without re-capturing; session storage is best-effort. */
 let lastCapture: CaptureResult | null = null;
+
+/**
+ * Token registry and session id live here and only here. Never persisted:
+ * a token that survived its session would become the stable pseudonym PRD §9.4
+ * exists to prevent.
+ */
+let tokens = new TokenRegistry(newSessionId());
+
+function resetSession(): string {
+  tokens = new TokenRegistry(newSessionId());
+  return tokens.session_id;
+}
+
+async function buildPayload(threshold: number, taskInstruction: string): Promise<PayloadPreview> {
+  if (!lastCapture) throw new Error('Nothing captured yet.');
+  const started = performance.now();
+  try {
+    const { request, detections } = await buildAgentRequest({
+      snapshot: lastCapture.snapshot,
+      screenshotDataUrl: lastCapture.screenshot_data_url,
+      taskInstruction,
+      tokens,
+      threshold,
+    });
+    return {
+      session_id: tokens.session_id,
+      request,
+      detections,
+      build_ms: Math.round((performance.now() - started) * 100) / 100,
+      error: null,
+    };
+  } catch (err) {
+    // Fail closed: no payload leaves this function when redaction could not be
+    // verified, and the viewer surfaces why.
+    return {
+      session_id: tokens.session_id,
+      request: null,
+      detections: [],
+      build_ms: Math.round((performance.now() - started) * 100) / 100,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
 
 async function runCapture(): Promise<CaptureResult> {
   const total0 = performance.now();
@@ -82,17 +133,27 @@ async function getLastCapture(): Promise<CaptureResult | null> {
 }
 
 api.runtime.onMessage.addListener(
-  (message: PopupToWorker, _sender, sendResponse: (r: WorkerToPopup) => void) => {
+  (message: PopupToWorker, _sender, sendResponse: (r: WorkerReply<never>) => void) => {
     const fail = (err: unknown) =>
       sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
 
+    const ok = (data: unknown) => sendResponse({ ok: true, data } as WorkerReply<never>);
+
     if (message?.type === 'ppva:run-capture') {
-      runCapture().then((capture) => sendResponse({ ok: true, capture })).catch(fail);
+      runCapture().then(ok).catch(fail);
       return true; // async
     }
     if (message?.type === 'ppva:get-last-capture') {
-      getLastCapture().then((capture) => sendResponse({ ok: true, capture })).catch(fail);
+      getLastCapture().then(ok).catch(fail);
       return true;
+    }
+    if (message?.type === 'ppva:build-payload') {
+      buildPayload(message.threshold, message.task_instruction).then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'ppva:reset-session') {
+      ok({ session_id: resetSession() });
+      return false;
     }
     return false;
   },

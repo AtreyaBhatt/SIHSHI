@@ -124,7 +124,10 @@ try {
 } finally {
   socket?.close();
   chrome.kill('SIGKILL');
-  await rm(workdir, { recursive: true, force: true });
+  // Chrome flushes profile files as it dies, so a rmdir issued immediately can
+  // lose the race. The directory is under the OS temp dir either way.
+  await sleep(150);
+  await rm(workdir, { recursive: true, force: true }).catch(() => {});
 }
 
 process.exit(exitCode);
