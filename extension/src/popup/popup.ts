@@ -233,7 +233,9 @@ function renderPlanPane(): void {
       // a page like any other and the resolved secret belongs only in the executor.
       const source = action.value_ref
         ? `<span class="ref">${esc(action.value_ref)}</span>`
-        : action.value !== undefined ? `"${esc(action.value)}"` : '';
+        // The server sends `value: null` for a value_ref action, so `!== undefined`
+      // lets null through — JSON round-trips absence as null, not undefined.
+      : typeof action.value === 'string' ? `"${esc(action.value)}"` : '';
       return `<div class="act${outcome && !outcome.ok ? ' failed' : ''}">
           <span class="verb">${esc(action.action)}</span>
           <span class="sel">${esc(action.selector ?? '—')}</span>
@@ -344,6 +346,14 @@ thresholdInput.addEventListener('input', () => {
 });
 
 showBoxes.addEventListener('change', renderRawPane);
+
+$('open-viewer').addEventListener('click', async () => {
+  // The viewer needs the tab it should inspect: once it is focused, it *is* the
+  // active tab, and asking the worker for "the active tab" would capture it.
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  await api.tabs.create({ url: api.runtime.getURL(`viewer/viewer.html?tab=${tab?.id ?? ''}`) });
+  window.close();
+});
 
 $('reset-session').addEventListener('click', async () => {
   const { session_id } = await send({ type: 'ppva:reset-session' });

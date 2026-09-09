@@ -143,13 +143,27 @@ async function buildPayload(threshold: number, taskInstruction: string): Promise
   }
 }
 
-async function runCapture(): Promise<CaptureResult> {
+async function targetTab(tabId?: number): Promise<chrome.tabs.Tab> {
+  if (tabId !== undefined) return api.tabs.get(tabId);
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  if (!tab) throw new Error('No active tab.');
+  return tab;
+}
+
+async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
   const total0 = performance.now();
 
-  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  const tab = await targetTab(requestedTabId);
   if (!tab?.id) throw new Error('No active tab.');
+  if (tab.url === undefined) {
+    // activeTab was granted for a different tab, or has lapsed because this one
+    // navigated. Without it we cannot even read the URL, let alone inject.
+    throw new Error(
+      'No access to that tab yet. Open the PPVA popup on the page you want to inspect, then launch the demo view from there.',
+    );
+  }
   if (isRestrictedUrl(tab.url)) {
-    throw new Error(`Cannot capture a browser-internal page (${tab.url ?? 'unknown'}). Open a normal http(s) page.`);
+    throw new Error(`Cannot capture a browser-internal page (${tab.url}). Open a normal http(s) page.`);
   }
   const tabId = tab.id;
 
@@ -246,7 +260,7 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
  * This is the only moment a secret exists outside the vault, and it never leaves
  * the extension: the server named the slot, the browser filled it.
  */
-async function executePlanFlow(): Promise<ExecutionResult> {
+async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
   if (!lastPlan) throw new Error('No plan to execute — request one first.');
 
   const actions: ExecutableAction[] = [];
@@ -256,13 +270,14 @@ async function executePlanFlow(): Promise<ExecutionResult> {
     if (action.value_ref) {
       executable.value = await resolveValueRef(action.value_ref);
       executable.value_ref = action.value_ref;
-    } else if (action.value !== undefined) {
+    } else if (typeof action.value === 'string') {
+      // JSON round-trips absence as null, not undefined.
       executable.value = action.value;
     }
     actions.push(executable);
   }
 
-  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  const tab = await targetTab(tabId);
   if (!tab?.id) throw new Error('No active tab.');
   await api.scripting.executeScript({ target: { tabId: tab.id }, files: ['capture/content-script.js'] });
 
@@ -299,7 +314,7 @@ api.runtime.onMessage.addListener(
     const ok = (data: unknown) => sendResponse({ ok: true, data } as WorkerReply<never>);
 
     if (message?.type === 'ppva:run-capture') {
-      runCapture().then(ok).catch(fail);
+      runCapture(message.tab_id).then(ok).catch(fail);
       return true; // async
     }
     if (message?.type === 'ppva:get-last-capture') {
@@ -319,7 +334,7 @@ api.runtime.onMessage.addListener(
       return true;
     }
     if (message?.type === 'ppva:execute-plan') {
-      executePlanFlow().then(ok).catch(fail);
+      executePlanFlow(message.tab_id).then(ok).catch(fail);
       return true;
     }
     if (message?.type === 'ppva:check-health') {

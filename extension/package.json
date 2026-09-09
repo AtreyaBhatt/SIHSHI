@@ -13,7 +13,8 @@
     "test:faces": "node scripts/test-faces.mjs",
     "fetch:model": "curl -sSL --create-dirs -o models/version-RFB-320.onnx https://github.com/onnx/models/raw/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx",
     "fetch:demo-faces": "curl -sSL --create-dirs -o ../eval/fixtures/assets/faces-2.jpg https://raw.githubusercontent.com/onnx/models/main/validated/vision/body_analysis/ultraface/dependencies/2.jpg",
-    "test:scenario-b": "node scripts/test-scenario-b.mjs"
+    "test:scenario-b": "node scripts/test-scenario-b.mjs",
+    "preview:viewer": "node scripts/preview-viewer.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.9",

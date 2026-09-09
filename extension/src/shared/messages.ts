@@ -3,13 +3,19 @@ import type { AgentRequest, AgentResponse, CaptureResult, RawSnapshot } from './
 import type { Detection } from '../pii-detection/types';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
 
+/**
+ * `tab_id` exists because the full-page viewer is itself a tab: without it the
+ * worker would query for the active tab and capture the viewer instead of the
+ * page under inspection. The popup can omit it — when the popup is open, the
+ * active tab is the right one.
+ */
 export type PopupToWorker =
-  | { type: 'ppva:run-capture' }
+  | { type: 'ppva:run-capture'; tab_id?: number }
   | { type: 'ppva:get-last-capture' }
   | { type: 'ppva:build-payload'; threshold: number; task_instruction: string }
   | { type: 'ppva:reset-session' }
-  | { type: 'ppva:request-plan'; threshold: number; task_instruction: string }
-  | { type: 'ppva:execute-plan' }
+  | { type: 'ppva:request-plan'; threshold: number; task_instruction: string; tab_id?: number }
+  | { type: 'ppva:execute-plan'; tab_id?: number }
   | { type: 'ppva:check-health' };
 
 export type WorkerToContent =

@@ -1,0 +1,61 @@
+<link rel="stylesheet" href="viewer.css" />
+<header>
+  <div class="brand">
+    <span class="dot"></span>
+    <div>
+      <h1>PPVA</h1>
+      <p class="sub">what was on screen · what was detected · what was sent</p>
+    </div>
+  </div>
+  <div class="controls">
+    <input type="text" id="task" class="text" value="Log me in to this portal." aria-label="Task" />
+    <label class="slider">threshold <b id="thr-value">0.50</b>
+      <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Redaction threshold" />
+    </label>
+    <button id="run" class="primary">Capture &amp; plan</button>
+  </div>
+</header>
+
+<div class="banner ok" id="egress">
+  <strong>Egress limited to one origin.</strong>
+  The manifest grants access to the reasoning server alone, and the only <code>fetch</code> in this
+  codebase accepts a payload the redaction engine produced. Column 3 is the exact bytes it sent.
+</div>
+
+<div id="stats" class="stats"></div>
+
+<main>
+  <section class="col">
+    <h2><span class="n">1</span> On screen</h2>
+    <p class="note">The real page, as the user sees it. Never leaves the machine.</p>
+    <div id="raw" class="shot"><p class="empty">Press <strong>Capture &amp; plan</strong>.</p></div>
+  </section>
+
+  <section class="col">
+    <h2><span class="n">2</span> Detected <span id="det-count" class="pill">0</span></h2>
+    <p class="note">
+      <i class="sw t1"></i> Tier 1 hard-block &nbsp;
+      <i class="sw t2"></i> Tier 2 mask, keep shape
+    </p>
+    <div id="detected" class="shot"><p class="empty">—</p></div>
+    <div id="detections" class="list"></div>
+  </section>
+
+  <section class="col">
+    <h2><span class="n">3</span> Sent to the server</h2>
+    <p class="note" id="sent-note">Nothing sent yet.</p>
+    <div id="redacted" class="shot"><p class="empty">—</p></div>
+    <h3>Redaction manifest <span id="man-count" class="pill">0</span></h3>
+    <div id="manifest" class="list"></div>
+    <h3>Request body</h3>
+    <pre id="payload" class="code">—</pre>
+  </section>
+</main>
+
+<section class="plan-section">
+  <h2>Plan returned by the server</h2>
+  <div id="plan"><p class="empty">No plan yet.</p></div>
+</section>
+
+<footer><span id="status">Ready.</span><span class="session">session <code id="session-id">—</code></span></footer>
+<script type="module" src="viewer.js"></script>

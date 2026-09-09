@@ -31,10 +31,11 @@ const targets = [
   { in: 'src/popup/popup.ts', out: 'dist/popup/popup.js', format: 'esm' },
   { in: 'src/options/options.ts', out: 'dist/options/options.js', format: 'esm' },
   { in: 'src/perception/offscreen.ts', out: 'dist/perception/offscreen.js', format: 'esm' },
+  { in: 'src/viewer/viewer.ts', out: 'dist/viewer/viewer.js', format: 'esm' },
 ];
 
 async function copyStatic() {
-  for (const dir of ['dist/popup', 'dist/options', 'dist/perception', 'dist/ort', 'dist/models']) {
+  for (const dir of ['dist/popup', 'dist/options', 'dist/perception', 'dist/viewer', 'dist/ort', 'dist/models']) {
     await mkdir(dir, { recursive: true });
   }
   await cp('manifest.json', 'dist/manifest.json');
@@ -43,6 +44,8 @@ async function copyStatic() {
   await cp('src/options/options.html', 'dist/options/options.html');
   await cp('src/popup/popup.css', 'dist/options/options.css');
   await cp('src/perception/offscreen.html', 'dist/perception/offscreen.html');
+  await cp('src/viewer/viewer.html', 'dist/viewer/viewer.html');
+  await cp('src/viewer/viewer.css', 'dist/viewer/viewer.css');
 
   // ORT loads its wasm glue and binary at runtime from ort.env.wasm.wasmPaths,
   // so both must sit in the package as real files rather than being bundled.
