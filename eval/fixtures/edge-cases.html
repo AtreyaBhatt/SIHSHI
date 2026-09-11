@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Edge cases — unlabelled fields, structural headings, action buttons</title>
+<!--
+  Regression fixture. Every value is synthetic. It plants the shapes real pages
+  have and the two demo fixtures do not:
+
+    - form controls with NO <label>, so the accessible name falls through to
+      attributes — the raw value must never become the "label" that is sent
+    - headings and buttons whose text names a PII type ("Enter the OTP", "Resend
+      OTP") — Tier 3 structure the server needs, not something to black out
+    - an empty Tier 1 control (must still be flagged)
+-->
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #1b1d21; background: #fff; padding: 32px; }
+  input { display: block; width: 320px; padding: 8px 10px; margin-bottom: 14px; border: 1px solid #c6ccd4; border-radius: 5px; font: inherit; }
+  button, a { display: inline-block; margin-right: 14px; }
+</style>
+</head>
+<body>
+  <h1 id="h-otp">Enter the OTP we sent</h1>
+  <h2 id="h-aadhaar">Aadhaar number</h2>
+  <p id="lede">Your card ending 4242 is on file.</p>
+
+  <form id="edge" action="#" method="post">
+    <input type="text" id="unlabeled-name" name="fullName" value="Ada Lovelace" />
+    <input type="text" id="unlabeled-acct" name="acct" value="50100247716839" />
+    <input type="text" id="unlabeled-street" name="addressLine1" value="42 Nandidurga Road" />
+    <input type="text" id="otp-empty" name="otp" value="" autocomplete="one-time-code" />
+    <input type="text" id="cvv" name="cvv" value="123" />
+    <button type="button" id="resend">Resend OTP</button>
+    <a id="forgot" href="#">Forgot password?</a>
+    <input type="submit" id="go" value="Continue" />
+  </form>
+</body>
+</html>

@@ -140,6 +140,17 @@ try {
       }
     }
 
+    if (spec.unredactedFields?.length) {
+      console.log('\nstructure that names a PII type keeps its text:');
+      const byPath = new Map(result.request.dom_summary.map((n) => [n.path, n]));
+      for (const [name, selector] of spec.unredactedFields) {
+        const node = byPath.get(selector);
+        if (!node) fail(`${name} — ${selector} was not captured at all`);
+        else if (node.value && MARKER.test(node.value)) fail(`${name} — ${selector} was redacted to ${node.value}`);
+        else pass(`${name} kept`);
+      }
+    }
+
     console.log('\nstructural labels are not redacted:');
     const structural = result.request.dom_summary.filter((n) => STRUCTURAL_PATH.test(n.path));
     const clobbered = structural.filter((n) => n.value && MARKER.test(n.value));

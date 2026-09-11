@@ -208,7 +208,11 @@ function accessibleName(el: Element, tag: string): string | null {
   }
 
   for (const attr of ['alt', 'title', 'value'] as const) {
-    if (attr === 'value' && tag !== 'input') continue;
+    // The accname spec takes `value` as a name only for button-like inputs. For
+    // a text field it IS the sensitive content, and an unlabelled
+    // <input name="fullName" value="Ada Lovelace"> would otherwise ship the
+    // raw value as its "label" while the value field was tokenised.
+    if (attr === 'value' && !(tag === 'input' && /^(button|submit|reset)$/.test((el as HTMLInputElement).type))) continue;
     const v = el.getAttribute(attr);
     if (v?.trim()) return clip(v);
   }

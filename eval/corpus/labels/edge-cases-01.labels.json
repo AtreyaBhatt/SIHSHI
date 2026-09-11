@@ -1,0 +1,17 @@
+{
+  "screen_id": "edge-cases-01",
+  "page": "fixtures/edge-cases.html",
+  "source": "fixture",
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "Regression screen for unlabelled controls and PII-typed headings/buttons. The headings h1#h-otp and h2#h-aadhaar, the Resend OTP button and the 'card ending 4242' prose are deliberately NOT annotated: they are Tier 3 structure, and a detector that boxes them is over-redacting. The last-four in prose is a known non-detection (no digit-run rule can bound it without context).",
+  "items": [
+    { "id": "e1", "selector": "input#unlabeled-name", "type": "person_name", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "No <label>; only the name attribute identifies it." },
+    { "id": "e2", "selector": "input#unlabeled-acct", "type": "bank_account", "tier": 1, "modality": "text", "value_present": true },
+    { "id": "e3", "selector": "input#unlabeled-street", "type": "address", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "e4", "selector": "input#otp-empty", "type": "otp", "tier": 1, "modality": "text", "value_present": false,
+      "notes": "Empty but Tier 1; autocomplete=one-time-code is the only signal." },
+    { "id": "e5", "selector": "input#cvv", "type": "cvv", "tier": 1, "modality": "text", "value_present": true,
+      "notes": "Three digits have no surface form; the name attribute is the only signal." }
+  ]
+}

@@ -86,4 +86,35 @@ export const FIXTURES = [
         'no type in the PRD §4.3 taxonomy covers a service-specific account identifier'],
     ],
   },
+  {
+    name: 'edge-cases (unlabelled fields, structural headings)',
+    file: '../eval/fixtures/edge-cases.html',
+    // An unlabelled input's accessible name used to fall through to its value,
+    // so the raw name shipped as `label` while `value` was tokenised.
+    mustNotAppear: [
+      ['unlabelled name', 'Ada Lovelace'],
+      ['unlabelled account', '50100247716839'],
+      ['unlabelled street', '42 Nandidurga Road'],
+    ],
+    // Headings and buttons that merely NAME a PII type are Tier 3 structure.
+    mustAppear: [
+      ['heading naming the OTP', 'Enter the OTP we sent'],
+      ['heading naming Aadhaar', 'Aadhaar number'],
+      ['button label', 'Resend OTP'],
+      ['prose with a last-four', 'Your card ending 4242 is on file.'],
+    ],
+    manifestTypes: ['person_name', 'bank_account', 'address', 'otp', 'cvv'],
+    redactedFields: [
+      ['unlabelled name', 'input#unlabeled-name'],
+      ['unlabelled account', 'input#unlabeled-acct'],
+      ['unlabelled street', 'input#unlabeled-street'],
+      ['empty OTP field', 'input#otp-empty'],
+      ['CVV field', 'input#cvv'],
+    ],
+    unredactedFields: [
+      ['OTP heading', 'h1#h-otp'],
+      ['Aadhaar heading', 'h2#h-aadhaar'],
+      ['resend button', 'button#resend'],
+    ],
+  },
 ];

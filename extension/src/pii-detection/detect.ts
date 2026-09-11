@@ -46,11 +46,15 @@ export interface DetectOptions {
  * the very label that told it what the field was. Stage 2 still scans them,
  * since a label can literally contain an address ("Email us at x@y.com").
  */
-const STRUCTURAL_TAGS = new Set(['label', 'dt', 'th', 'legend', 'caption']);
+const STRUCTURAL_TAGS = new Set(['label', 'dt', 'th', 'legend', 'caption', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
+function isControl(node: RawDomNode): boolean {
+  return node.input_type !== null || node.tag === 'textarea' || node.tag === 'select';
+}
 
 /** Form controls carry their sensitive content in `value`; everything else in `text`. */
 function dataFieldOf(node: RawDomNode): DetectionField {
-  return node.input_type !== null || node.tag === 'textarea' || node.tag === 'select' ? 'value' : 'text';
+  return isControl(node) ? 'value' : 'text';
 }
 
 /** More severe wins: lower tier first, then higher confidence, then longer span. */
@@ -91,7 +95,11 @@ export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): D
 
     // ---- stage 1: DOM/attribute heuristics -------------------------------
     let best: Detection | null = null;
-    const structural = dataField === 'text' && STRUCTURAL_TAGS.has(node.tag);
+    // A control is always eligible: an empty password or OTP field is still Tier 1
+    // (corpus rule). Anything else only carries a value in its text, so a button
+    // or link — whose text is never captured — has nothing a rule could redact,
+    // and flagging it paints a black box over "Resend OTP".
+    const structural = dataField === 'text' && (STRUCTURAL_TAGS.has(node.tag) || !node.text);
     for (const rule of structural ? [] : DOM_RULES) {
       if (rule.confidence < threshold) continue;
       if (!rule.test(node, context)) continue;

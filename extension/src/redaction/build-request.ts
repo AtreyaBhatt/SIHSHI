@@ -120,18 +120,20 @@ function sanitizeField(
 /** Client-side mirror of the server ingress check (PRD §6.2.6). */
 function assertNoRawPii(request: AgentRequest): void {
   const offenders: string[] = [];
-  for (const node of request.dom_summary) {
-    for (const [field, text] of [['label', node.label], ['value', node.value]] as const) {
-      if (!text) continue;
-      for (const pattern of PATTERNS) {
-        // Context-gated patterns are ambiguous by construction (a bare digit run
-        // is only an account number given a label), so they would fire on benign
-        // text here. Only the self-validating formats are assertable.
-        if (pattern.requires_context) continue;
-        for (const match of text.matchAll(pattern.regex)) {
-          if (pattern.validate && !pattern.validate(match[0])) continue;
-          offenders.push(`${node.path}.${field} matches ${pattern.detector}`);
-        }
+  const fields: Array<[string, string | null | undefined]> = [['task_instruction', request.task_instruction]];
+  for (const node of request.dom_summary) fields.push([`${node.path}.label`, node.label], [`${node.path}.value`, node.value]);
+  for (const [i, action] of request.prior_actions.entries()) fields.push([`prior_actions[${i}].value`, action.value]);
+
+  for (const [where, text] of fields) {
+    if (!text) continue;
+    for (const pattern of PATTERNS) {
+      // Context-gated patterns are ambiguous by construction (a bare digit run
+      // is only an account number given a label), so they would fire on benign
+      // text here. Only the self-validating formats are assertable.
+      if (pattern.requires_context) continue;
+      for (const match of text.matchAll(pattern.regex)) {
+        if (pattern.validate && !pattern.validate(match[0])) continue;
+        offenders.push(`${where} matches ${pattern.detector}`);
       }
     }
   }
