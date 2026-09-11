@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>Many controls</title>
+<style>body{margin:0;padding:8px;display:grid;grid-template-columns:repeat(30,1fr);gap:2px} button{font-size:9px;padding:1px}</style></head>
+<body>
+<script>
+  // 900 on-screen buttons: more interactive nodes than MAX_NODES (800). Every one must survive the budget.
+  for (let i = 0; i < 900; i++) { const b = document.createElement('button'); b.id = 'c-' + i; b.textContent = String(i); document.body.appendChild(b); }
+</script>
+</body></html>

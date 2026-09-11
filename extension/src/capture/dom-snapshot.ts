@@ -391,14 +391,17 @@ export function captureDomSnapshot(): RawSnapshot {
 
   // Interactive and media nodes are what the agent acts on and what the face
   // detector scans; on an oversized page they must survive the cut even when
-  // they sit at the bottom of the document.
+  // they sit at the bottom of the document. Only text nodes are trimmed, so a
+  // page with more than MAX_NODES interactive elements sends them all and the
+  // budget is exceeded — the agent cannot act on what it was not told about.
   let kept = nodes;
   if (nodes.length > MAX_NODES) {
     truncated = true;
+    const order = new Map(nodes.map((n, i) => [n, i]));
     const priority = nodes.filter((n) => n.interactive || n.media);
     const rest = nodes.filter((n) => !(n.interactive || n.media));
-    kept = [...priority, ...rest.slice(0, Math.max(0, MAX_NODES - priority.length))].slice(0, MAX_NODES);
-    kept.sort((a, b) => nodes.indexOf(a) - nodes.indexOf(b)); // back to document order
+    kept = [...priority, ...rest.slice(0, Math.max(0, MAX_NODES - priority.length))];
+    kept.sort((a, b) => order.get(a)! - order.get(b)!); // back to document order
   }
 
   return {

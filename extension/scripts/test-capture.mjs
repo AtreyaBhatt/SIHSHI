@@ -145,6 +145,20 @@ try {
   else fail(`only ${buttons} of 60 buttons survived the budget`);
   if (long.request.truncated === true) pass('truncated is on the wire');
   else fail('AgentRequest.truncated missing or false');
+
+  console.log('\nmore interactive nodes than the budget (many-controls.html):');
+  await call('Page.navigate', { url: `file://${resolve('../eval/fixtures/many-controls.html')}` });
+  for (let i = 0; i < 40; i++) { await sleep(150); if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('location.href')).includes('many-controls')) break; }
+  // Device metrics override from the long-page section above is still in
+  // effect (1280x6000) — 900 buttons in 30 columns at ~14px rows need ~420px,
+  // so they fit on screen either way.
+  await evaluate(bundle);
+  const many = JSON.parse(await evaluate(`ATHENA.run(null).then((x) => JSON.stringify(x))`));
+  const manyButtons = many.nodes.filter((n) => n.tag === 'button').length;
+  if (manyButtons === 900) pass('all 900 buttons kept when interactive nodes alone exceed the budget');
+  else fail(`only ${manyButtons} of 900 buttons survived the budget`);
+  if (many.truncated === true) pass('snapshot reports truncated=true');
+  else fail(`expected truncated=true, got ${many.truncated}`);
 } catch (err) {
   fail(err.message);
 } finally {
