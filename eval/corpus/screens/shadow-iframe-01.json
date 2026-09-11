@@ -52,7 +52,7 @@
       ],
       "dom_path": "iframe#payment",
       "value_present": true,
-      "notes": "Whole frame. Contents are never walked."
+      "notes": "Whole frame. Contents are never walked. A frame is declared by construction, not detected; it counts toward the Tier-1 numbers as a masked region."
     }
   ]
 }
