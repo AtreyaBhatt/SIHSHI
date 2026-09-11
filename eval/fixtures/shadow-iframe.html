@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Widget checkout — shadow DOM and iframe</title>
+<!--
+  Fixture for the any-site capture work. Every value is synthetic.
+
+  Plants the two shapes real apps have that the demo fixtures do not:
+    - a web component whose form lives in an OPEN shadow root (the walk must
+      descend into it and the path must carry a ` >>> ` hop)
+    - an iframe whose contents the DOM walk cannot see but the screenshot can
+      (the whole frame must be black-boxed and declared as a `frame` in the
+      manifest)
+-->
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #1b1d21; background: #fff; padding: 32px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  #widget { display: block; margin-bottom: 24px; }
+  iframe { border: 1px solid #c6ccd4; border-radius: 6px; display: block; }
+</style>
+</head>
+<body>
+  <h1>Checkout</h1>
+  <div id="widget"></div>
+  <iframe id="payment" title="Payment" width="420" height="120"
+    srcdoc="<body style='margin:0;font:16px system-ui;padding:16px'>Card on file: <b>4539 1488 0343 6467</b> (exp 09/29)</body>"></iframe>
+  <p id="after">Order total: 3 items.</p>
+  <script>
+    const root = document.getElementById('widget').attachShadow({ mode: 'open' });
+    root.innerHTML = `
+      <style>label{display:block;font-size:13px;margin-bottom:4px}input{display:block;width:300px;padding:8px;margin-bottom:12px;border:1px solid #c6ccd4;border-radius:5px}</style>
+      <label for="inner-email">Email</label>
+      <input id="inner-email" type="email" value="grace.hopper@example.org" />
+      <label for="inner-name">Full name</label>
+      <input id="inner-name" type="text" name="fullName" value="Grace Hopper" />
+      <button id="inner-go" type="button">Continue</button>
+    `;
+  </script>
+</body>
+</html>
