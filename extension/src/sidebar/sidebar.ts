@@ -221,6 +221,10 @@ async function refreshPageContext(): Promise<void> {
   }
   if (tab.url === undefined) {
     show(tab.title ?? 'Untitled tab', 'Access not granted for this tab', 'Click the ATHENA toolbar icon on this page to grant access.', true);
+    // activeTab arrives when the user clicks the toolbar icon, and no event fires
+    // when it does — so keep re-checking until the page becomes readable.
+    window.clearTimeout(pageTimer);
+    pageTimer = window.setTimeout(() => void refreshPageContext(), 1000);
     return;
   }
   if (isRestrictedUrl(tab.url)) {
