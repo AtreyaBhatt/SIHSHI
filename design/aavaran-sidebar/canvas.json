@@ -1,0 +1,8 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1540, "h": 1300, "title": "Browser with sidebar" },
+    { "file": "Sidebar400.dc.html", "x": 1640, "y": 0, "w": 400, "h": 1240, "title": "Sidebar · 400" },
+    { "file": "Sidebar320.dc.html", "x": 2140, "y": 0, "w": 320, "h": 1400, "title": "Sidebar · 320" }
+  ],
+  "launch": { "view": "canvas" }
+}

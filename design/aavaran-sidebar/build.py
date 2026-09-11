@@ -1,0 +1,386 @@
+#!/usr/bin/env python3
+"""Emits Main.dc.html (browser scene), Sidebar400.dc.html, Sidebar320.dc.html.
+Sidebar markup is written once and reused so the three artboards never drift."""
+from pathlib import Path
+
+OUT = Path(__file__).parent
+
+FONT = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap">'
+
+# ---------- icons (stroke, 16px grid) ----------
+def ic(path, size=16, stroke="currentColor", extra=""):
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 16 16" fill="none" stroke="{stroke}" '
+            f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" {extra}>{path}</svg>')
+
+I_SHIELD = '<path d="M8 1.8 13 3.6v4.1c0 3.1-2.1 5.3-5 6.5-2.9-1.2-5-3.4-5-6.5V3.6z"/><path d="m5.8 8 1.5 1.5L10.3 6.5"/>'
+I_LOCK = '<rect x="3.2" y="7" width="9.6" height="7" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/>'
+I_MAIL = '<rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="m2.5 5 5.5 4 5.5-4"/>'
+I_FACE = '<circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="6.6" r="2"/><path d="M4.2 12.4c.9-1.5 2.2-2.2 3.8-2.2s2.9.7 3.8 2.2"/>'
+I_CHECK = '<circle cx="8" cy="8" r="6.2"/><path d="m5.4 8.2 1.8 1.8 3.6-3.8"/>'
+I_RING = '<circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/>'
+I_EYE = '<path d="M1.8 8s2.3-4.2 6.2-4.2S14.2 8 14.2 8s-2.3 4.2-6.2 4.2S1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.9"/>'
+I_CHEV = '<path d="m4.5 6.5 3.5 3.5 3.5-3.5"/>'
+I_ARROW = '<path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/>'
+I_GLOBE = '<circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4M8 1.8c1.9 1.8 2.8 3.9 2.8 6.2S9.9 12.4 8 14.2C6.1 12.4 5.2 10.3 5.2 8S6.1 3.6 8 1.8z"/>'
+I_CPU = '<rect x="4" y="4" width="8" height="8" rx="1.5"/><rect x="6.3" y="6.3" width="3.4" height="3.4" rx=".6"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/>'
+I_GEAR = '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.9v1.6M8 12.5v1.6M1.9 8h1.6M12.5 8h1.6M3.7 3.7l1.1 1.1M11.2 11.2l1.1 1.1M3.7 12.3l1.1-1.1M11.2 4.8l1.1-1.1"/>'
+I_CHAT = '<path d="M2.2 4.2A1.7 1.7 0 0 1 3.9 2.5h8.2a1.7 1.7 0 0 1 1.7 1.7v5.4a1.7 1.7 0 0 1-1.7 1.7H7.2L4 13.5v-2.2h-.1a1.7 1.7 0 0 1-1.7-1.7z"/>'
+I_SEND = '<path d="M13.5 2.5 2.5 6.8l5 1.7 1.7 5z"/><path d="M13.5 2.5 7.5 8.5"/>'
+
+GRAIN = ('<svg class="grain" aria-hidden="true"><filter id="{id}"><feTurbulence type="fractalNoise" '
+         'baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/>'
+         '</filter><rect width="100%" height="100%" filter="url(#{id})"/></svg>')
+
+def logo(size=28, radius=8, fid="g-logo"):
+    return (f'<div class="mark" style="width:{size}px;height:{size}px;border-radius:{radius}px;">'
+            f'{GRAIN.format(id=fid)}'
+            f'<svg viewBox="0 0 28 28" width="{size}" height="{size}" fill="none" style="position:relative">'
+            '<path d="M6.5 19.5c2.2-4.4 4.7-6.6 7.5-6.6s5.3 2.2 7.5 6.6" stroke="#0e3e39" stroke-width="2.2" stroke-linecap="round"/>'
+            '<path d="M9.2 9.6c1.5-1.3 3.1-2 4.8-2s3.3.7 4.8 2" stroke="#0e3e39" stroke-width="2.2" stroke-linecap="round" opacity=".55"/>'
+            '</svg></div>')
+
+# ---------- sidebar ----------
+CSS = """
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; color: #17221f; -webkit-font-smoothing: antialiased; }
+a { color: #0e5a52; text-decoration: none; } a:hover { color: #0a433d; }
+
+.side { background: #ffffff; display: flex; flex-direction: column; font-size: 13px; line-height: 1.45; letter-spacing: -0.005em; }
+.side .hdr { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 0; }
+.side .brand { display: flex; align-items: center; gap: 10px; }
+.side .brand .name { font-size: 14px; font-weight: 600; letter-spacing: 0.08em; color: #17221f; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 8px; border-radius: 999px; background: #e9f6ef; color: #0f6b4f; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #1fa971; box-shadow: 0 0 0 3px rgba(31,169,113,.16); }
+.tabs { display: flex; gap: 2px; padding: 12px 16px 0; border-bottom: 1px solid #e8edeb; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 8px 10px 10px; font-size: 13px; font-weight: 500; color: #7b8683; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.on { color: #17221f; border-bottom-color: #17221f; }
+.body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; }
+.card { background: #ffffff; border: 1px solid #e6ebe9; border-radius: 12px; padding: 14px; }
+.lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8a9491; }
+.row { display: flex; align-items: center; gap: 8px; }
+.between { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; }
+.t1 { font-size: 13.5px; font-weight: 600; color: #17221f; }
+.t2 { font-size: 12.5px; color: #5f6a67; }
+.t3 { font-size: 12px; color: #8a9491; }
+.mark { position: relative; overflow: hidden; flex: none; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(90% 80% at 15% 15%, #a9e3d8 0%, rgba(169,227,216,0) 60%), radial-gradient(70% 70% at 85% 20%, #e2f5a8 0%, rgba(226,245,168,0) 60%), radial-gradient(90% 80% at 60% 100%, #bfe9dd 0%, rgba(191,233,221,0) 65%), linear-gradient(160deg, #eef8f1, #d7f0e6); }
+.grain { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .26; mix-blend-mode: multiply; pointer-events: none; }
+.wash { position: relative; overflow: hidden; border: 1px solid #d6ebe3;
+  background: radial-gradient(110% 90% at 0% 0%, #bfe8dd 0%, rgba(191,232,221,0) 55%), radial-gradient(70% 80% at 100% 10%, #e8f7b4 0%, rgba(232,247,180,0) 55%), radial-gradient(100% 70% at 55% 110%, #cfeee6 0%, rgba(207,238,230,0) 60%), linear-gradient(180deg, #f5faf6, #edf7f1); }
+.wash > .in { position: relative; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; background: rgba(255,255,255,.9); border: 1px solid rgba(14,90,82,.14); color: #17221f; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.chip svg { color: #0e5a52; }
+.ta { border: 1px solid #dfe5e2; border-radius: 10px; padding: 11px 12px; min-height: 72px; font-size: 13.5px; line-height: 1.5; color: #17221f; background: #fbfcfb; box-shadow: inset 0 1px 0 rgba(0,0,0,.02); }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 14px; border-radius: 9px; font-size: 13px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; }
+.btn.pri { background: #0e4a44; color: #ffffff; box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 1px 2px rgba(14,74,68,.24); flex: 1 1 160px; }
+.btn.sec { background: #ffffff; color: #17221f; border-color: #dfe5e2; flex: 1 1 148px; }
+.btn.ghost { background: transparent; color: #5f6a67; flex: 0 0 auto; }
+.link { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: #0e5a52; white-space: nowrap; }
+.thumb { position: relative; margin-top: 10px; border: 1px solid #e3e9e6; border-radius: 10px; background: #f6f8f7; padding: 10px 12px; display: flex; gap: 10px; overflow: hidden; }
+.thumb .ln { height: 5px; border-radius: 3px; background: #cfd7d3; }
+.thumb .fld { height: 12px; border-radius: 4px; border: 1px solid #d8dfdb; background: #fff; }
+.thumb .red { height: 12px; border-radius: 4px; background: #17221f; color: #cfe6df; font: 600 7px/12px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .04em; padding: 0 5px; display: inline-flex; align-items: center; }
+.thumb .msk { height: 12px; border-radius: 4px; background: repeating-linear-gradient(135deg, #0e5a52 0 3px, #8fd0c4 3px 6px); }
+.legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; }
+.legend .k { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #5f6a67; }
+.legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+.steps { display: flex; flex-direction: column; gap: 2px; margin: 10px 0 12px; }
+.step { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; font-size: 13px; color: #17221f; }
+.step .n { width: 18px; text-align: right; font-size: 11.5px; color: #8a9491; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.step svg { flex: none; margin-top: 1px; }
+.step.done svg { color: #1a9a6b; }
+.step.next svg { color: #0e4a44; }
+.step.next { font-weight: 600; }
+.step .sub { display: block; font-size: 12px; color: #7b8683; font-weight: 400; margin-top: 1px; }
+.tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; background: #fbf3e4; color: #8a5a10; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.log { border: 1px solid #e6ebe9; border-radius: 12px; }
+.log .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; }
+.log .cnt { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #eef2f0; color: #5f6a67; font-size: 11px; font-weight: 600; }
+.log .list { display: flex; flex-direction: column; border-top: 1px solid #eef2f0; padding: 6px 14px 8px; }
+.log .ev { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 12.5px; color: #17221f; }
+.log .ev .d { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.log .ev .tm { margin-left: auto; font-size: 11.5px; color: #8a9491; font-variant-numeric: tabular-nums; }
+.ftr { margin-top: auto; padding: 10px 16px 14px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #8a9491; border-top: 1px solid #eef2f0; }
+"""
+
+def sidebar(width, log_open, fid_suffix=""):
+    f = lambda s: s + fid_suffix
+    chev_rot = "" if log_open else ' style="transform:rotate(-90deg)"'
+    log_list = ""
+    if log_open:
+        evs = [("#1fa971", "Screen analyzed locally", "now"),
+               ("#1fa971", "3 sensitive regions masked", "now"),
+               ("#9aa5a1", "Sanitized context sent", "2s"),
+               ("#e0a33a", "Action blocked pending approval", "1s")]
+        log_list = '<div class="list">' + "".join(
+            f'<div class="ev"><span class="d" style="background:{c}"></span><span>{t}</span><span class="tm">{tm}</span></div>'
+            for c, t, tm in evs) + "</div>"
+    return f'''
+<div class="side" style="width:{width}px;">
+  <div class="hdr">
+    <div class="brand">{logo(28, 8, f("g-logo"))}<span class="name">AAVARAN</span></div>
+    <span class="pill"><span class="dot"></span>Privacy active</span>
+  </div>
+  <div class="tabs">
+    <div class="tab on">{ic(I_CHAT, 15)}Assistant</div>
+    <div class="tab">{ic(I_GEAR, 15)}Settings</div>
+  </div>
+
+  <div class="body">
+
+    <div class="card">
+      <div class="between" style="margin-bottom:8px;"><span class="lbl">Current page</span><span class="row t3">{ic(I_CPU, 13)}On-device</span></div>
+      <div class="row" style="align-items:flex-start;">
+        <div style="width:30px;height:30px;border-radius:8px;background:#1d1d24;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex:none;">L</div>
+        <div style="min-width:0;">
+          <div class="t1" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Lumina — Apply for Product Designer</div>
+          <div class="t2">careers.lumina.com</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px;color:#0f6b4f;font-size:12.5px;font-weight:500;"><span class="dot" style="width:6px;height:6px;border-radius:50%;background:#1fa971;"></span>Ready for local screen analysis</div>
+    </div>
+
+    <div class="card wash">
+      {GRAIN.format(id=f("g-wash"))}
+      <div class="in">
+        <div class="row" style="align-items:flex-start;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:9px;background:#0e4a44;color:#d9f2ea;display:flex;align-items:center;justify-content:center;flex:none;">{ic(I_SHIELD, 18)}</div>
+          <div>
+            <div style="font-size:15px;font-weight:600;letter-spacing:-0.01em;">Your privacy is protected</div>
+            <div class="t2" style="color:#3f4d49;">Sensitive data stays on this device.</div>
+          </div>
+        </div>
+        <div class="chips" style="margin-top:12px;">
+          <span class="chip">{ic(I_LOCK, 13)}1 password field protected</span>
+          <span class="chip">{ic(I_MAIL, 13)}2 emails masked</span>
+          <span class="chip">{ic(I_FACE, 13)}1 face blurred</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="lbl" style="margin-bottom:8px;">Ask AAVARAN</div>
+      <div class="ta">Check what is missing in this form and help me submit it.</div>
+      <div class="btns" style="margin-top:10px;">
+        <span class="btn pri">Ask AAVARAN {ic(I_SEND, 14, "#cfe9e0")}</span>
+        <span class="btn sec">{ic(I_SHIELD, 14, "#0e5a52")}Analyze page safely</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="between"><span class="lbl">Sanitized page preview</span><span class="link">{ic(I_EYE, 14)}View what will be shared</span></div>
+      <div class="thumb">
+        <div style="flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <div style="width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 50% 38%, #b28a6b 0 30%, #d7c4b3 32%);filter:blur(3px);"></div>
+          <div class="ln" style="width:26px;"></div>
+        </div>
+        <div style="flex:1;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:7px 10px;">
+          <div><div class="ln" style="width:38px;margin-bottom:4px;"></div><div class="fld"></div></div>
+          <div><div class="ln" style="width:22px;margin-bottom:4px;"></div><div class="red">EMAIL_1</div></div>
+          <div><div class="ln" style="width:30px;margin-bottom:4px;"></div><div class="red">PHONE_1</div></div>
+          <div><div class="ln" style="width:44px;margin-bottom:4px;"></div><div class="fld"></div></div>
+          <div><div class="ln" style="width:34px;margin-bottom:4px;"></div><div class="msk"></div></div>
+          <div><div class="ln" style="width:20px;margin-bottom:4px;"></div><div class="red">EMAIL_2</div></div>
+        </div>
+      </div>
+      <div class="legend">
+        <span class="k"><span class="sw" style="background:#17221f;"></span>Redacted</span>
+        <span class="k"><span class="sw" style="background:repeating-linear-gradient(135deg,#0e5a52 0 2px,#8fd0c4 2px 4px);"></span>Masked</span>
+        <span class="k"><span class="sw" style="background:#b28a6b;filter:blur(1.2px);"></span>Blurred</span>
+      </div>
+      <div class="t3" style="margin-top:10px;">Personal data redacted. Only safe, useful content is shared with our AI.</div>
+    </div>
+
+    <div class="card">
+      <div class="between"><span class="lbl">Agent plan</span><span class="tag">Awaiting approval</span></div>
+      <div class="steps">
+        <div class="step done"><span class="n">1</span>{ic(I_CHECK, 16)}<span>Analyze the form and identify what’s missing</span></div>
+        <div class="step done"><span class="n">2</span>{ic(I_CHECK, 16)}<span>Found the Submit button</span></div>
+        <div class="step done"><span class="n">3</span>{ic(I_CHECK, 16)}<span>Your password will remain local<span class="sub">Resolved on this device, never sent</span></span></div>
+        <div class="step next"><span class="n">4</span>{ic(I_RING, 16)}<span>Ready to submit this form</span></div>
+      </div>
+      <div class="btns">
+        <span class="btn pri">Approve and proceed {ic(I_ARROW, 14, "#cfe9e0")}</span>
+        <span class="btn ghost">Cancel</span>
+      </div>
+    </div>
+
+    <div class="log">
+      <div class="hd">
+        <span class="row"><span class="lbl">Privacy activity</span><span class="cnt">4</span></span>
+        <span style="color:#8a9491;display:flex;"{chev_rot}>{ic(I_CHEV, 16)}</span>
+      </div>
+      {log_list}
+    </div>
+
+  </div>
+</div>'''
+
+# ---------- webpage (Lumina careers) ----------
+PAGE_CSS = """
+.page { background: #ffffff; color: #1d1d24; font-family: "Instrument Sans", system-ui, sans-serif; display: flex; flex-direction: column; height: 100%; }
+.pnav { display: flex; align-items: center; justify-content: space-between; padding: 0 48px; height: 60px; border-bottom: 1px solid #ebebef; }
+.pnav .wm { font-weight: 600; font-size: 17px; letter-spacing: -0.02em; display: flex; align-items: center; gap: 9px; }
+.pnav .links { display: flex; gap: 26px; font-size: 13.5px; color: #5c5c66; }
+.pnav .sign { font-size: 13px; font-weight: 600; color: #1d1d24; border: 1px solid #dcdce2; border-radius: 8px; padding: 7px 12px; }
+.pmain { flex: 1; overflow: hidden; background: #fafafb; }
+.pcol { width: 640px; margin: 0 auto; padding: 36px 0 0; }
+.pcol h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 6px; }
+.pmeta { display: flex; gap: 8px; align-items: center; font-size: 13px; color: #6b6b75; }
+.pmeta .sep { width: 3px; height: 3px; border-radius: 50%; background: #c7c7cf; }
+.psec { background: #fff; border: 1px solid #e6e6eb; border-radius: 12px; padding: 22px 24px; margin-top: 18px; }
+.psec h2 { font-size: 14px; font-weight: 600; margin: 0 0 14px; }
+.pgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.pf label { display: block; font-size: 12px; font-weight: 500; color: #5c5c66; margin-bottom: 6px; }
+.pf .in { height: 38px; border: 1px solid #dcdce2; border-radius: 8px; background: #fff; padding: 0 12px; display: flex; align-items: center; font-size: 13.5px; color: #1d1d24; }
+.pf .in.ph { color: #a2a2ab; }
+.pf .in.pw { letter-spacing: .18em; font-size: 12px; }
+.pbtn { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 8px; background: #1d1d24; color: #fff; font-size: 13.5px; font-weight: 600; }
+"""
+
+def avatar():
+    # simple illustrated face so "1 face blurred" is visibly true
+    return ('<svg width="64" height="64" viewBox="0 0 64 64">'
+            '<circle cx="32" cy="32" r="32" fill="#e9dfd4"/>'
+            '<path d="M14 64c1-13 8-21 18-21s17 8 18 21z" fill="#2a3b6e"/>'
+            '<circle cx="32" cy="27" r="12" fill="#b78868"/>'
+            '<path d="M20 26c1-10 6-14 12-14s11 4 12 14c-3-4-7-6-12-6s-9 2-12 6z" fill="#3a2a22"/>'
+            '<circle cx="27.5" cy="27.5" r="1.4" fill="#2a1d18"/><circle cx="36.5" cy="27.5" r="1.4" fill="#2a1d18"/>'
+            '<path d="M28.5 33.5c2 1.6 5 1.6 7 0" stroke="#7a4a3a" stroke-width="1.3" fill="none" stroke-linecap="round"/>'
+            '</svg>')
+
+def field(label, value="", ph=False, pw=False, extra=""):
+    cls = "in" + (" ph" if ph else "") + (" pw" if pw else "")
+    return f'<div class="pf" {extra}><label>{label}</label><div class="{cls}">{value}</div></div>'
+
+PAGE = f'''
+<div class="page">
+  <div class="pnav">
+    <div class="wm"><span style="width:22px;height:22px;border-radius:6px;background:#1d1d24;display:inline-block;"></span>Lumina</div>
+    <div class="links"><span>Careers</span><span>Teams</span><span>Life at Lumina</span><span>Benefits</span></div>
+    <span class="sign">Sign in</span>
+  </div>
+  <div class="pmain">
+    <div class="pcol">
+      <h1>Apply for Product Designer</h1>
+      <div class="pmeta"><span>Design</span><span class="sep"></span><span>Bengaluru or remote</span><span class="sep"></span><span>Full-time</span></div>
+
+      <div class="psec">
+        <h2>Personal information</h2>
+        <div style="display:flex;gap:18px;align-items:center;margin-bottom:16px;">
+          {avatar()}
+          <div><div style="font-size:13px;font-weight:600;">Profile photo</div><div style="font-size:12.5px;color:#6b6b75;margin-top:2px;">JPG or PNG, up to 5 MB</div><div style="margin-top:8px;font-size:12.5px;font-weight:600;color:#1d1d24;border:1px solid #dcdce2;border-radius:7px;padding:5px 10px;display:inline-block;">Replace</div></div>
+        </div>
+        <div class="pgrid">
+          {field("Full name", "Priya Raman")}
+          {field("Email", "priya@ramanstudio.co")}
+          {field("Phone", "+91 98450 22318")}
+          {field("Current location", "Bengaluru, India")}
+        </div>
+      </div>
+
+      <div class="psec">
+        <h2>Links</h2>
+        <div class="pgrid">
+          {field("Portfolio", "ramanstudio.co")}
+          {field("LinkedIn", "linkedin.com/in/priyaraman")}
+        </div>
+      </div>
+
+      <div class="psec">
+        <h2>Create your candidate account</h2>
+        <div class="pgrid">
+          {field("Account email", "priya@ramanstudio.co")}
+          {field("Password", "••••••••••••", pw=True)}
+        </div>
+      </div>
+
+      <div class="psec">
+        <h2>Resume</h2>
+        <div class="pgrid">
+          {field("Resume (PDF)", "Attach a file", ph=True)}
+          {field("Cover letter", "Optional", ph=True)}
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;margin-top:20px;">
+          <span class="pbtn">Submit application</span>
+          <span style="font-size:13px;color:#6b6b75;">Save and continue later</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>'''
+
+# ---------- browser chrome ----------
+CHROME_CSS = """
+.stage { width: 1540px; height: 1300px; background: #f2f4f2; padding: 50px; font-family: "Instrument Sans", system-ui, sans-serif; }
+.win { width: 1440px; height: 1200px; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(20,30,28,.06), 0 24px 60px -20px rgba(20,30,28,.25), 0 0 0 1px rgba(20,30,28,.08); display: flex; flex-direction: column; }
+.tabbar { height: 40px; background: #e9ecea; display: flex; align-items: flex-end; padding: 0 10px; gap: 6px; }
+.wdots { display: flex; gap: 7px; align-self: center; margin-right: 10px; padding-bottom: 0; }
+.wdots span { width: 11px; height: 11px; border-radius: 50%; background: #d3d7d5; }
+.btab { height: 32px; background: #fff; border-radius: 8px 8px 0 0; padding: 0 14px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #1d1d24; min-width: 240px; }
+.btab .fav { width: 14px; height: 14px; border-radius: 4px; background: #1d1d24; }
+.addr { height: 44px; background: #fff; border-bottom: 1px solid #e4e8e6; display: flex; align-items: center; gap: 10px; padding: 0 12px; }
+.nav { display: flex; gap: 4px; color: #8a9491; }
+.nav span { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; }
+.omni { flex: 1; height: 30px; border-radius: 8px; background: #f1f3f2; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; color: #3f4d49; }
+.omni b { color: #17221f; font-weight: 500; }
+.ext { display: flex; align-items: center; gap: 8px; }
+.ext .slot { width: 28px; height: 28px; border-radius: 7px; display: flex; align-items: center; justify-content: center; }
+.split { flex: 1; display: flex; min-height: 0; }
+.split .pg { flex: 1; min-width: 0; }
+.split .sp { width: 400px; flex: none; border-left: 1px solid #e4e8e6; overflow: hidden; }
+"""
+
+def head(extra_css):
+    return f'''<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  {FONT}
+  <style>{CSS}{extra_css}</style>
+</helmet>'''
+
+TAIL = '''
+</x-dc>
+</body>
+</html>
+'''
+
+main = head(PAGE_CSS + CHROME_CSS) + f'''
+<div class="stage">
+  <div class="win">
+    <div class="tabbar">
+      <div class="wdots"><span></span><span></span><span></span></div>
+      <div class="btab"><span class="fav"></span>Apply for Product Designer – Lumina Careers</div>
+      <span style="color:#7b8683;font-size:16px;padding:0 6px 8px;">+</span>
+    </div>
+    <div class="addr">
+      <div class="nav"><span>{ic('<path d="M10 3.5 5.5 8l4.5 4.5"/>', 16)}</span><span>{ic('<path d="m6 3.5 4.5 4.5L6 12.5"/>', 16)}</span><span>{ic('<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.8h-2.8"/>', 16)}</span></div>
+      <div class="omni">{ic(I_LOCK, 13, "#5f6a67")}<span><b>careers.lumina.com</b>/apply/product-designer</span></div>
+      <div class="ext">
+        <span class="slot" style="background:#e9f6ef;">{logo(20, 6, "g-ext")}</span>
+        <span class="slot" style="color:#8a9491;">{ic('<circle cx="8" cy="8" r="1.2" fill="currentColor"/><circle cx="8" cy="3.5" r="1.2" fill="currentColor"/><circle cx="8" cy="12.5" r="1.2" fill="currentColor"/>', 16)}</span>
+        <span style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#c9b8a6,#8c7361);"></span>
+      </div>
+    </div>
+    <div class="split">
+      <div class="pg">{PAGE}</div>
+      <div class="sp">{sidebar(400, False, "-m")}</div>
+    </div>
+  </div>
+</div>''' + TAIL
+
+s400 = head("") + sidebar(400, True, "-a") + TAIL
+s320 = head("") + sidebar(320, True, "-b") + TAIL
+
+(OUT / "Main.dc.html").write_text(main)
+(OUT / "Sidebar400.dc.html").write_text(s400)
+(OUT / "Sidebar320.dc.html").write_text(s320)
+print("wrote 3 artboards")
