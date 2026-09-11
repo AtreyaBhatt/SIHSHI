@@ -84,3 +84,15 @@ def test_pii_in_the_task_instruction_is_caught(bank_login_payload):
     payload["task_instruction"] = f"Send a statement to {RAW_EMAIL}"
     report = inspect(AgentRequest.model_validate(payload))
     assert any(f.dom_path == "task_instruction" for f in report.findings)
+
+
+def test_pii_echoed_through_prior_actions_is_caught(bank_login_payload, monkeypatch):
+    payload = dict(bank_login_payload)
+    payload["prior_actions"] = [{"action": "type", "selector": "input#x", "value": RAW_EMAIL}]
+    request = AgentRequest.model_validate(payload)
+    report = inspect(request)
+    assert any(f.dom_path == "prior_actions[0]" for f in report.findings)
+
+    monkeypatch.setenv("ATHENA_INGRESS_POLICY", "redact")
+    cleaned = enforce(request)
+    assert RAW_EMAIL not in cleaned.model_dump_json()

@@ -75,6 +75,14 @@ def inspect(request: AgentRequest) -> IngressReport:
         Finding("task_instruction", "text", pattern.name)
         for pattern in find_raw_pii(request.task_instruction)
     )
+    # prior_actions echo the model's own earlier literals back to us; a literal
+    # that carried PII the first time must not be laundered through history.
+    for index, action in enumerate(request.prior_actions):
+        if action.value:
+            report.findings.extend(
+                Finding(f"prior_actions[{index}]", "value", pattern.name)
+                for pattern in find_raw_pii(action.value)
+            )
     return report
 
 
@@ -99,7 +107,16 @@ def scrub(request: AgentRequest, findings: list[Finding]) -> AgentRequest:
     if any(f.dom_path == "task_instruction" for f in findings):
         instruction = "[REDACTED:INGRESS]"
 
-    return request.model_copy(update={"dom_summary": nodes, "task_instruction": instruction})
+    prior = [
+        action.model_copy(update={"value": "[REDACTED:INGRESS]"})
+        if (f"prior_actions[{index}]", "value") in offending
+        else action
+        for index, action in enumerate(request.prior_actions)
+    ]
+
+    return request.model_copy(
+        update={"dom_summary": nodes, "task_instruction": instruction, "prior_actions": prior}
+    )
 
 
 class IngressRejection(Exception):

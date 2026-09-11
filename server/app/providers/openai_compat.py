@@ -10,9 +10,9 @@ working than an SDK pinned for a server we do not control.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
+import re
 
 import httpx
 
@@ -55,22 +55,44 @@ class OpenAICompatProvider:
             },
         }
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post(
-                f"{self._base_url}/chat/completions",
-                json=body,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            )
-            response.raise_for_status()
-            payload = response.json()
-
-        text = payload["choices"][0]["message"]["content"]
         try:
-            return PlanOutput.model_validate_json(text)
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await self._post(client, body)
+                if response.status_code == 400 and "response_format" in body:
+                    # Ollama and older servers reject json_schema outright. The
+                    # system prompt still asks for JSON; parse best-effort below.
+                    logger.info("server rejected response_format; retrying without it")
+                    body.pop("response_format")
+                    response = await self._post(client, body)
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPError as err:
+            logger.error("self-hosted VLM request failed: %s", type(err).__name__)
+            return _no_plan(f"The self-hosted reasoning backend is unavailable ({type(err).__name__}).")
+
+        try:
+            text = payload["choices"][0]["message"]["content"]
+            return PlanOutput.model_validate_json(_strip_fences(text))
         except Exception:
             logger.warning("self-hosted model returned unparseable JSON; planning nothing")
-            return PlanOutput(
-                reasoning_summary="The self-hosted model did not return a valid plan.",
-                actions=[],
-                requires_client_secret=False,
-            )
+            return _no_plan("The self-hosted model did not return a valid plan.")
+
+    async def _post(self, client: httpx.AsyncClient, body: dict) -> httpx.Response:
+        return await client.post(
+            f"{self._base_url}/chat/completions",
+            json=body,
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+
+
+_FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.S)
+
+
+def _strip_fences(text: str) -> str:
+    """Smaller models wrap JSON in a markdown fence even when told not to."""
+    match = _FENCE.match(text)
+    return match.group(1) if match else text
+
+
+def _no_plan(reason: str) -> PlanOutput:
+    return PlanOutput(reasoning_summary=reason, actions=[], requires_client_secret=False)

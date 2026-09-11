@@ -39,6 +39,12 @@ app.add_middleware(
 )
 
 
+# Resolve the provider now rather than on the first request: a missing SDK, a
+# bad ATHENA_PROVIDER value or a constructor error should stop uvicorn at boot,
+# not surface as a 500 in front of an audience.
+logging.getLogger("athena").info("provider=%s ingress_policy=%s", get_provider().name, current_policy())
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, object]:
     """Reports which backend is live — a demo must not silently run on the mock."""
