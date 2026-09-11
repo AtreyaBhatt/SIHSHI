@@ -100,10 +100,12 @@ let socket;
 try {
   let pages = [];
   for (let i = 0; i < 60 && pages.length === 0; i++) {
-    try { pages = (await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json()).filter((t) => t.type === 'page'); } catch {}
+    try {
+      pages = (await (await fetch(`http://127.0.0.1:${CDP_PORT}/json`)).json()).filter((t) => t.type === 'page');
+    } catch {}
     if (pages.length === 0) await sleep(250);
   }
-  if (pages.length === 0) throw new Error('No Chrome page target');
+  if (pages.length === 0) throw new Error('No face detector test page target');
 
   socket = new WebSocket(pages[0].webSocketDebuggerUrl);
   await new Promise((ok, no) => { socket.onopen = ok; socket.onerror = () => no(new Error('CDP connect failed')); });
@@ -113,6 +115,14 @@ try {
     const m = JSON.parse(e.data);
     if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
   };
+  const call = (method, params) => {
+    const id = ++nextId;
+    return new Promise((ok) => {
+      pending.set(id, ok);
+      socket.send(JSON.stringify({ id, method, params }));
+    });
+  };
+  await call('Page.navigate', { url: `http://127.0.0.1:${HTTP_PORT}/` });
   const evaluate = async (expression) => {
     const id = ++nextId;
     const reply = await new Promise((ok) => {
@@ -125,7 +135,7 @@ try {
 
   for (let i = 0; i < 60 && (await evaluate('document.readyState')) !== 'complete'; i++) await sleep(200);
   for (let i = 0; i < 40 && !(await evaluate('typeof ATHENA !== "undefined"')); i++) await sleep(200);
-  for (let i = 0; i < 40 && !(await evaluate('document.getElementById("pic").complete')); i++) await sleep(200);
+  for (let i = 0; i < 40 && !(await evaluate('document.getElementById("pic")?.complete === true')); i++) await sleep(200);
 
   const result = JSON.parse(await evaluate(`ATHENA.run(0.6).then(r => JSON.stringify(r))`));
 

@@ -6,6 +6,10 @@ Not committed — `.gitignore` excludes `*.onnx`. Fetch with:
 cd extension && npm run fetch:model
 ```
 
+The extension build requires this file and fails closed when it is absent; a
+partially built extension cannot run local face perception. Fetch the pinned
+artifact before `npm run build`.
+
 ## version-RFB-320.onnx — face detection
 
 | | |

@@ -54,12 +54,12 @@ async function copyStatic() {
     await cp(`${ORT_DIST}/${ORT_ARTIFACT}${ext}`, `dist/ort/${ORT_ARTIFACT}${ext}`);
   }
 
-  if (existsSync('models/version-RFB-320.onnx')) {
-    await cp('models/version-RFB-320.onnx', 'dist/models/version-RFB-320.onnx');
-  } else {
-    console.warn('[athena] models/version-RFB-320.onnx is absent — face detection will be unavailable.');
-    console.warn('[athena] fetch it with: npm run fetch:model');
+  if (!existsSync('models/version-RFB-320.onnx')) {
+    throw new Error(
+      '[athena] missing models/version-RFB-320.onnx — run "npm run fetch:model" before building the extension.',
+    );
   }
+  await cp('models/version-RFB-320.onnx', 'dist/models/version-RFB-320.onnx');
 }
 
 const common = {
