@@ -201,7 +201,7 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
     // activeTab was granted for a different tab, or has lapsed because this one
     // navigated. Without it we cannot even read the URL, let alone inject.
     throw new Error(
-      'ATHENA has no access to this tab. Click the ATHENA toolbar icon on the page (one-off), or enable ATHENA on the site from the panel (persistent).',
+      'ATHENA has no access to this tab. Click the ATHENA toolbar icon (it grants one-off access and keeps the panel open), or use Enable on this site in the panel for persistent access.',
     );
   }
   if (isRestrictedUrl(tab.url)) {
@@ -405,18 +405,21 @@ api.runtime.onMessage.addListener(
 );
 
 /**
- * Bind the toolbar icon to the panel.
- *
- * MV3 has no manifest key for "this extension's UI is a side panel" the way
- * `action.default_popup` declares a popup, so the association is made at runtime.
- * `setPanelBehavior` is idempotent and cheap, and the worker is torn down and
- * restarted freely, so this runs on every start: that is also what makes the
- * binding survive an extension reload or an update.
+ * The toolbar icon opens the panel and grants activeTab for the page — every
+ * time, never toggling the panel closed. Chrome's built-in
+ * `openPanelOnActionClick` toggles, which turns "click the icon to grant
+ * access" into "click the icon and watch the panel disappear". Handling the
+ * click ourselves keeps the gesture (sidePanel.open requires one) and keeps
+ * the panel up. The keyboard shortcut (`_execute_action`) lands here too.
  */
 if (api.sidePanel) {
   api.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((err) => console.warn('[athena] could not bind the toolbar icon to the side panel:', err));
+    .setPanelBehavior({ openPanelOnActionClick: false })
+    .catch((err) => console.warn('[athena] could not configure the side panel:', err));
+  api.action.onClicked.addListener((tab) => {
+    if (tab.id === undefined) return;
+    api.sidePanel.open({ tabId: tab.id }).catch((err) => console.warn('[athena] could not open the side panel:', err));
+  });
 } else {
   console.warn('[athena] chrome.sidePanel is unavailable; open the panel from the side-panel picker.');
 }

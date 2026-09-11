@@ -267,7 +267,7 @@ async function refreshPageContext(): Promise<void> {
     return;
   }
   if (tab.url === undefined) {
-    show(tab.title ?? 'Untitled tab', 'Access not granted for this tab', 'Click the ATHENA toolbar icon on this page to grant access.', true);
+    show(tab.title ?? 'Untitled tab', 'Access not granted for this tab', 'Click the ATHENA toolbar icon to grant access to this page — the panel stays open.', true);
     // activeTab arrives when the user clicks the toolbar icon, and no event fires
     // when it does — so keep re-checking until the page becomes readable.
     window.clearTimeout(pageTimer);

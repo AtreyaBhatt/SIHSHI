@@ -94,6 +94,9 @@ Extension **Details → Extension options**, then add two slots:
 Click the ATHENA toolbar icon on any normal `http(s)` page. The **side panel**
 opens beside the page and stays there — including across tab switches, which is
 the point: the approval prompt has to survive long enough to approve it.
+Clicking the icon always opens the panel and grants one-off access to that tab;
+it never closes the panel. If you navigate to another site after opening the
+panel, click the icon again or enable the site persistently.
 
 | | |
 |---|---|
