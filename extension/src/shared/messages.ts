@@ -10,17 +10,17 @@ import type { ActionOutcome, ExecutableAction } from '../executor/execute';
  * when the panel is open, the active tab is the one the user is looking at.
  */
 export type PanelToWorker =
-  | { type: 'ppva:run-capture'; tab_id?: number }
-  | { type: 'ppva:get-last-capture' }
-  | { type: 'ppva:build-payload'; threshold: number; task_instruction: string }
-  | { type: 'ppva:reset-session' }
-  | { type: 'ppva:request-plan'; threshold: number; task_instruction: string; tab_id?: number }
-  | { type: 'ppva:execute-plan'; tab_id?: number }
-  | { type: 'ppva:check-health' };
+  | { type: 'athena:run-capture'; tab_id?: number }
+  | { type: 'athena:get-last-capture' }
+  | { type: 'athena:build-payload'; threshold: number; task_instruction: string }
+  | { type: 'athena:reset-session' }
+  | { type: 'athena:request-plan'; threshold: number; task_instruction: string; tab_id?: number }
+  | { type: 'athena:execute-plan'; tab_id?: number }
+  | { type: 'athena:check-health' };
 
 export type WorkerToContent =
-  | { type: 'ppva:capture-dom' }
-  | { type: 'ppva:execute'; actions: ExecutableAction[]; allowed_selectors: string[] };
+  | { type: 'athena:capture-dom' }
+  | { type: 'athena:execute'; actions: ExecutableAction[]; allowed_selectors: string[] };
 
 export type ContentToWorker =
   | { ok: true; snapshot: RawSnapshot }
@@ -64,11 +64,11 @@ export type WorkerReply<T> = { ok: true; data: T } | { ok: false; error: string 
 
 /** Ties each request to the shape it answers with, so callers need no casts. */
 export type ResponseFor<M extends PanelToWorker> =
-  M extends { type: 'ppva:run-capture' } ? CaptureResult
-  : M extends { type: 'ppva:get-last-capture' } ? CaptureResult | null
-  : M extends { type: 'ppva:build-payload' } ? PayloadPreview
-  : M extends { type: 'ppva:reset-session' } ? { session_id: string }
-  : M extends { type: 'ppva:request-plan' } ? PlanPreview
-  : M extends { type: 'ppva:execute-plan' } ? ExecutionResult
-  : M extends { type: 'ppva:check-health' } ? HealthReport
+  M extends { type: 'athena:run-capture' } ? CaptureResult
+  : M extends { type: 'athena:get-last-capture' } ? CaptureResult | null
+  : M extends { type: 'athena:build-payload' } ? PayloadPreview
+  : M extends { type: 'athena:reset-session' } ? { session_id: string }
+  : M extends { type: 'athena:request-plan' } ? PlanPreview
+  : M extends { type: 'athena:execute-plan' } ? ExecutionResult
+  : M extends { type: 'athena:check-health' } ? HealthReport
   : never;

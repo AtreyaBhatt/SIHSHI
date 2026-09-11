@@ -22,9 +22,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9335);
-const SERVER_PORT = Number(process.env.PPVA_SERVER_PORT ?? 8788);
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9335);
+const SERVER_PORT = Number(process.env.ATHENA_SERVER_PORT ?? 8788);
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const fixture = resolve(process.argv[2] ?? '../eval/fixtures/bank-login.html');
 const serverDir = resolve('../server');
@@ -32,7 +32,7 @@ const serverDir = resolve('../server');
 /** Stands in for the local vault. These strings must never reach the server. */
 const VAULT = { 'user_saved:username': 'demo-user-42', 'user_saved:password': 'demo-secret-123' };
 
-const workdir = await mkdtemp(join(tmpdir(), 'ppva-e2e-'));
+const workdir = await mkdtemp(join(tmpdir(), 'athena-e2e-'));
 let failures = 0;
 const pass = (m) => console.log(`  ok   ${m}`);
 const fail = (m) => { failures++; console.error(`  FAIL ${m}`); };
@@ -57,7 +57,7 @@ export function fieldValue(selector) {
   return el ? el.value : null;
 }
 `);
-await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'PPVA', target: 'chrome116', logLevel: 'error' });
+await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
 const bundle = await readFile(join(workdir, 'bundle.js'), 'utf8');
 
 const server = spawn('uv', ['run', 'uvicorn', 'main:app', '--port', String(SERVER_PORT), '--log-level', 'warning'], { cwd: serverDir, stdio: 'ignore' });
@@ -106,7 +106,7 @@ try {
 
   // --- capture → redact -----------------------------------------------------
   const request = JSON.parse(await evaluate(
-    `PPVA.buildPayload('Log me in to this portal.').then(r => JSON.stringify(r))`,
+    `ATHENA.buildPayload('Log me in to this portal.').then(r => JSON.stringify(r))`,
   ));
   const requestBody = JSON.stringify(request);
   console.log(`payload      ${request.dom_summary.length} nodes, ${request.redaction_manifest.length} redactions`);
@@ -150,7 +150,7 @@ try {
     return out;
   });
   const run = async (batch) => JSON.parse(await evaluate(
-    `PPVA.executeActions(${JSON.stringify(batch)}, ${JSON.stringify([...known])}).then(o => JSON.stringify(o))`,
+    `ATHENA.executeActions(${JSON.stringify(batch)}, ${JSON.stringify([...known])}).then(o => JSON.stringify(o))`,
   ));
   const report = (outcomes) => {
     for (const outcome of outcomes) {
@@ -168,8 +168,8 @@ try {
   report(await run(fills));
 
   console.log('\nthe fields were actually filled:');
-  const typedPassword = await evaluate(`PPVA.fieldValue('input#password')`);
-  const typedUsername = await evaluate(`PPVA.fieldValue('input#customer-id')`);
+  const typedPassword = await evaluate(`ATHENA.fieldValue('input#password')`);
+  const typedUsername = await evaluate(`ATHENA.fieldValue('input#customer-id')`);
   if (typedPassword === VAULT['user_saved:password']) pass('password field holds the locally-resolved credential');
   else fail(`password field holds ${JSON.stringify(typedPassword)}`);
   if (typedUsername === VAULT['user_saved:username']) pass('username field holds the locally-resolved credential');

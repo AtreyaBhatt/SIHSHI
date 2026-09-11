@@ -19,11 +19,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const PORT = Number(process.env.PPVA_CDP_PORT ?? 9333);
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const PORT = Number(process.env.ATHENA_CDP_PORT ?? 9333);
 const fixture = resolve(process.argv[2] ?? '../eval/fixtures/bank-login.html');
 
-const workdir = await mkdtemp(join(tmpdir(), 'ppva-smoke-'));
+const workdir = await mkdtemp(join(tmpdir(), 'athena-smoke-'));
 const bundlePath = join(workdir, 'snapshot.js');
 
 await build({
@@ -31,7 +31,7 @@ await build({
   outfile: bundlePath,
   bundle: true,
   format: 'iife',
-  globalName: 'PPVA',
+  globalName: 'ATHENA',
   target: 'chrome116',
   logLevel: 'error',
 });
@@ -88,7 +88,7 @@ try {
   for (let i = 0; i < 40 && (await evaluate('document.readyState')) !== 'complete'; i++) await sleep(200);
 
   const report = JSON.parse(await evaluate(`${bundle}; (() => {
-    const snap = PPVA.captureDomSnapshot();
+    const snap = ATHENA.captureDomSnapshot();
     const problems = [];
     for (const n of snap.nodes) {
       let count = -1;

@@ -21,10 +21,10 @@ import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9337);
-const HTTP_PORT = Number(process.env.PPVA_HTTP_PORT ?? 8899);
-const ORT_EP = process.env.PPVA_ORT_EP === 'webgpu' ? 'webgpu' : 'wasm';
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9337);
+const HTTP_PORT = Number(process.env.ATHENA_HTTP_PORT ?? 8899);
+const ORT_EP = process.env.ATHENA_ORT_EP === 'webgpu' ? 'webgpu' : 'wasm';
 const ORT_ARTIFACT = ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
 
 const MODEL = resolve('models/version-RFB-320.onnx');
@@ -42,7 +42,7 @@ for (const [what, path] of [['model', MODEL], ['test image', IMAGE]]) {
   }
 }
 
-const root = await mkdtemp(join(tmpdir(), 'ppva-faces-'));
+const root = await mkdtemp(join(tmpdir(), 'athena-faces-'));
 await mkdir(join(root, 'ort'), { recursive: true });
 await mkdir(join(root, 'models'), { recursive: true });
 
@@ -62,7 +62,7 @@ export async function run(threshold) {
 `);
 await build({
   entryPoints: [entry], outfile: join(root, 'bundle.js'), bundle: true, format: 'iife',
-  globalName: 'PPVA', target: 'chrome116', logLevel: 'error',
+  globalName: 'ATHENA', target: 'chrome116', logLevel: 'error',
   conditions: ['onnxruntime-web-use-extern-wasm'],
   alias: ORT_EP === 'webgpu' ? {} : { 'onnxruntime-web': 'onnxruntime-web/wasm' },
 });
@@ -124,10 +124,10 @@ try {
   };
 
   for (let i = 0; i < 60 && (await evaluate('document.readyState')) !== 'complete'; i++) await sleep(200);
-  for (let i = 0; i < 40 && !(await evaluate('typeof PPVA !== "undefined"')); i++) await sleep(200);
+  for (let i = 0; i < 40 && !(await evaluate('typeof ATHENA !== "undefined"')); i++) await sleep(200);
   for (let i = 0; i < 40 && !(await evaluate('document.getElementById("pic").complete')); i++) await sleep(200);
 
-  const result = JSON.parse(await evaluate(`PPVA.run(0.6).then(r => JSON.stringify(r))`));
+  const result = JSON.parse(await evaluate(`ATHENA.run(0.6).then(r => JSON.stringify(r))`));
 
   console.log(`image        ${result.image.width}x${result.image.height}`);
   console.log(`provider     ${result.runtime.provider}`);

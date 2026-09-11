@@ -1,7 +1,7 @@
 /**
- * AAVARAN side panel.
+ * ATHENA side panel.
  *
- * Ported from the design of record, `design/aavaran-sidebar/build.py`, which
+ * Ported from the design of record, `design/athena-sidebar/build.py`, which
  * emits the same markup at 400 px and 320 px. The tokens, radii, type scale and
  * component rules below are that design's, unchanged; what is added is the
  * machinery a static artboard did not need — a scrolling body, the screenshot

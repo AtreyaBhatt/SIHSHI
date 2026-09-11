@@ -1,4 +1,4 @@
-# PPVA — handoff
+# ATHENA — handoff
 
 State of the repository as of 2026-09-10, for whoever picks this up next.
 
@@ -76,7 +76,7 @@ execute  ←───────────── executePlanFlow
 |---|---|---|
 | `capture/dom-snapshot.ts` | Serializes visible DOM | Filters cheapest-first (tag → rect → `getComputedStyle`). Text clip is **600 chars for text, 200 for labels** — a payload-size bound, *not* a privacy control. The invariant is "we only send what we scanned". |
 | `capture/content-script.ts` | Injected on demand under `activeTab` | Not declared statically — the extension holds no standing page access. Also hosts the executor. |
-| `perception/runtime.ts` | ONNX session, EP selection | Checks `navigator.gpu`, requests `['webgpu','wasm']`, falls back. Which wasm artifact ships is the `PPVA_ORT_EP` build flag. |
+| `perception/runtime.ts` | ONNX session, EP selection | Checks `navigator.gpu`, requests `['webgpu','wasm']`, falls back. Which wasm artifact ships is the `ATHENA_ORT_EP` build flag. |
 | `perception/face-detect.ts` | UltraFace pre/post + NMS | Full-frame 320×240 pass; `regions` adds per-media passes for small faces. Model outputs decoded boxes — no anchor maths. |
 | `perception/offscreen.ts` | Hosts inference | **Why an offscreen doc:** a content script inherits the *visited page's* CSP and many sites forbid `wasm-unsafe-eval`; service-worker wasm/WebGPU support is uneven. |
 | `pii-detection/dom-heuristics.ts` | Stage 1, 16 rules | Structural tags (`label/dt/th/legend/caption`) are **exempt** — otherwise a rule keyed on "password" redacts the label that identified the field. |
@@ -222,7 +222,7 @@ Three things to know before relying on it:
 | 7 | **WebGPU is a build flag, defaulting off** | jsep runtime is 26.5 MB vs 13.3 MB; shipping it exceeds PRD §8's budget for marginal gain on a one-shot 320×240 model. |
 | 8 | **Vault is unencrypted** | Chrome exposes no API for the real password manager. Labelled as a demo vault in the options UI. |
 | 9 | **The panel can only inspect a tab it was invoked on** | `activeTab` is granted per tab on the toolbar click. Switching tabs does not re-grant it, so the panel marks itself stale and asks the user to invoke it on the new page rather than pretending. Fixing it properly means `optional_host_permissions` and a per-site enable, which is a permission escalation this product should argue for explicitly, not ship quietly. |
-| 10 | **The panel is styled to `design/aavaran-sidebar/`; the options and viewer pages are not** | The panel adopts the design's white/Instrument Sans system. The other two pages still carry the earlier look, so the extension is visually inconsistent until someone decides the design wins everywhere. |
+| 10 | **The panel is styled to `design/athena-sidebar/`; the options and viewer pages are not** | The panel adopts the design's white/Instrument Sans system. The other two pages still carry the earlier look, so the extension is visually inconsistent until someone decides the design wins everywhere. |
 
 ---
 

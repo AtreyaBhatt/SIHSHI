@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ppva.local/eval/annotation.schema.json",
-  "title": "PPVA corpus annotation",
+  "$id": "https://athena.local/eval/annotation.schema.json",
+  "title": "ATHENA corpus annotation",
   "description": "Ground truth for one screen. Records what is sensitive and where — never the value itself.",
   "type": "object",
   "required": ["screen_id", "source", "viewport", "annotations"],

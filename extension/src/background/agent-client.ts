@@ -11,7 +11,7 @@
 import type { AgentRequest, AgentResponse } from '../shared/schema';
 import { api } from '../shared/browser';
 
-const SERVER_URL_KEY = 'ppva:server-url';
+const SERVER_URL_KEY = 'athena:server-url';
 export const DEFAULT_SERVER_URL = 'http://127.0.0.1:8787';
 
 export async function getServerUrl(): Promise<string> {

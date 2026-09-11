@@ -1,9 +1,9 @@
-"""PPVA reasoning backend.
+"""ATHENA reasoning backend.
 
     uv run uvicorn main:app --reload --port 8787
 
-Runs with zero configuration on the mock provider. Set PPVA_PROVIDER=anthropic
-for the cloud VLM, or PPVA_PROVIDER=openai-compat plus PPVA_VLM_BASE_URL for a
+Runs with zero configuration on the mock provider. Set ATHENA_PROVIDER=anthropic
+for the cloud VLM, or ATHENA_PROVIDER=openai-compat plus ATHENA_VLM_BASE_URL for a
 self-hosted Qwen2-VL.
 """
 
@@ -22,18 +22,18 @@ from app.reasoning import plan_actions
 from app.schemas import AgentRequest, AgentResponse
 
 logging.basicConfig(
-    level=os.getenv("PPVA_LOG_LEVEL", "INFO"),
+    level=os.getenv("ATHENA_LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)-7s %(name)s %(message)s",
 )
 
-app = FastAPI(title="PPVA reasoning backend", version="0.1.0")
+app = FastAPI(title="ATHENA reasoning backend", version="0.1.0")
 
 # The extension calls from a chrome-extension:// origin. Host permissions already
 # let the service worker bypass CORS, so this is here for browser-side tooling
 # and local development; tighten it before this is ever exposed off localhost.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("PPVA_ALLOWED_ORIGINS", "*").split(","),
+    allow_origins=os.getenv("ATHENA_ALLOWED_ORIGINS", "*").split(","),
     allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )

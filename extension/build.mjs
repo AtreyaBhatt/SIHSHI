@@ -15,7 +15,7 @@ const dev = watch || process.argv.includes('--dev');
  * The runtime code requests WebGPU either way and falls back to WASM, which is
  * exactly what the smaller artifact makes it do.
  */
-const ORT_EP = process.env.PPVA_ORT_EP === 'webgpu' ? 'webgpu' : 'wasm';
+const ORT_EP = process.env.ATHENA_ORT_EP === 'webgpu' ? 'webgpu' : 'wasm';
 const ORT_DIST = 'node_modules/onnxruntime-web/dist';
 const ORT_ARTIFACT = ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
 
@@ -57,8 +57,8 @@ async function copyStatic() {
   if (existsSync('models/version-RFB-320.onnx')) {
     await cp('models/version-RFB-320.onnx', 'dist/models/version-RFB-320.onnx');
   } else {
-    console.warn('[ppva] models/version-RFB-320.onnx is absent — face detection will be unavailable.');
-    console.warn('[ppva] fetch it with: npm run fetch:model');
+    console.warn('[athena] models/version-RFB-320.onnx is absent — face detection will be unavailable.');
+    console.warn('[athena] fetch it with: npm run fetch:model');
   }
 }
 
@@ -84,11 +84,11 @@ if (watch) {
   );
   await copyStatic();
   await Promise.all(ctxs.map((c) => c.watch()));
-  console.log('[ppva] watching… (static files are copied once; re-run to pick up html/css/manifest edits)');
+  console.log('[athena] watching… (static files are copied once; re-run to pick up html/css/manifest edits)');
 } else {
   await Promise.all(
     targets.map((t) => build({ ...common, entryPoints: [t.in], outfile: t.out, format: t.format })),
   );
   await copyStatic();
-  console.log(`[ppva] build complete -> extension/dist (ORT execution provider: ${ORT_EP})`);
+  console.log(`[athena] build complete -> extension/dist (ORT execution provider: ${ORT_EP})`);
 }

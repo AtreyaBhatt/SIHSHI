@@ -7,7 +7,7 @@ then watching the real page complete it. A toolbar popup is destroyed the moment
 it loses focus, so the approval UI disappears at exactly the step it exists to
 show. A side panel stays beside the portal.
 
-`design/aavaran-sidebar/` is the design of record: a right-hand assistant panel
+`design/athena-sidebar/` is the design of record: a right-hand assistant panel
 with a current-page card, a privacy summary, an ask box, a sanitized preview with
 a redaction legend, an agent plan with an approval gate, and a privacy activity
 log. `build.py` emits it once for 400 px and once for 320 px so the two artboards
@@ -45,6 +45,6 @@ transport-agnostic and already carries everything the panel needs.
 - `activeTab` is granted per tab on invocation; the panel cannot capture a tab the
   user has not invoked it on, and says so instead of pretending.
 - The vault is a demo vault, unencrypted at rest (see `src/shared/vault.ts`).
-- The design's wordmark is AAVARAN while the manifest, README and PRD still say
-  PPVA. The panel follows the design; unifying the name across the repo is a
+- The design's wordmark is ATHENA while the manifest, README and PRD still say
+  ATHENA. The panel follows the design; unifying the name across the repo is a
   separate decision.

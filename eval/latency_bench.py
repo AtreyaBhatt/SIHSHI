@@ -62,7 +62,7 @@ def main() -> int:
     p50_by_stage = {key: percentile([r[key] for r in runs], 0.50) for _, key, _ in STAGES}
     scale = max(p50_by_stage.values())
 
-    print(f"PPVA latency waterfall — {len(runs)} runs, provider \"{data['provider']}\"")
+    print(f"ATHENA latency waterfall — {len(runs)} runs, provider \"{data['provider']}\"")
     if data.get("perception_init_ms"):
         print(f"model session init {data['perception_init_ms']:.0f} ms (once per worker lifetime, excluded below)")
     if not data.get("model_present"):

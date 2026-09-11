@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "PPVA — Privacy-Preserving Vision Agent",
+  "name": "ATHENA — Privacy-Preserving Vision Agent",
   "version": "0.1.0",
   "description": "Local perception and redaction for browser agents. Only sanitized context reaches the reasoning server.",
   "minimum_chrome_version": "116",
@@ -20,7 +20,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "PPVA — capture, redact, plan"
+    "default_title": "ATHENA — capture, redact, plan"
   },
   "side_panel": {
     "default_path": "sidebar/sidebar.html"

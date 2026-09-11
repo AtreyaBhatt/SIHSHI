@@ -55,7 +55,7 @@ def test_rejection_never_echoes_the_value(bank_login_payload):
 
 
 def test_reject_is_the_default_policy(bank_login_payload, monkeypatch):
-    monkeypatch.delenv("PPVA_INGRESS_POLICY", raising=False)
+    monkeypatch.delenv("ATHENA_INGRESS_POLICY", raising=False)
     payload = dict(bank_login_payload)
     payload["dom_summary"] = [*payload["dom_summary"], {"path": "input#leak", "value": RAW_CARD}]
 
@@ -64,7 +64,7 @@ def test_reject_is_the_default_policy(bank_login_payload, monkeypatch):
 
 
 def test_redact_policy_scrubs_and_continues(bank_login_payload, monkeypatch):
-    monkeypatch.setenv("PPVA_INGRESS_POLICY", "redact")
+    monkeypatch.setenv("ATHENA_INGRESS_POLICY", "redact")
     payload = dict(bank_login_payload)
     payload["dom_summary"] = [*payload["dom_summary"], {"path": "input#leak", "value": RAW_CARD}]
 

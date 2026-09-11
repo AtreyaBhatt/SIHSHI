@@ -185,7 +185,7 @@ function renderPlan(): void {
   document.getElementById('execute')?.addEventListener('click', async () => {
     setStatus('Executing…');
     try {
-      execution = await send({ type: 'ppva:execute-plan', tab_id: targetTabId });
+      execution = await send({ type: 'athena:execute-plan', tab_id: targetTabId });
       const failed = execution.outcomes.filter((o) => !o.ok).length;
       setStatus(failed ? `${failed} action(s) failed.` : `Executed in ${execution.execute_ms} ms.`, failed > 0);
       renderPlan();
@@ -203,9 +203,9 @@ $('run').addEventListener('click', async () => {
   execution = null;
   setStatus('Capturing, redacting, sending…');
   try {
-    capture = await send({ type: 'ppva:run-capture', tab_id: targetTabId });
+    capture = await send({ type: 'athena:run-capture', tab_id: targetTabId });
     plan = await send({
-      type: 'ppva:request-plan',
+      type: 'athena:request-plan',
       threshold: Number($<HTMLInputElement>('threshold').value),
       task_instruction: $<HTMLInputElement>('task').value,
       tab_id: targetTabId,
@@ -225,5 +225,5 @@ $('threshold').addEventListener('input', () => {
 });
 
 if (targetTabId === undefined) {
-  setStatus('Opened without a target tab — open this view from the PPVA side panel so it knows which page to inspect.', true);
+  setStatus('Opened without a target tab — open this view from the ATHENA side panel so it knows which page to inspect.', true);
 }

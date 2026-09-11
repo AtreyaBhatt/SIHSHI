@@ -1,4 +1,4 @@
-# PPVA — Privacy-Preserving Browser-Native Vision Agent
+# ATHENA — Privacy-Preserving Browser-Native Vision Agent
 
 A browser extension and reasoning server that let a cloud VLM understand and act
 on a user's screen **without ever receiving the sensitive parts of it**. All
@@ -91,13 +91,13 @@ Extension **Details → Extension options**, then add two slots:
 
 ## Using it
 
-Click the AAVARAN toolbar icon on any normal `http(s)` page. The **side panel**
+Click the ATHENA toolbar icon on any normal `http(s)` page. The **side panel**
 opens beside the page and stays there — including across tab switches, which is
 the point: the approval prompt has to survive long enough to approve it.
 
 | | |
 |---|---|
-| **Ask AAVARAN** | captures → detects → redacts locally, sends only the sanitized context, then shows the plan it gets back |
+| **Ask ATHENA** | captures → detects → redacts locally, sends only the sanitized context, then shows the plan it gets back |
 | **Analyze page safely** | the same capture → detect → redact with no network request at all |
 | **View what will be shared** | the redaction manifest and the exact request body |
 | **Demo view** | the full-page side-by-side — this is the one to show people |
@@ -161,12 +161,12 @@ Set on the **server** process. The extension does not care which is running.
 uv run uvicorn main:app --port 8787
 
 # 2. cloud VLM
-PPVA_PROVIDER=anthropic uv run uvicorn main:app --port 8787
+ATHENA_PROVIDER=anthropic uv run uvicorn main:app --port 8787
 
 # 3. self-hosted open-weights VLM behind vLLM / SGLang / Ollama
-PPVA_PROVIDER=openai-compat \
-PPVA_VLM_BASE_URL=http://127.0.0.1:8000/v1 \
-PPVA_VLM_MODEL=Qwen/Qwen2-VL-7B-Instruct \
+ATHENA_PROVIDER=openai-compat \
+ATHENA_VLM_BASE_URL=http://127.0.0.1:8000/v1 \
+ATHENA_VLM_MODEL=Qwen/Qwen2-VL-7B-Instruct \
   uv run uvicorn main:app --port 8787
 ```
 
@@ -180,13 +180,13 @@ PPVA_VLM_MODEL=Qwen/Qwen2-VL-7B-Instruct \
 
 | Variable | Default | |
 |---|---|---|
-| `PPVA_PROVIDER` | `mock` | `mock` / `anthropic` / `openai-compat` |
-| `PPVA_MODEL` | `claude-opus-5` | cloud model id |
-| `PPVA_VLM_BASE_URL` | `http://127.0.0.1:8000/v1` | self-hosted endpoint |
-| `PPVA_VLM_MODEL` | `Qwen/Qwen2-VL-7B-Instruct` | self-hosted model id |
-| `PPVA_INGRESS_POLICY` | `reject` | `reject` fails closed; `redact` scrubs and continues |
-| `PPVA_LOG_LEVEL` | `INFO` | |
-| `PPVA_ORT_EP` | `wasm` | build flag: `webgpu` ships the 26.5 MB runtime instead of 13.3 MB |
+| `ATHENA_PROVIDER` | `mock` | `mock` / `anthropic` / `openai-compat` |
+| `ATHENA_MODEL` | `claude-opus-5` | cloud model id |
+| `ATHENA_VLM_BASE_URL` | `http://127.0.0.1:8000/v1` | self-hosted endpoint |
+| `ATHENA_VLM_MODEL` | `Qwen/Qwen2-VL-7B-Instruct` | self-hosted model id |
+| `ATHENA_INGRESS_POLICY` | `reject` | `reject` fails closed; `redact` scrubs and continues |
+| `ATHENA_LOG_LEVEL` | `INFO` | |
+| `ATHENA_ORT_EP` | `wasm` | build flag: `webgpu` ships the 26.5 MB runtime instead of 13.3 MB |
 
 ---
 
@@ -266,7 +266,7 @@ password into a real password field while the server only ever sees
 | *"No local credential is stored for user_saved:password"* | Add the vault slots (step 4). |
 | The perception card's note reads `faces —` | `npm run fetch:model` was skipped, or the page has no faces. |
 | Server unreachable from the extension | It must be on port **8787** — the only origin `host_permissions` allows. |
-| `npm run test:*` cannot find Chrome | `PPVA_CHROME=/path/to/chrome npm run test:e2e` |
+| `npm run test:*` cannot find Chrome | `ATHENA_CHROME=/path/to/chrome npm run test:e2e` |
 | Server rejects with `raw_pii_in_payload` | Working as intended: the client's redaction missed something the server caught. It names the path and pattern, never the value. |
 
 ---

@@ -26,8 +26,8 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LABELS_DIR = join(HERE, 'corpus/labels');
 const SCREENS_DIR = join(HERE, 'corpus/screens');
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9340);
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9340);
 
 /** The corpus viewport, fixed so every bbox is comparable across screens. */
 const VIEWPORT = { width: 1280, height: 800 };
@@ -71,7 +71,7 @@ const MEASURE = `(spec) => {
   return { error: 'text not found in ' + spec.selector + ': ' + spec.text };
 }`;
 
-const profile = await mkdtemp(join(tmpdir(), 'ppva-measure-'));
+const profile = await mkdtemp(join(tmpdir(), 'athena-measure-'));
 const chrome = spawn(CHROME, [
   '--headless=new', `--remote-debugging-port=${CDP_PORT}`,
   `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,

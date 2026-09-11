@@ -15,7 +15,7 @@
  */
 import { api } from './browser';
 
-const VAULT_KEY = 'ppva:vault';
+const VAULT_KEY = 'athena:vault';
 const REF_PREFIX = 'user_saved:';
 
 export type Vault = Record<string, string>;

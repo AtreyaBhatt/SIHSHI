@@ -1,4 +1,4 @@
-"""Provider selection. `PPVA_PROVIDER` is the whole cloud-vs-self-hosted switch."""
+"""Provider selection. `ATHENA_PROVIDER` is the whole cloud-vs-self-hosted switch."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from .base import VisionProvider
 
 @lru_cache(maxsize=1)
 def get_provider() -> VisionProvider:
-    choice = os.getenv("PPVA_PROVIDER", "mock").strip().lower()
+    choice = os.getenv("ATHENA_PROVIDER", "mock").strip().lower()
     if choice == "anthropic":
         from .anthropic_vlm import AnthropicProvider
 

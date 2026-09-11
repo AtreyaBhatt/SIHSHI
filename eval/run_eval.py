@@ -188,7 +188,7 @@ def main() -> int:
         score_screen(screen, prediction, report)
 
     truth_count = report.overall.tp + report.overall.fn
-    print("PPVA evaluation")
+    print("ATHENA evaluation")
     print(f"threshold {payload['threshold']} · {report.screens} screen(s) · {truth_count} labelled item(s)\n")
 
     print("PII DETECTION")

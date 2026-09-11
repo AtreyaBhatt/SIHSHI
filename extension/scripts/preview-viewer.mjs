@@ -18,18 +18,18 @@ import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9343);
-const HTTP_PORT = Number(process.env.PPVA_HTTP_PORT ?? 8896);
-const SERVER_PORT = Number(process.env.PPVA_SERVER_PORT ?? 8790);
-const ORT_ARTIFACT = process.env.PPVA_ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9343);
+const HTTP_PORT = Number(process.env.ATHENA_HTTP_PORT ?? 8896);
+const SERVER_PORT = Number(process.env.ATHENA_SERVER_PORT ?? 8790);
+const ORT_ARTIFACT = process.env.ATHENA_ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
 
 const FIXTURE = process.argv[2] ?? 'bank-login.html';
 const OUT_DIR = resolve(process.argv[3] ?? '../eval/results');
 const MODEL = resolve('models/version-RFB-320.onnx');
 const haveModel = existsSync(MODEL);
 
-const root = await mkdtemp(join(tmpdir(), 'ppva-preview-'));
+const root = await mkdtemp(join(tmpdir(), 'athena-preview-'));
 await mkdir(join(root, 'ort'), { recursive: true });
 await mkdir(join(root, 'models'), { recursive: true });
 await cp(resolve('../eval/fixtures'), root, { recursive: true });
@@ -79,9 +79,9 @@ export async function run(shot) {
 `);
 await build({
   entryPoints: [entry], outfile: join(root, 'pipeline.js'), bundle: true, format: 'iife',
-  globalName: 'PPVA', target: 'chrome116', logLevel: 'error',
+  globalName: 'ATHENA', target: 'chrome116', logLevel: 'error',
   conditions: ['onnxruntime-web-use-extern-wasm'],
-  alias: process.env.PPVA_ORT_EP === 'webgpu' ? {} : { 'onnxruntime-web': 'onnxruntime-web/wasm' },
+  alias: process.env.ATHENA_ORT_EP === 'webgpu' ? {} : { 'onnxruntime-web': 'onnxruntime-web/wasm' },
 });
 const pipeline = await readFile(join(root, 'pipeline.js'), 'utf8');
 
@@ -134,7 +134,7 @@ try {
   const shot = await call('Page.captureScreenshot', { format: 'png' });
   await evaluate(pipeline);
   const data = JSON.parse(await evaluate(
-    `PPVA.run(${JSON.stringify(`data:image/png;base64,${shot.result.data}`)}).then((r) => JSON.stringify(r))`,
+    `ATHENA.run(${JSON.stringify(`data:image/png;base64,${shot.result.data}`)}).then((r) => JSON.stringify(r))`,
   ));
 
   const planResponse = await fetch(`http://127.0.0.1:${SERVER_PORT}/agent/plan`, {
@@ -157,9 +157,9 @@ try {
       runtime: {
         getURL: (p) => '/' + p,
         sendMessage: async (m) => {
-          if (m.type === 'ppva:run-capture') return { ok: true, data: canned.capture };
-          if (m.type === 'ppva:request-plan') return { ok: true, data: canned.plan };
-          if (m.type === 'ppva:execute-plan') return { ok: true, data: { outcomes: canned.plan.response.actions.map((a) => ({ action: a.action, selector: a.selector ?? null, ok: true, duration_ms: 0.7 })), execute_ms: 2.4 } };
+          if (m.type === 'athena:run-capture') return { ok: true, data: canned.capture };
+          if (m.type === 'athena:request-plan') return { ok: true, data: canned.plan };
+          if (m.type === 'athena:execute-plan') return { ok: true, data: { outcomes: canned.plan.response.actions.map((a) => ({ action: a.action, selector: a.selector ?? null, ok: true, duration_ms: 0.7 })), execute_ms: 2.4 } };
           return { ok: false, error: 'unstubbed ' + m.type };
         },
       },

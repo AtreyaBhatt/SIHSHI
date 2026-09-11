@@ -1,4 +1,4 @@
-# PPVA eval corpus
+# ATHENA eval corpus
 
 Ground truth for the two metrics worth 40% of the rubric: **PII detection
 precision/recall** (PRD §8) and **IoU-based redaction precision**.

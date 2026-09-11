@@ -25,14 +25,14 @@ from typing import Literal
 from .patterns import find_raw_pii
 from .schemas import AgentRequest, SanitizedDomNode
 
-logger = logging.getLogger("ppva.ingress")
+logger = logging.getLogger("athena.ingress")
 
 Policy = Literal["reject", "redact"]
 
 
 def current_policy() -> Policy:
     """`reject` fails closed and is the default; `redact` scrubs and continues."""
-    value = os.getenv("PPVA_INGRESS_POLICY", "reject").strip().lower()
+    value = os.getenv("ATHENA_INGRESS_POLICY", "reject").strip().lower()
     return "redact" if value == "redact" else "reject"
 
 

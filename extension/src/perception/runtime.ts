@@ -10,7 +10,7 @@
  * detail. ORT's WebGPU-capable wasm ("jsep") is 26.5 MB on disk; the WASM-SIMD-
  * only binary is 13.3 MB. PRD §8 budgets under 20 MB. The build therefore
  * defaults to the WASM binary and stays inside that budget, and
- * `PPVA_ORT_EP=webgpu npm run build` ships the larger one. The code below is
+ * `ATHENA_ORT_EP=webgpu npm run build` ships the larger one. The code below is
  * identical either way — with the smaller artifact, requesting WebGPU simply
  * falls through to WASM, which is the documented fallback behaving as intended.
  *

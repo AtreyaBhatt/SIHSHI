@@ -49,7 +49,7 @@ The ONNX Runtime wasm binary dominates the package, not the model:
 | Build | Artifact | On disk | Gzipped | Providers |
 |---|---|---|---|---|
 | `npm run build` (default) | `ort-wasm-simd-threaded.wasm` | 13.3 MB | 3.4 MB | WASM SIMD |
-| `PPVA_ORT_EP=webgpu npm run build` | `ort-wasm-simd-threaded.jsep.wasm` | 26.5 MB | 6.3 MB | WebGPU + WASM SIMD |
+| `ATHENA_ORT_EP=webgpu npm run build` | `ort-wasm-simd-threaded.jsep.wasm` | 26.5 MB | 6.3 MB | WebGPU + WASM SIMD |
 
 PRD §8 budgets under 20 MB of client payload. The default build totals ~15 MB
 including the model and stays inside it; the WebGPU build does not. The runtime

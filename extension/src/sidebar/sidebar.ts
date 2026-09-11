@@ -1,5 +1,5 @@
 /**
- * AAVARAN side panel controller.
+ * ATHENA side panel controller.
  *
  * This is the extension's user surface: it reads the page the user is on, shows
  * what local perception found, shows the exact sanitized body that would cross
@@ -220,7 +220,7 @@ async function refreshPageContext(): Promise<void> {
     return;
   }
   if (tab.url === undefined) {
-    show(tab.title ?? 'Untitled tab', 'Access not granted for this tab', 'Click the AAVARAN toolbar icon on this page to grant access.', true);
+    show(tab.title ?? 'Untitled tab', 'Access not granted for this tab', 'Click the ATHENA toolbar icon on this page to grant access.', true);
     return;
   }
   if (isRestrictedUrl(tab.url)) {
@@ -290,7 +290,7 @@ function renderDetections(): void {
     boxes,
     capture
       ? `No screenshot — ${capture.screenshot_error ?? 'unavailable'}. The DOM snapshot is still usable.`
-      : 'No capture yet. Ask AAVARAN to look at this page.',
+      : 'No capture yet. Ask ATHENA to look at this page.',
   );
 
   if (detections.length === 0) {
@@ -383,7 +383,7 @@ function renderPlan(): void {
   if (!plan) {
     planBadge.textContent = 'Idle';
     planBadge.className = 'tag';
-    planSteps.innerHTML = '<p class="empty" style="margin-top:10px;">No plan yet. Ask AAVARAN to capture and plan.</p>';
+    planSteps.innerHTML = '<p class="empty" style="margin-top:10px;">No plan yet. Ask ATHENA to capture and plan.</p>';
     planActions.hidden = true;
     return;
   }
@@ -451,12 +451,12 @@ function currentTaskInstruction(): string {
 /** Capture → detect → redact. No network: this is the "analyze safely" path. */
 async function captureAndRedact(): Promise<void> {
   setPerceptionNote('Capturing…');
-  capture = await send({ type: 'ppva:run-capture' });
+  capture = await send({ type: 'athena:run-capture' });
   inspectedTabId = currentTabId;
   note(`Captured ${capture.snapshot.nodes.length} nodes from ${capture.snapshot.viewport.width}×${capture.snapshot.viewport.height}`, 'ok');
 
   preview = await send({
-    type: 'ppva:build-payload',
+    type: 'athena:build-payload',
     threshold: Number(thresholdInput.value),
     task_instruction: currentTaskInstruction(),
   });
@@ -474,7 +474,7 @@ async function captureAndRedact(): Promise<void> {
 async function rebuild(): Promise<void> {
   if (!capture) return;
   preview = await send({
-    type: 'ppva:build-payload',
+    type: 'athena:build-payload',
     threshold: Number(thresholdInput.value),
     task_instruction: currentTaskInstruction(),
   });
@@ -498,7 +498,7 @@ function openApproval(): void {
     ['Target', currentPageLabel, false],
     ['Local credential', response.requires_client_secret ? 'resolved on this device' : 'not required', response.requires_client_secret],
   ];
-  $('approval-body').innerHTML = `AAVARAN will run <strong>${response.actions.length} action${response.actions.length === 1 ? '' : 's'}</strong> on ${esc(currentPageLabel)}.${
+  $('approval-body').innerHTML = `ATHENA will run <strong>${response.actions.length} action${response.actions.length === 1 ? '' : 's'}</strong> on ${esc(currentPageLabel)}.${
     response.requires_client_secret ? ' Your stored credential is filled in locally and never sent to the server.' : ''
   }`;
   $('approval-summary').innerHTML = rows
@@ -513,7 +513,7 @@ async function confirmExecution(): Promise<void> {
   approval.hidden = true;
   note('Approved — executing on the live page', 'ok');
   try {
-    execution = await send({ type: 'ppva:execute-plan' });
+    execution = await send({ type: 'athena:execute-plan' });
     const failed = execution.outcomes.filter((o) => !o.ok).length;
     note(failed ? `${failed} action(s) failed during execution` : `Executed ${execution.outcomes.length} action(s) in ${execution.execute_ms} ms`, failed ? 'warn' : 'ok');
     showToast(failed ? `${failed} action(s) failed.` : `Executed in ${execution.execute_ms} ms.`, failed > 0);
@@ -532,13 +532,13 @@ askButton.addEventListener('click', async () => {
   analyzeButton.disabled = true;
   try {
     if (!capture) {
-      capture = await send({ type: 'ppva:run-capture' });
+      capture = await send({ type: 'athena:run-capture' });
       inspectedTabId = currentTabId;
       note(`Captured ${capture.snapshot.nodes.length} nodes`, 'ok');
     }
     execution = null;
     plan = await send({
-      type: 'ppva:request-plan',
+      type: 'athena:request-plan',
       threshold: Number(thresholdInput.value),
       task_instruction: currentTaskInstruction(),
     });
@@ -622,7 +622,7 @@ $('open-viewer').addEventListener('click', async () => {
 });
 
 $('reset-session').addEventListener('click', async () => {
-  const { session_id } = await send({ type: 'ppva:reset-session' });
+  const { session_id } = await send({ type: 'athena:reset-session' });
   $('session-id').textContent = session_id.slice(0, 8);
   plan = null;
   execution = null;
@@ -706,7 +706,7 @@ $('save-url').addEventListener('click', async () => {
 $('test-url').addEventListener('click', async () => {
   $('health').textContent = 'Checking…';
   try {
-    const report = await send({ type: 'ppva:check-health' });
+    const report = await send({ type: 'athena:check-health' });
     $('health').textContent = `Reachable — provider "${report.provider}", ingress policy "${report.ingress_policy}".`;
   } catch (err) {
     $('health').textContent = `Unreachable: ${err instanceof Error ? err.message : String(err)}`;
@@ -758,7 +758,7 @@ void (async () => {
   await refreshPageContext();
 
   try {
-    capture = await send({ type: 'ppva:get-last-capture' });
+    capture = await send({ type: 'athena:get-last-capture' });
     if (capture) {
       inspectedTabId = currentTabId;
       await rebuild();

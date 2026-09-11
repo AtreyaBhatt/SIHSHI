@@ -4,7 +4,7 @@ Guidance for Claude Code (or any agentic coding assistant) working in this repos
 
 ## Project
 
-**Privacy-Preserving Browser-Native Vision Agent (PPVA)** — a browser extension + server
+**Privacy-Preserving Browser-Native Vision Agent (ATHENA)** — a browser extension + server
 system that lets a cloud/server VLM/LLM reason about a user's screen and drive UI actions,
 without ever receiving raw sensitive/PII visual or textual content. All perception and
 redaction happen client-side (in-browser ML via ONNX Runtime Web / Transformers.js); only

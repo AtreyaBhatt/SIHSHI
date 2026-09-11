@@ -1,5 +1,5 @@
 # Product Requirements Document
-## Privacy-Preserving Browser-Native Vision Agent (PPVA)
+## Privacy-Preserving Browser-Native Vision Agent (ATHENA)
 
 **Version:** 0.1 (Draft for hackathon build)
 **Owner:** [Team name]
@@ -10,7 +10,7 @@
 
 ## 1. Summary
 
-PPVA is a browser extension paired with a cloud/server reasoning backend that lets an AI agent understand and act on a user's screen — reading page structure, screenshots, and UI state — without ever transmitting sensitive or personally identifiable visual/textual content off the device. All perception happens locally via lightweight in-browser ML (ONNX Runtime Web / Transformers.js, optionally WebGPU-accelerated). A local redaction layer strips or masks PII before any network call. Only the sanitized, structurally-rich context is sent to a server-side VLM/LLM, which returns a small, auditable action plan (click / type / scroll / read) that the extension executes locally.
+ATHENA is a browser extension paired with a cloud/server reasoning backend that lets an AI agent understand and act on a user's screen — reading page structure, screenshots, and UI state — without ever transmitting sensitive or personally identifiable visual/textual content off the device. All perception happens locally via lightweight in-browser ML (ONNX Runtime Web / Transformers.js, optionally WebGPU-accelerated). A local redaction layer strips or masks PII before any network call. Only the sanitized, structurally-rich context is sent to a server-side VLM/LLM, which returns a small, auditable action plan (click / type / scroll / read) that the extension executes locally.
 
 The core bet: **you can get most of the reasoning benefit of a large cloud model while giving up almost none of the user's privacy**, by splitting the pipeline at exactly the point where perception ends and reasoning begins — and doing the redaction on the perception side, in a browser sandbox the user already trusts.
 

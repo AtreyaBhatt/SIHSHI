@@ -18,17 +18,17 @@ import httpx
 
 from ..schemas import PlanOutput
 
-logger = logging.getLogger("ppva.provider.openai_compat")
+logger = logging.getLogger("athena.provider.openai_compat")
 
 
 class OpenAICompatProvider:
     name = "openai-compat"
 
     def __init__(self) -> None:
-        self._base_url = os.getenv("PPVA_VLM_BASE_URL", "http://127.0.0.1:8000/v1").rstrip("/")
-        self._model = os.getenv("PPVA_VLM_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
-        self._timeout = float(os.getenv("PPVA_VLM_TIMEOUT", "120"))
-        self._api_key = os.getenv("PPVA_VLM_API_KEY", "not-needed")
+        self._base_url = os.getenv("ATHENA_VLM_BASE_URL", "http://127.0.0.1:8000/v1").rstrip("/")
+        self._model = os.getenv("ATHENA_VLM_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
+        self._timeout = float(os.getenv("ATHENA_VLM_TIMEOUT", "120"))
+        self._api_key = os.getenv("ATHENA_VLM_API_KEY", "not-needed")
 
     async def plan(self, system: str, user_text: str, image_b64: str | None) -> PlanOutput:
         content: list[dict] = []

@@ -55,7 +55,7 @@ $('save-url').addEventListener('click', async () => {
 $('test-url').addEventListener('click', async () => {
   healthLine.textContent = 'Checking…';
   try {
-    const reply = (await api.runtime.sendMessage({ type: 'ppva:check-health' })) as
+    const reply = (await api.runtime.sendMessage({ type: 'athena:check-health' })) as
       | { ok: true; data: { provider: string; ingress_policy: string; server_url: string } }
       | { ok: false; error: string };
     healthLine.textContent = reply.ok

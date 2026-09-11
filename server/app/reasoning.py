@@ -16,7 +16,7 @@ from .prompt import SYSTEM_PROMPT, build_user_message
 from .providers import get_provider
 from .schemas import AgentRequest, AgentResponse
 
-logger = logging.getLogger("ppva.reasoning")
+logger = logging.getLogger("athena.reasoning")
 
 
 async def plan_actions(request: AgentRequest) -> AgentResponse:

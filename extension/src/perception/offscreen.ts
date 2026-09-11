@@ -16,7 +16,7 @@ const MODEL_URL = chrome.runtime.getURL('models/version-RFB-320.onnx');
 const WASM_BASE_URL = chrome.runtime.getURL('ort/');
 
 export interface DetectFacesRequest {
-  type: 'ppva:detect-faces';
+  type: 'athena:detect-faces';
   screenshot_data_url: string;
   /** Media-element boxes in viewport CSS px; each gets a full-resolution pass. */
   regions: BBox[];
@@ -83,7 +83,7 @@ async function handle(message: DetectFacesRequest): Promise<DetectFacesReply> {
 }
 
 chrome.runtime.onMessage.addListener((message: DetectFacesRequest, _sender, sendResponse) => {
-  if (message?.type !== 'ppva:detect-faces') return false;
+  if (message?.type !== 'athena:detect-faces') return false;
   handle(message)
     .then(sendResponse)
     .catch((err) => sendResponse({ ok: false, faces: [], error: err instanceof Error ? err.message : String(err) }));

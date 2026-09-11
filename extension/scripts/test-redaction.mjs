@@ -21,8 +21,8 @@ import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { FIXTURES } from './fixtures.spec.mjs';
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const PORT = Number(process.env.PPVA_CDP_PORT ?? 9334);
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const PORT = Number(process.env.ATHENA_CDP_PORT ?? 9334);
 
 const only = process.argv[2];
 const specs = FIXTURES.filter((f) => !only || f.file.includes(only) || f.name.includes(only));
@@ -31,7 +31,7 @@ if (specs.length === 0) {
   process.exit(1);
 }
 
-const workdir = await mkdtemp(join(tmpdir(), 'ppva-redaction-'));
+const workdir = await mkdtemp(join(tmpdir(), 'athena-redaction-'));
 const entry = join(workdir, 'entry.ts');
 
 await writeFile(entry, `
@@ -47,7 +47,7 @@ export async function run(threshold) {
   return { request, detections, nodes: snapshot.nodes.length };
 }
 `);
-await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'PPVA', target: 'chrome116', logLevel: 'error' });
+await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
 const bundle = await readFile(join(workdir, 'bundle.js'), 'utf8');
 
 const chrome = spawn(CHROME, [
@@ -108,13 +108,13 @@ try {
     }
     await evaluate(bundle);
 
-    const result = JSON.parse(await evaluate(`PPVA.run(0.5).then(r => JSON.stringify(r))`));
+    const result = JSON.parse(await evaluate(`ATHENA.run(0.5).then(r => JSON.stringify(r))`));
     const payload = JSON.stringify(result.request);
     console.log(`nodes ${result.nodes} · detections ${result.detections.length} · manifest ${result.request.redaction_manifest.length}`);
 
-    if (process.env.PPVA_EMIT_PAYLOAD && spec === specs[0]) {
-      await writeFile(process.env.PPVA_EMIT_PAYLOAD, JSON.stringify(result.request, null, 2));
-      console.log(`emitted payload -> ${process.env.PPVA_EMIT_PAYLOAD}`);
+    if (process.env.ATHENA_EMIT_PAYLOAD && spec === specs[0]) {
+      await writeFile(process.env.ATHENA_EMIT_PAYLOAD, JSON.stringify(result.request, null, 2));
+      console.log(`emitted payload -> ${process.env.ATHENA_EMIT_PAYLOAD}`);
     }
 
     console.log('\nno raw value survives into the payload:');

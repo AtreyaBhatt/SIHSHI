@@ -22,10 +22,10 @@ import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9338);
-const HTTP_PORT = Number(process.env.PPVA_HTTP_PORT ?? 8898);
-const ORT_EP = process.env.PPVA_ORT_EP === 'webgpu' ? 'webgpu' : 'wasm';
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9338);
+const HTTP_PORT = Number(process.env.ATHENA_HTTP_PORT ?? 8898);
+const ORT_EP = process.env.ATHENA_ORT_EP === 'webgpu' ? 'webgpu' : 'wasm';
 const ORT_ARTIFACT = ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
 
 const MODEL = resolve('models/version-RFB-320.onnx');
@@ -39,7 +39,7 @@ const fail = (m) => { failures++; console.error(`  FAIL ${m}`); };
 if (!existsSync(MODEL)) { console.error('Missing model. Run: npm run fetch:model'); process.exit(1); }
 if (!existsSync(PHOTO)) { console.error('Missing test photo. Run: npm run fetch:demo-faces'); process.exit(1); }
 
-const root = await mkdtemp(join(tmpdir(), 'ppva-scenb-'));
+const root = await mkdtemp(join(tmpdir(), 'athena-scenb-'));
 await mkdir(join(root, 'ort'), { recursive: true });
 await mkdir(join(root, 'models'), { recursive: true });
 await cp(FIXTURE_DIR, root, { recursive: true });
@@ -91,7 +91,7 @@ export async function analyse(shotDataUrl) {
 `);
 await build({
   entryPoints: [entry], outfile: join(root, 'bundle.js'), bundle: true, format: 'iife',
-  globalName: 'PPVA', target: 'chrome116', logLevel: 'error',
+  globalName: 'ATHENA', target: 'chrome116', logLevel: 'error',
   conditions: ['onnxruntime-web-use-extern-wasm'],
   alias: ORT_EP === 'webgpu' ? {} : { 'onnxruntime-web': 'onnxruntime-web/wasm' },
 });
@@ -146,7 +146,7 @@ try {
   const shotDataUrl = `data:image/png;base64,${shot.result.data}`;
 
   await evaluate(await readFile(join(root, 'bundle.js'), 'utf8'));
-  const r = JSON.parse(await evaluate(`PPVA.analyse(${JSON.stringify(shotDataUrl)}).then(x => JSON.stringify(x))`));
+  const r = JSON.parse(await evaluate(`ATHENA.analyse(${JSON.stringify(shotDataUrl)}).then(x => JSON.stringify(x))`));
 
   console.log(`viewport     ${r.viewport.width}x${r.viewport.height}`);
   console.log(`provider     ${r.provider} · init ${r.init_ms} ms · inference ${r.inference_ms} ms`);

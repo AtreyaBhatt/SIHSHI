@@ -31,11 +31,11 @@ const { build } = createRequire(join(EXT, 'package.json'))('esbuild');
 const SCREENS_DIR = join(HERE, 'corpus/screens');
 const OUT = resolve(process.argv[2] ?? join(HERE, 'results/predictions.json'));
 
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9341);
-const THRESHOLD = Number(process.env.PPVA_THRESHOLD ?? 0.5);
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9341);
+const THRESHOLD = Number(process.env.ATHENA_THRESHOLD ?? 0.5);
 
-const workdir = await mkdtemp(join(tmpdir(), 'ppva-predict-'));
+const workdir = await mkdtemp(join(tmpdir(), 'athena-predict-'));
 const entry = join(workdir, 'entry.ts');
 await writeFile(entry, `
 import { captureDomSnapshot } from '${join(EXT, 'src/capture/dom-snapshot.ts')}';
@@ -75,7 +75,7 @@ export async function predict(threshold) {
 `);
 await build({
   entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife',
-  globalName: 'PPVA', target: 'chrome116', logLevel: 'error', absWorkingDir: EXT,
+  globalName: 'ATHENA', target: 'chrome116', logLevel: 'error', absWorkingDir: EXT,
 });
 const bundle = await readFile(join(workdir, 'bundle.js'), 'utf8');
 
@@ -136,7 +136,7 @@ try {
     await evaluate(bundle);
 
     results[screen.screen_id] = JSON.parse(
-      await evaluate(`PPVA.predict(${THRESHOLD}).then((r) => JSON.stringify(r))`),
+      await evaluate(`ATHENA.predict(${THRESHOLD}).then((r) => JSON.stringify(r))`),
     );
     const r = results[screen.screen_id];
     console.log(`  ${screen.screen_id}: ${r.detections.length} detections, ${r.manifest.length} redactions, ${r.timings.capture_ms + r.timings.detect_ms + r.timings.redact_ms} ms`);

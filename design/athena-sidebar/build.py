@@ -120,7 +120,7 @@ def sidebar(width, log_open, fid_suffix=""):
     return f'''
 <div class="side" style="width:{width}px;">
   <div class="hdr">
-    <div class="brand">{logo(28, 8, f("g-logo"))}<span class="name">AAVARAN</span></div>
+    <div class="brand">{logo(28, 8, f("g-logo"))}<span class="name">ATHENA</span></div>
     <span class="pill"><span class="dot"></span>Privacy active</span>
   </div>
   <div class="tabs">
@@ -161,10 +161,10 @@ def sidebar(width, log_open, fid_suffix=""):
     </div>
 
     <div>
-      <div class="lbl" style="margin-bottom:8px;">Ask AAVARAN</div>
+      <div class="lbl" style="margin-bottom:8px;">Ask ATHENA</div>
       <div class="ta">Check what is missing in this form and help me submit it.</div>
       <div class="btns" style="margin-top:10px;">
-        <span class="btn pri">Ask AAVARAN {ic(I_SEND, 14, "#cfe9e0")}</span>
+        <span class="btn pri">Ask ATHENA {ic(I_SEND, 14, "#cfe9e0")}</span>
         <span class="btn sec">{ic(I_SHIELD, 14, "#0e5a52")}Analyze page safely</span>
       </div>
     </div>

@@ -30,7 +30,7 @@ import type { DetectFacesReply } from '../perception/offscreen';
  * scripts, so this stays inside the same trust boundary as the worker itself —
  * do not switch it to storage.local, which would put page values on disk.
  */
-const LAST_CAPTURE_KEY = 'ppva:last-capture';
+const LAST_CAPTURE_KEY = 'athena:last-capture';
 
 /**
  * Kept in worker memory so the panel can reopen without re-capturing; session
@@ -94,7 +94,7 @@ async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetecti
     await ensureOffscreen();
     const regions = capture.snapshot.nodes.filter((n) => n.media).map((n) => n.bbox);
     const reply = (await api.runtime.sendMessage({
-      type: 'ppva:detect-faces',
+      type: 'athena:detect-faces',
       screenshot_data_url: capture.screenshot_data_url,
       regions,
       viewport_width: capture.snapshot.viewport.width,
@@ -162,7 +162,7 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
     // activeTab was granted for a different tab, or has lapsed because this one
     // navigated. Without it we cannot even read the URL, let alone inject.
     throw new Error(
-      'No access to that tab yet. Open the PPVA side panel on the page you want to inspect, then launch the demo view from there.',
+      'No access to that tab yet. Open the ATHENA side panel on the page you want to inspect, then launch the demo view from there.',
     );
   }
   if (isRestrictedUrl(tab.url)) {
@@ -175,7 +175,7 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
     files: ['capture/content-script.js'],
   });
 
-  const domResponse = (await api.tabs.sendMessage(tabId, { type: 'ppva:capture-dom' })) as ContentToWorker;
+  const domResponse = (await api.tabs.sendMessage(tabId, { type: 'athena:capture-dom' })) as ContentToWorker;
   if (!domResponse?.ok || !('snapshot' in domResponse)) {
     throw new Error(
       domResponse && 'error' in domResponse ? domResponse.error : 'Content script returned no snapshot.',
@@ -286,7 +286,7 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
 
   const started = performance.now();
   const reply = (await api.tabs.sendMessage(tab.id, {
-    type: 'ppva:execute',
+    type: 'athena:execute',
     actions,
     allowed_selectors: lastPlan.request.dom_summary.map((node) => node.path),
   })) as ContentToWorker;
@@ -316,31 +316,31 @@ api.runtime.onMessage.addListener(
 
     const ok = (data: unknown) => sendResponse({ ok: true, data } as WorkerReply<never>);
 
-    if (message?.type === 'ppva:run-capture') {
+    if (message?.type === 'athena:run-capture') {
       runCapture(message.tab_id).then(ok).catch(fail);
       return true; // async
     }
-    if (message?.type === 'ppva:get-last-capture') {
+    if (message?.type === 'athena:get-last-capture') {
       getLastCapture().then(ok).catch(fail);
       return true;
     }
-    if (message?.type === 'ppva:build-payload') {
+    if (message?.type === 'athena:build-payload') {
       buildPayload(message.threshold, message.task_instruction).then(ok).catch(fail);
       return true;
     }
-    if (message?.type === 'ppva:reset-session') {
+    if (message?.type === 'athena:reset-session') {
       ok({ session_id: resetSession() });
       return false;
     }
-    if (message?.type === 'ppva:request-plan') {
+    if (message?.type === 'athena:request-plan') {
       requestPlanFlow(message.threshold, message.task_instruction).then(ok).catch(fail);
       return true;
     }
-    if (message?.type === 'ppva:execute-plan') {
+    if (message?.type === 'athena:execute-plan') {
       executePlanFlow(message.tab_id).then(ok).catch(fail);
       return true;
     }
-    if (message?.type === 'ppva:check-health') {
+    if (message?.type === 'athena:check-health') {
       health().then(ok).catch(fail);
       return true;
     }
@@ -360,7 +360,7 @@ api.runtime.onMessage.addListener(
 if (api.sidePanel) {
   api.sidePanel
     .setPanelBehavior({ openPanelOnActionClick: true })
-    .catch((err) => console.warn('[ppva] could not bind the toolbar icon to the side panel:', err));
+    .catch((err) => console.warn('[athena] could not bind the toolbar icon to the side panel:', err));
 } else {
-  console.warn('[ppva] chrome.sidePanel is unavailable; open the panel from the side-panel picker.');
+  console.warn('[athena] chrome.sidePanel is unavailable; open the panel from the side-panel picker.');
 }

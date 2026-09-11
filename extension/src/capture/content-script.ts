@@ -12,19 +12,19 @@ import type { ContentToWorker, WorkerToContent } from '../shared/messages';
 
 declare global {
   interface Window {
-    __PPVA_INSTALLED__?: true;
+    __ATHENA_INSTALLED__?: true;
   }
 }
 
-if (!window.__PPVA_INSTALLED__) {
-  window.__PPVA_INSTALLED__ = true;
+if (!window.__ATHENA_INSTALLED__) {
+  window.__ATHENA_INSTALLED__ = true;
 
   chrome.runtime.onMessage.addListener(
     (message: WorkerToContent, _sender, sendResponse: (r: ContentToWorker) => void) => {
       const fail = (err: unknown) =>
         sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
 
-      if (message?.type === 'ppva:capture-dom') {
+      if (message?.type === 'athena:capture-dom') {
         try {
           sendResponse({ ok: true, snapshot: captureDomSnapshot() });
         } catch (err) {
@@ -33,7 +33,7 @@ if (!window.__PPVA_INSTALLED__) {
         return false; // responded synchronously
       }
 
-      if (message?.type === 'ppva:execute') {
+      if (message?.type === 'athena:execute') {
         // Values arrive already resolved from the local vault; they are used here
         // and never travel any further.
         executeActions(message.actions, message.allowed_selectors)

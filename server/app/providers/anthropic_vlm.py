@@ -14,7 +14,7 @@ from anthropic import AsyncAnthropic
 
 from ..schemas import PlanOutput
 
-logger = logging.getLogger("ppva.provider.anthropic")
+logger = logging.getLogger("athena.provider.anthropic")
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -26,7 +26,7 @@ class AnthropicProvider:
         # Credentials resolve from the environment (ANTHROPIC_API_KEY, an
         # ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile).
         self._client = AsyncAnthropic()
-        self._model = os.getenv("PPVA_MODEL", DEFAULT_MODEL)
+        self._model = os.getenv("ATHENA_MODEL", DEFAULT_MODEL)
 
     async def plan(self, system: str, user_text: str, image_b64: str | None) -> PlanOutput:
         content: list[dict] = []

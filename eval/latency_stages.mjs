@@ -38,16 +38,16 @@ const { build } = createRequire(join(EXT, 'package.json'))('esbuild');
 
 const RUNS = Number(process.argv[2] ?? 10);
 const OUT = resolve(process.argv[3] ?? join(HERE, 'results/latency.json'));
-const CHROME = process.env.PPVA_CHROME ?? 'google-chrome-stable';
-const CDP_PORT = Number(process.env.PPVA_CDP_PORT ?? 9342);
-const HTTP_PORT = Number(process.env.PPVA_HTTP_PORT ?? 8897);
-const SERVER_PORT = Number(process.env.PPVA_SERVER_PORT ?? 8789);
-const ORT_ARTIFACT = process.env.PPVA_ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
+const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
+const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9342);
+const HTTP_PORT = Number(process.env.ATHENA_HTTP_PORT ?? 8897);
+const SERVER_PORT = Number(process.env.ATHENA_SERVER_PORT ?? 8789);
+const ORT_ARTIFACT = process.env.ATHENA_ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-wasm-simd-threaded';
 
 const MODEL = join(EXT, 'models/version-RFB-320.onnx');
 const haveModel = existsSync(MODEL);
 
-const root = await mkdtemp(join(tmpdir(), 'ppva-latency-'));
+const root = await mkdtemp(join(tmpdir(), 'athena-latency-'));
 await mkdir(join(root, 'ort'), { recursive: true });
 await mkdir(join(root, 'models'), { recursive: true });
 await cp(join(HERE, 'fixtures'), root, { recursive: true });
@@ -124,9 +124,9 @@ export async function execute(actions, allowed) {
 `);
 await build({
   entryPoints: [entry], outfile: join(root, 'bundle.js'), bundle: true, format: 'iife',
-  globalName: 'PPVA', target: 'chrome116', logLevel: 'error', absWorkingDir: EXT,
+  globalName: 'ATHENA', target: 'chrome116', logLevel: 'error', absWorkingDir: EXT,
   conditions: ['onnxruntime-web-use-extern-wasm'],
-  alias: process.env.PPVA_ORT_EP === 'webgpu' ? {} : { 'onnxruntime-web': 'onnxruntime-web/wasm' },
+  alias: process.env.ATHENA_ORT_EP === 'webgpu' ? {} : { 'onnxruntime-web': 'onnxruntime-web/wasm' },
 });
 const bundle = await readFile(join(root, 'bundle.js'), 'utf8');
 
@@ -187,7 +187,7 @@ try {
     await call('Page.navigate', { url: `http://127.0.0.1:${HTTP_PORT}/bank-login.html` });
     for (let i = 0; i < 50; i++) {
       await sleep(120);
-      if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('typeof PPVA'))) break;
+      if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('typeof ATHENA'))) break;
     }
     await evaluate(bundle);
     // Each run reloads the page, which discards the cached ONNX session. The
@@ -195,7 +195,7 @@ try {
     // the measured window would report ~100 ms of init as if it were per-capture
     // cost. Warm it here and measure steady state, which is what the extension
     // actually does.
-    await evaluate('PPVA.warmPerception().then(r => JSON.stringify(r))');
+    await evaluate('ATHENA.warmPerception().then(r => JSON.stringify(r))');
   };
 
   // Session init is a one-time cost per worker lifetime; measured once on a cold
@@ -206,7 +206,7 @@ try {
     if ((await evaluate('document.readyState')) === 'complete') break;
   }
   await evaluate(bundle);
-  perceptionInit = JSON.parse(await evaluate('PPVA.warmPerception().then(r => JSON.stringify(r))'));
+  perceptionInit = JSON.parse(await evaluate('ATHENA.warmPerception().then(r => JSON.stringify(r))'));
 
   for (let i = 0; i < RUNS; i++) {
     await load();
@@ -216,7 +216,7 @@ try {
     const screenshot_ms = Date.now() - tShot;
     const shotDataUrl = `data:image/png;base64,${shot.result.data}`;
 
-    const local = JSON.parse(await evaluate(`PPVA.run(${JSON.stringify(shotDataUrl)}).then(r => JSON.stringify(r))`));
+    const local = JSON.parse(await evaluate(`ATHENA.run(${JSON.stringify(shotDataUrl)}).then(r => JSON.stringify(r))`));
 
     const tNet = Date.now();
     const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/agent/plan`, {
@@ -230,7 +230,7 @@ try {
     }));
     const allowed = local.request.dom_summary.map((n) => n.path);
     const exec = JSON.parse(await evaluate(
-      `PPVA.execute(${JSON.stringify(actions)}, ${JSON.stringify(allowed)}).then(r => JSON.stringify(r))`,
+      `ATHENA.execute(${JSON.stringify(actions)}, ${JSON.stringify(allowed)}).then(r => JSON.stringify(r))`,
     ));
 
     runs.push({
