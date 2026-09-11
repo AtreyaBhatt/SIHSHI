@@ -45,6 +45,8 @@ export type PiiType =
   | 'bank_account'
   | 'ifsc'
   | 'face'
+  /** An iframe/embed whose contents the DOM walk cannot see. Not PII in itself — an unscanned region, masked because unscanned pixels are unproven pixels. */
+  | 'frame'
   // Tier 2 — mask but preserve shape
   | 'email'
   | 'phone'
@@ -65,6 +67,7 @@ export const TIER_BY_TYPE: Record<PiiType, PiiTier> = {
   bank_account: 1,
   ifsc: 1,
   face: 1,
+  frame: 1,
   email: 2,
   phone: 2,
   address: 2,
@@ -131,7 +134,7 @@ export interface RawDomNode {
   bbox: BBox;
   interactive: boolean;
   /** Non-null for image/video/canvas/svg — the regions M3's face detector will scan. */
-  media: 'img' | 'video' | 'canvas' | 'svg' | 'picture' | null;
+  media: 'img' | 'video' | 'canvas' | 'svg' | 'picture' | 'iframe' | null;
 }
 
 export interface RawSnapshot {

@@ -45,6 +45,9 @@ const INTERACTIVE_TAGS = new Set([
 
 const MEDIA_TAGS = new Set(['img', 'video', 'canvas', 'svg', 'picture']);
 
+/** Framed documents: their pixels are on screen, their DOM is not ours to walk. */
+const FRAME_TAGS = new Set(['iframe', 'frame', 'object', 'embed']);
+
 /** Elements that label a sibling rather than themselves. */
 const LABELLING_TAGS = new Set(['dt', 'th', 'label', 'strong', 'b']);
 
@@ -167,6 +170,7 @@ const IMPLICIT_ROLE: Record<string, string> = {
   option: 'option',
   summary: 'button',
   dialog: 'dialog',
+  iframe: 'frame', frame: 'frame', object: 'frame', embed: 'frame',
 };
 
 const INPUT_ROLE: Record<string, string> = {
@@ -305,7 +309,7 @@ export function captureDomSnapshot(): RawSnapshot {
     const tag = el.tagName.toLowerCase();
     const elRole = role(el, tag);
     const interactive = isInteractive(el, tag, elRole);
-    const media = MEDIA_TAGS.has(tag) ? (tag as RawDomNode['media']) : null;
+    const media: RawDomNode['media'] = FRAME_TAGS.has(tag) ? 'iframe' : MEDIA_TAGS.has(tag) ? (tag as RawDomNode['media']) : null;
     const text = interactive || media ? '' : directText(el);
 
     // Cheap rejection first: nothing to say about this element at all.

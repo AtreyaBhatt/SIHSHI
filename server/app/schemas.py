@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 PiiType = Literal[
     "password", "otp", "card_number", "card_expiry", "cvv",
-    "aadhaar", "pan", "ssn", "passport", "bank_account", "ifsc", "face",
+    "aadhaar", "pan", "ssn", "passport", "bank_account", "ifsc", "face", "frame",
     "email", "phone", "address", "person_name", "date_of_birth",
 ]
 

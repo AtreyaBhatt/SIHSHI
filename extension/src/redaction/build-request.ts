@@ -183,6 +183,22 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
       value = '[REDACTED:PASSWORD]';
     }
 
+    // A frame's contents were never walked, so nothing about them is proven
+    // safe. The frame is declared and its pixels are filled; the node itself
+    // stays in dom_summary so the model knows a frame is there.
+    if (node.media === 'iframe') {
+      manifest.push({
+        id: tokens.idFor('frame', null, node.path),
+        type: 'frame',
+        tier: TIER_BY_TYPE.frame,
+        bbox: node.bbox,
+        dom_path: node.path,
+        masking: 'blackbox',
+        detector: 'capture:iframe',
+        confidence: 1,
+      });
+    }
+
     domSummary.push({
       path: node.path,
       role: node.role,
