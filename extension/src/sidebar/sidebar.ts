@@ -73,8 +73,12 @@ let currentTabId: number | null = null;
 let currentPageLabel = 'the page under inspection';
 /** The page the capture (and therefore the plan) describes — not whatever tab is active at approval time. */
 let inspectedPageLabel = currentPageLabel;
-/** Origin pattern for chrome.permissions; null when the tab has no readable URL. */
+/** Origin pattern for chrome.permissions; null when the tab has no readable http(s) URL. */
 let currentOriginPattern: string | null = null;
+/** Whether currentOriginPattern is granted, as of the last render. The click handler reads this instead of awaiting `contains`, so `request` runs first and keeps the user gesture. */
+let currentOriginGranted = false;
+/** Monotonic render token: a slow `contains` from an earlier tab must not paint over a later render. */
+let siteAccessRender = 0;
 
 interface Activity { at: number; text: string; tone: 'ok' | 'info' | 'warn' }
 const activity: Activity[] = [];
@@ -138,19 +142,39 @@ function updatePill(stale = false): void {
 }
 
 async function renderSiteAccess(url: string | undefined): Promise<void> {
+  const render = ++siteAccessRender;
   const button = $<HTMLButtonElement>('site-access');
-  const note = $('site-access-note');
-  currentOriginPattern = null;
-  if (!url || isRestrictedUrl(url)) { button.hidden = true; note.textContent = ''; return; }
-  let origin: string;
-  try { origin = new URL(url).origin; } catch { button.hidden = true; note.textContent = ''; return; }
-  if (!/^https?:$/.test(new URL(url).protocol)) { button.hidden = true; note.textContent = ''; return; }
-  currentOriginPattern = `${origin}/*`;
-  const granted = await api.permissions.contains({ origins: [currentOriginPattern] });
+  const noteEl = $('site-access-note');
+  const hide = (): void => {
+    currentOriginPattern = null;
+    currentOriginGranted = false;
+    button.hidden = true;
+    noteEl.textContent = '';
+  };
+  if (!url || isRestrictedUrl(url)) return hide();
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return hide();
+  }
+  if (!/^https?:$/.test(parsed.protocol)) return hide();
+
+  const pattern = `${parsed.origin}/*`;
+  let granted = false;
+  try {
+    granted = await api.permissions.contains({ origins: [pattern] });
+  } catch {
+    granted = false;
+  }
+  if (render !== siteAccessRender) return; // a newer render owns the button now
+
+  currentOriginPattern = pattern;
+  currentOriginGranted = granted;
   button.hidden = false;
   button.textContent = granted ? 'Disable on this site' : 'Enable on this site';
-  note.textContent = granted
-    ? `Enabled on ${new URL(url).host} — captures work here without clicking the icon.`
+  noteEl.textContent = granted
+    ? `Enabled on ${parsed.host} — captures work here without clicking the icon.`
     : 'One-off access only. Enable to keep working here across navigations.';
 }
 
@@ -635,16 +659,17 @@ thresholdInput.addEventListener('input', () => {
 showBoxes.addEventListener('change', renderDetections);
 
 $('site-access').addEventListener('click', async () => {
-  if (!currentOriginPattern) return;
-  const granted = await api.permissions.contains({ origins: [currentOriginPattern] });
+  const pattern = currentOriginPattern;
+  if (!pattern) return;
   try {
-    if (granted) {
-      await api.permissions.remove({ origins: [currentOriginPattern] });
-      note(`Disabled on ${currentOriginPattern}`, 'info');
+    if (currentOriginGranted) {
+      await api.permissions.remove({ origins: [pattern] });
+      note(`Disabled on ${pattern}`, 'info');
     } else {
-      // Must run directly from the click: chrome.permissions.request needs a user gesture.
-      const ok = await api.permissions.request({ origins: [currentOriginPattern] });
-      note(ok ? `Enabled on ${currentOriginPattern}` : 'Permission request declined', ok ? 'ok' : 'warn');
+      // First call in the handler on purpose: chrome.permissions.request needs the
+      // click's user gesture, and an await before it can spend that activation.
+      const ok = await api.permissions.request({ origins: [pattern] });
+      note(ok ? `Enabled on ${pattern}` : 'Permission request declined', ok ? 'ok' : 'warn');
     }
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), true);
