@@ -93,6 +93,11 @@ a bug, not a shortcut to fix later.
   server can't reason about it.
 - Session-scoped tokens (`[EMAIL_1]`, etc.) must be regenerated per session — do not
   persist or reuse token↔value mappings across sessions (PRD §9, point 4).
+- Two types exist beyond PRD §4.3's examples: `frame` (Tier 1 — an iframe whose
+  contents were never walked; the region is black-boxed and declared) and
+  `account_id` (Tier 2 — customer/member/reference ids, usernames; tokenised).
+  Snapshot paths may contain ` >>> ` for open shadow roots; resolve them only
+  through `shared/resolve-path.ts`, never with a bare `querySelector`.
 
 ### Server code
 - The ingress layer (`ingress.py`) must independently re-validate incoming payloads

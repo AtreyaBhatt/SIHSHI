@@ -15,11 +15,11 @@ Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preservin
 | Milestones | PRD §12 M1–M6 complete |
 | Demo scenarios | A (credentials), B (faces), C (structured PII) — all working end to end |
 | Code | 4,361 lines of source (extension + server) · 2,547 lines of test/eval harness · 1,261 of fixtures and docs |
-| Tests | 31 server (pytest) + 5 browser-driving extension suites — **all green** |
-| Eval | All three PRD §8 accuracy targets met, on a corpus of 3 self-authored screens |
-| Latency | 71 ms local p50 against a 300 ms budget |
+| Tests | 31 server (pytest) + 6 browser-driving extension suites — **all green** |
+| Eval | All three PRD §8 accuracy targets met, on a corpus of 4 self-authored screens |
+| Latency | 66 ms local p50 against a 300 ms budget |
 | Package | ~15 MB against a 20 MB budget |
-| Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 3 screens |
+| Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 4 screens |
 
 
 ---
@@ -73,7 +73,7 @@ execute  ←───────────── executePlanFlow
 
 | File | Does | Non-obvious detail |
 |---|---|---|
-| `capture/dom-snapshot.ts` | Serializes visible DOM | Filters cheapest-first (tag → rect → `getComputedStyle`). Text clip is **600 chars for text, 200 for labels** — a payload-size bound, *not* a privacy control. The invariant is "we only send what we scanned". |
+| `capture/dom-snapshot.ts` | Serializes visible DOM | Filters cheapest-first (tag → rect → `getComputedStyle`). Text clip is **600 chars for text, 200 for labels** — a payload-size bound, *not* a privacy control. The invariant is "we only send what we scanned". Walks open shadow roots (paths carry ` >>> `, resolved only by `shared/resolve-path.ts`); iframes captured as `frame` and black-boxed; 800-node budget keeps every interactive node and sets `truncated`. |
 | `capture/content-script.ts` | Injected on demand under `activeTab` | Not declared statically — the extension holds no standing page access. Also hosts the executor. |
 | `perception/runtime.ts` | ONNX session, EP selection | Checks `navigator.gpu`, requests `['webgpu','wasm']`, falls back. Which wasm artifact ships is the `ATHENA_ORT_EP` build flag. |
 | `perception/face-detect.ts` | UltraFace pre/post + NMS | Full-frame 320×240 pass; `regions` adds per-media passes for small faces. Model outputs decoded boxes — no anchor maths. |
@@ -126,6 +126,7 @@ execute  ←───────────── executePlanFlow
 | Command | Proves |
 |---|---|
 | `npm run smoke` | Every emitted selector resolves to exactly one element; every bbox well-formed |
+| `npm run test:capture` | Shadow DOM paths resolve, iframes are black-boxed as `frame`, the 800-node budget keeps every interactive node and sets `truncated` |
 | `npm run test:redaction` | No planted value survives; structure the server needs does; labels aren't clobbered; manifest well-formed. Fixture-driven (`scripts/fixtures.spec.mjs`), covers Scenarios A and C |
 | `npm run test:faces` | Detector runs in a browser and finds faces (25/25 on a group photo) |
 | `npm run test:scenario-b` | 22 faces → 0 after blurring, with the mute button still labelled |
@@ -141,24 +142,24 @@ says so if one closes.
 
 ## 7. Measured results
 
-Detection — 3 screens, 29 labelled items, threshold 0.5:
+Detection — 4 screens, 34 labelled items, threshold 0.5:
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.931 | 0.964 |
+| overall | 1.000 | 0.941 | 0.970 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.867 | 0.929 |
+| tier 2 | 1.000 | 0.895 | 0.944 |
 
-Redaction precision (pixel, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.846, overall 0.926.
+Redaction precision (pixel, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.882, overall 0.938.
 All three PRD §8 targets met.
 
-Latency p50/p95 ms (10 runs, mock provider): capture 1.1/1.5 · screenshot 39.5/66.0 ·
-perception 14.4/16.8 · redaction 16.5/18.4 · network 4.0/6.1 · execute 0.7/1.0 →
-**76.1/105.4**, local portion 71.4. `network` is transport only against the mock;
+Latency p50/p95 ms (10 runs, mock provider): capture 1.0/2.0 · screenshot 39.5/55.4 ·
+perception 12.6/16.8 · redaction 13.0/17.6 · network 4.0/6.0 · execute 0.8/1.5 →
+**72.3/89.7**, local portion 66.2. `network` is transport only against the mock;
 a real VLM call lands in that row and will dominate. Regenerate with
 `node eval/latency_stages.mjs 20 && python3 eval/latency_bench.py`.
 
-> **The single most important caveat in this repository.** Those 1.000s are on three
+> **The single most important caveat in this repository.** Those 1.000s are on four
 > fixture screens written by the same author as the detectors, scored against
 > ground truth that same author wrote. That measures internal consistency, not
 > generalisation. PRD §8 calls for ≥ 50 screens. `run_eval.py` prints this every
@@ -181,16 +182,14 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 
 | # | Gap | Status |
 |---|---|---|
-| 1 | **Corpus is 3 self-authored screens** | The single highest-value thing to fix. Harness takes real annotations unchanged. |
+| 1 | **Corpus is self-authored screens** | The single highest-value thing to fix. Harness takes real annotations unchanged. |
 | 2 | **Names/addresses in free prose undetected** | Needs the local NER model cut from this build. The only recall gap; visible in the numbers, not hidden. |
-| 3 | **Customer identifiers have no taxonomy entry** | `MB4470193` passes through. Adding a `PiiType` is a **product decision** — deliberately not invented. |
-| 4 | **Self-hosted VLM untested against real weights** | Interface and implementation exist; nobody has pointed it at Qwen2-VL. |
-| 5 | **Pixel geometry is node-granular** | Over-redaction, never under. Costs Tier-2 redaction precision (0.818). Fix = Range geometry in the content script, which moves detection out of pure functions. |
-| 6 | **Capture is viewport-only** | Below-the-fold content is never snapshotted, redacted, or sent. |
-| 7 | **WebGPU is a build flag, defaulting off** | jsep runtime is 26.5 MB vs 13.3 MB; shipping it exceeds PRD §8's budget for marginal gain on a one-shot 320×240 model. |
-| 8 | **Vault is unencrypted** | Chrome exposes no API for the real password manager. Labelled as a demo vault in the options UI. |
-| 9 | **The panel can only inspect a tab it was invoked on** | `activeTab` is granted per tab on the toolbar click. Switching tabs does not re-grant it, so the panel marks itself stale and asks the user to invoke it on the new page rather than pretending. Fixing it properly means `optional_host_permissions` and a per-site enable, which is a permission escalation this product should argue for explicitly, not ship quietly. |
-| 10 | **The panel is styled to `design/athena-sidebar/`; the options and viewer pages are not** | The panel adopts the design's white/Instrument Sans system. The other two pages still carry the earlier look, so the extension is visually inconsistent until someone decides the design wins everywhere. |
+| 3 | **Self-hosted VLM untested against real weights** | Interface and implementation exist; nobody has pointed it at Qwen2-VL. |
+| 4 | **Pixel geometry is node-granular** | Over-redaction, never under. Costs Tier-2 redaction precision (0.818). Fix = Range geometry in the content script, which moves detection out of pure functions. |
+| 5 | **Capture is viewport-only** | Below-the-fold content is never snapshotted, redacted, or sent. |
+| 6 | **WebGPU is a build flag, defaulting off** | jsep runtime is 26.5 MB vs 13.3 MB; shipping it exceeds PRD §8's budget for marginal gain on a one-shot 320×240 model. |
+| 7 | **Vault is unencrypted** | Chrome exposes no API for the real password manager. Labelled as a demo vault in the options UI. |
+| 8 | **The panel is styled to `design/athena-sidebar/`; the options and viewer pages are not** | The panel adopts the design's white/Instrument Sans system. The other two pages still carry the earlier look, so the extension is visually inconsistent until someone decides the design wins everywhere. |
 
 ---
 
@@ -204,8 +203,6 @@ Ranked:
    run `measure_labels.mjs && predict.mjs && run_eval.py`.
 2. **Run one of the non-mock providers against a live endpoint** and see whether
    structured output survives. That is the biggest untested surface.
-3. **Decide gap #3** (customer-identifier taxonomy) — a one-line product call
-   that closes a visible passthrough.
 
 ---
 

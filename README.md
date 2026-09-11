@@ -110,10 +110,12 @@ the device, the ask box, what local perception found, what would actually be
 sent, what the server proposed, and the activity log. The **Settings** tab holds
 the server URL and the local vault.
 
-`activeTab` is granted per tab when you click the icon, so the panel can only
-inspect a page you have invoked it on. On any other tab it says so rather than
-showing a stale title — and when you switch away from a captured page it marks
-itself stale instead of implying the capture still describes what you are looking at.
+Clicking the icon grants one-off access to that tab. **Enable on this site** in the
+page card grants ATHENA the site persistently (`optional_host_permissions`), so
+captures keep working across reloads and navigations there; **Disable** revokes
+it. Nothing is granted on sites you have not enabled.
+
+The permission prompt itself cannot be scripted; the harnesses cover everything up to it.
 
 The **demo view** has three columns — what was on screen, what was detected
 (Tier 1 red, Tier 2 amber), and the exact bytes that crossed the network beside
@@ -198,6 +200,7 @@ ATHENA_VLM_MODEL=Qwen/Qwen2-VL-7B-Instruct \
 cd extension
 npm run typecheck
 npm run smoke            # selectors resolve uniquely, bboxes well-formed
+npm run test:capture      # shadow DOM paths resolve, iframes are black-boxed, node budget keeps interactive nodes
 npm run test:redaction   # no planted value survives; structure does (both form fixtures)
 npm run test:faces       # detector runs in a browser and finds faces
 npm run test:scenario-b  # 22 faces detected → 0 after blurring
@@ -209,7 +212,8 @@ cd ../server && uv run pytest    # 31 tests: ingress, planner guardrails, endpoi
 
 Each harness starts its own Chrome (and, where needed, its own server) and cleans
 up after itself. `test:e2e`, `test:scenario-b` and `preview:viewer` need
-`npm run fetch:model`; `test:scenario-b` also needs `fetch:demo-faces`.
+`npm run fetch:model`; `test:scenario-b` also needs `fetch:demo-faces`. `test:capture`
+covers `shadow-iframe.html`, `long-page.html` and `many-controls.html`.
 
 ## Eval
 
@@ -275,24 +279,24 @@ password into a real password field while the server only ever sees
 
 ## Results
 
-3 screens, 29 labelled items, threshold 0.5:
+4 screens, 34 labelled items, threshold 0.5:
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.931 | 0.964 |
+| overall | 1.000 | 0.941 | 0.970 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.867 | 0.929 |
+| tier 2 | 1.000 | 0.895 | 0.944 |
 
-Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, overall 0.926.
+Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.882, overall 0.938.
 All three PRD §8 targets met.
 
-Latency p50/p95 ms — capture 1.1/1.5 · screenshot 39.5/66.0 · perception
-14.4/16.8 · redaction 16.5/18.4 · network 4.0/6.1 · execute 0.7/1.0 →
-**total 76.1/105.4**, local portion 71.4 ms against a 300 ms budget.
+Latency p50/p95 ms — capture 1.0/2.0 · screenshot 39.5/55.4 · perception
+12.6/16.8 · redaction 13.0/17.6 · network 4.0/6.0 · execute 0.8/1.5 →
+**total 72.3/89.7**, local portion 66.2 ms against a 300 ms budget.
 
 Package ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) against a 20 MB budget.
 
-**Read the detection numbers as an upper bound, not an estimate.** Three fixture
+**Read the detection numbers as an upper bound, not an estimate.** Four fixture
 screens written by the same author as the detectors measure internal
 consistency, not generalisation. PRD §8 calls for ≥ 50 screens.
 
@@ -324,4 +328,8 @@ Stated plainly, because overclaiming here is worse than underclaiming.
 7. **The credential vault is a demo, not a password manager.** See step 4.
 8. **Face blurring covers vision only.** Voice, filenames and other non-visual
    identity leaks on the same page are out of scope.
-9. **The eval corpus is 3 self-authored screens.** See above.
+9. **The eval corpus is self-authored screens.** See above.
+10. **Closed shadow roots are invisible.** They cannot be told apart from empty
+    custom elements, so their pixels are not masked. Open shadow roots are walked.
+11. **Frames are masked, not read.** An iframe's contents are black-boxed in the
+    screenshot and declared as a `frame`; same-origin frames are not walked.
