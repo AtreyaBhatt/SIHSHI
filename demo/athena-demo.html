@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ATHENA demo — scripted walkthrough</title>
+<!--
+  A scripted, NON-FUNCTIONAL walkthrough of the ATHENA side panel for the demo video.
+  Nothing here captures, redacts or talks to a server: every state change is a timed
+  animation. The real extension lives in /extension; render this with demo/render.mjs.
+-->
+<style>
+@font-face { font-family: "Instrument Sans"; src: url("../extension/src/assets/instrumentsans-latin.woff2") format("woff2"); font-weight: 400 700; font-display: block; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1600px; height: 1000px; overflow: hidden; background: #e9ecea; }
+body { font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; color: #17221f; -webkit-font-smoothing: antialiased; }
+
+/* ---------- browser chrome ---------- */
+.win { width: 1600px; height: 1000px; background: #fff; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+.tabbar { height: 40px; background: #e9ecea; display: flex; align-items: flex-end; padding: 0 10px; gap: 6px; flex: none; }
+.wdots { display: flex; gap: 7px; align-self: center; margin-right: 10px; }
+.wdots span { width: 11px; height: 11px; border-radius: 50%; background: #d3d7d5; }
+.btab { height: 32px; background: #fff; border-radius: 8px 8px 0 0; padding: 0 14px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 240px; }
+.btab .fav { width: 14px; height: 14px; border-radius: 4px; background: #0b3d6b; }
+.addr { height: 44px; background: #fff; border-bottom: 1px solid #e4e8e6; display: flex; align-items: center; gap: 10px; padding: 0 12px; flex: none; }
+.nav { display: flex; gap: 4px; color: #8a9491; }
+.nav span { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; }
+.omni { flex: 1; height: 30px; border-radius: 8px; background: #f1f3f2; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12.5px; color: #3f4d49; }
+.omni b { color: #17221f; font-weight: 500; }
+.ext { display: flex; align-items: center; gap: 8px; }
+.slot { width: 28px; height: 28px; border-radius: 7px; display: flex; align-items: center; justify-content: center; transition: background .2s; }
+.slot.on { background: #e9f6ef; }
+.split { flex: 1; display: flex; min-height: 0; }
+.pg { flex: 1; min-width: 0; position: relative; overflow: hidden; }
+.sp { width: 400px; flex: none; border-left: 1px solid #e4e8e6; overflow: hidden; transform: translateX(100%); transition: transform .38s cubic-bezier(.2,.8,.2,1); position: relative; }
+.sp.open { transform: translateX(0); }
+.win.nosp .sp { position: absolute; right: 0; top: 84px; bottom: 0; }
+
+/* ---------- gradient + grain ---------- */
+.mark { position: relative; overflow: hidden; flex: none; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(90% 80% at 15% 15%, #a9e3d8 0%, rgba(169,227,216,0) 60%), radial-gradient(70% 70% at 85% 20%, #e2f5a8 0%, rgba(226,245,168,0) 60%), radial-gradient(90% 80% at 60% 100%, #bfe9dd 0%, rgba(191,233,221,0) 65%), linear-gradient(160deg, #eef8f1, #d7f0e6); }
+.grain { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .26; mix-blend-mode: multiply; pointer-events: none; }
+.wash { position: relative; overflow: hidden; border: 1px solid #d6ebe3;
+  background: radial-gradient(110% 90% at 0% 0%, #bfe8dd 0%, rgba(191,232,221,0) 55%), radial-gradient(70% 80% at 100% 10%, #e8f7b4 0%, rgba(232,247,180,0) 55%), radial-gradient(100% 70% at 55% 110%, #cfeee6 0%, rgba(207,238,230,0) 60%), linear-gradient(180deg, #f5faf6, #edf7f1); }
+.wash > .in { position: relative; }
+
+/* ---------- sidebar ---------- */
+.side { background: #fff; display: flex; flex-direction: column; height: 100%; font-size: 13px; line-height: 1.45; letter-spacing: -0.005em; }
+.hdr { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 0; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .name { font-size: 14px; font-weight: 600; letter-spacing: .08em; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 8px; border-radius: 999px; background: #e9f6ef; color: #0f6b4f; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #1fa971; box-shadow: 0 0 0 3px rgba(31,169,113,.16); }
+.tabs { display: flex; gap: 2px; padding: 12px 16px 0; border-bottom: 1px solid #e8edeb; }
+.tab { display: flex; align-items: center; gap: 6px; padding: 8px 10px 10px; font-size: 13px; font-weight: 500; color: #7b8683; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.on { color: #17221f; border-bottom-color: #17221f; }
+.body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; flex: 1; min-height: 0; overflow: hidden; }
+.body > * { flex-shrink: 0; }
+.card { background: #fff; border: 1px solid #e6ebe9; border-radius: 12px; padding: 14px; }
+.lbl { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #8a9491; }
+.row { display: flex; align-items: center; gap: 8px; }
+.between { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; }
+.t1 { font-size: 13.5px; font-weight: 600; }
+.t2 { font-size: 12.5px; color: #5f6a67; }
+.t3 { font-size: 12px; color: #8a9491; }
+.gdot { width: 6px; height: 6px; border-radius: 50%; background: #1fa971; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; background: rgba(255,255,255,.9); border: 1px solid rgba(14,90,82,.14); font-size: 12px; font-weight: 500; white-space: nowrap; transition: opacity .3s, transform .3s; }
+.chip svg { color: #0e5a52; }
+.chip.muted { color: #7b8683; }
+.chip.muted svg { color: #9aa5a1; }
+.ta { position: relative; border: 1px solid #dfe5e2; border-radius: 10px; padding: 11px 12px; min-height: 72px; font-size: 13.5px; line-height: 1.5; background: #fbfcfb; transition: border-color .2s, box-shadow .2s; white-space: pre-wrap; }
+.ta.focus { border-color: #0e5a52; box-shadow: 0 0 0 3px rgba(14,90,82,.12); }
+.ta .ph { color: #9aa5a1; }
+.ta .caret { display: inline-block; width: 1px; height: 15px; background: #17221f; vertical-align: -3px; margin-left: 1px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 14px; border-radius: 9px; font-size: 13px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; transition: transform .12s, background .2s, opacity .2s; }
+.btn.pressed { transform: scale(.97); }
+.btn.pri { background: #0e4a44; color: #fff; box-shadow: 0 1px 0 rgba(255,255,255,.12) inset, 0 1px 2px rgba(14,74,68,.24); flex: 1 1 160px; }
+.btn.pri.busy { background: #2b6a63; }
+.btn.sec { background: #fff; color: #17221f; border-color: #dfe5e2; flex: 1 1 148px; }
+.btn.ghost { background: transparent; color: #5f6a67; flex: 0 0 auto; }
+.link { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: #0e5a52; white-space: nowrap; }
+.spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+
+.thumb { position: relative; margin-top: 10px; border: 1px solid #e3e9e6; border-radius: 10px; background: #f6f8f7; padding: 10px 12px; display: flex; gap: 10px; overflow: hidden; min-height: 96px; }
+.thumb .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #9aa5a1; font-size: 12.5px; transition: opacity .3s; }
+.thumb .inner { opacity: 0; transition: opacity .4s; display: flex; gap: 10px; flex: 1; }
+.thumb.ready .inner { opacity: 1; }
+.thumb.ready .empty { opacity: 0; }
+.thumb .ln { height: 5px; border-radius: 3px; background: #cfd7d3; }
+.thumb .fld { height: 12px; border-radius: 4px; border: 1px solid #d8dfdb; background: #fff; }
+.thumb .red { height: 12px; border-radius: 4px; background: #17221f; color: #cfe6df; font: 600 7px/12px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: .04em; padding: 0 5px; display: inline-flex; align-items: center; }
+.thumb .msk { height: 12px; border-radius: 4px; background: repeating-linear-gradient(135deg, #0e5a52 0 3px, #8fd0c4 3px 6px); }
+.legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; }
+.legend .k { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #5f6a67; }
+.legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+.code { display: none; margin: 10px 0 0; padding: 10px; color: #cfe6df; background: #17221f; border-radius: 10px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px; line-height: 1.5; white-space: pre; max-height: 0; overflow: hidden; transition: max-height .4s; }
+.code.show { display: block; max-height: 190px; }
+.code .tok { color: #e8f7b4; }
+.code .key { color: #8fd0c4; }
+
+.steps { display: flex; flex-direction: column; gap: 2px; margin: 10px 0 12px; }
+.step { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; font-size: 13px; opacity: 0; transform: translateY(6px); transition: opacity .3s, transform .3s; }
+.step.in { opacity: 1; transform: none; }
+.step .n { width: 18px; text-align: right; font-size: 11.5px; color: #8a9491; font-variant-numeric: tabular-nums; padding-top: 1px; }
+.step .ic { flex: none; margin-top: 1px; width: 16px; height: 16px; position: relative; }
+.step .ic svg { position: absolute; inset: 0; transition: opacity .25s; }
+.step .ic .done { opacity: 0; color: #1a9a6b; }
+.step .ic .wait { opacity: 1; color: #c0c8c5; }
+.step .ic .run { opacity: 0; color: #0e4a44; }
+.step.done .ic .done { opacity: 1; } .step.done .ic .wait, .step.done .ic .run { opacity: 0; }
+.step.run .ic .run { opacity: 1; } .step.run .ic .wait { opacity: 0; }
+.step.run { font-weight: 600; }
+.step .sub { display: block; font-size: 12px; color: #7b8683; font-weight: 400; margin-top: 1px; }
+.tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; background: #fbf3e4; color: #8a5a10; font-size: 11px; font-weight: 600; white-space: nowrap; transition: background .3s, color .3s; }
+.tag.ok { background: #e9f6ef; color: #0f6b4f; }
+.tag.think { background: #eef2f0; color: #5f6a67; }
+.plan-empty { color: #9aa5a1; font-size: 12.5px; padding: 10px 0 2px; }
+
+.log { border: 1px solid #e6ebe9; border-radius: 12px; }
+.log .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; }
+.log .cnt { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #eef2f0; color: #5f6a67; font-size: 11px; font-weight: 600; }
+.log .list { display: flex; flex-direction: column; border-top: 1px solid #eef2f0; padding: 6px 14px 8px; }
+.log .ev { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 12.5px; opacity: 0; transform: translateY(-4px); transition: opacity .3s, transform .3s; }
+.log .ev.in { opacity: 1; transform: none; }
+.log .ev .d { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.log .ev .tm { margin-left: auto; font-size: 11.5px; color: #8a9491; font-variant-numeric: tabular-nums; }
+.toast { position: absolute; left: 16px; right: 16px; bottom: 16px; background: #17221f; color: #fff; border-radius: 10px; padding: 11px 14px; font-size: 12.5px; font-weight: 500; display: flex; align-items: center; gap: 8px; opacity: 0; transform: translateY(8px); transition: opacity .25s, transform .25s; }
+.toast.in { opacity: 1; transform: none; }
+
+/* ---------- the bank page (fixture styles, verbatim where possible) ---------- */
+.bank { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #16202c; background: #eef2f7; height: 100%; }
+.bank header { background: #0b3d6b; color: #fff; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+.bank .logo { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+.bank nav a { color: #cfe0f0; text-decoration: none; margin-left: 22px; font-size: 14px; }
+.bank main { max-width: 1000px; margin: 32px auto; padding: 0 24px; display: grid; grid-template-columns: 1fr 320px; gap: 28px; align-items: start; }
+.bank .bcard { background: #fff; border: 1px solid #d7dfe8; border-radius: 10px; padding: 24px 26px; position: relative; }
+.bank h1 { font-size: 21px; margin: 0 0 4px; }
+.bank .lede { color: #5b6b7d; font-size: 13.5px; margin: 0 0 20px; }
+.bank label { display: block; font-size: 13px; font-weight: 550; margin-bottom: 5px; }
+.bank .inp { width: 100%; padding: 9px 11px; border: 1px solid #c3cedb; border-radius: 6px; font-size: 14px; background: #fff; min-height: 39px; transition: border-color .2s, box-shadow .2s; font-variant-numeric: tabular-nums; }
+.bank .inp.focus { border-color: #0b3d6b; box-shadow: 0 0 0 3px rgba(11,61,107,.15); }
+.bank .inp.pw { letter-spacing: .12em; }
+.bank .field { margin-bottom: 16px; }
+.bank .bbtn { display: inline-block; background: #0b3d6b; color: #fff; border: 0; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: 550; transition: transform .12s, background .2s; }
+.bank .bbtn.pressed { transform: scale(.97); background: #082d50; }
+.bank .frow { display: flex; gap: 16px; }
+.bank .frow .field { flex: 1; }
+.bank aside .bcard { padding: 18px 20px; }
+.bank aside h2 { font-size: 14px; margin: 0 0 10px; }
+.bank dl { margin: 0; font-size: 13px; }
+.bank dt { color: #5b6b7d; margin-top: 10px; }
+.bank dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.bank footer { max-width: 1000px; margin: 0 auto; padding: 20px 24px 40px; color: #5b6b7d; font-size: 12.5px; }
+.signed { position: absolute; inset: 0; background: #fff; border-radius: 10px; padding: 28px 26px; opacity: 0; transition: opacity .4s; display: flex; flex-direction: column; gap: 6px; }
+.signed.in { opacity: 1; }
+.signed .ok { width: 40px; height: 40px; border-radius: 50%; background: #e6f4ea; color: #1a7f4b; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+.signed h1 { margin: 0; }
+.signed .sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.signed .sum div { background: #f4f7fa; border-radius: 8px; padding: 12px 14px; font-size: 13px; color: #5b6b7d; }
+.signed .sum b { display: block; color: #16202c; font-size: 16px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+/* ---------- cursor ---------- */
+#cursor { position: absolute; left: 700px; top: 520px; width: 22px; height: 26px; z-index: 50; pointer-events: none; transition: left .55s cubic-bezier(.3,.7,.3,1), top .55s cubic-bezier(.3,.7,.3,1), transform .1s; filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); transform-origin: 4px 3px; }
+#cursor.down { transform: scale(.85); }
+#ripple { position: absolute; width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(14,74,68,.6); z-index: 49; pointer-events: none; opacity: 0; transform: translate(-50%, -50%) scale(.4); }
+#ripple.go { animation: rip .45s ease-out; }
+@keyframes rip { 0% { opacity: .9; transform: translate(-50%,-50%) scale(.4); } 100% { opacity: 0; transform: translate(-50%,-50%) scale(1.4); } }
+</style>
+</head>
+<body>
+<div class="win" id="win">
+  <div class="tabbar">
+    <div class="wdots"><span></span><span></span><span></span></div>
+    <div class="btab"><span class="fav"></span>Meridian Bank — Sign in</div>
+    <span style="color:#7b8683;font-size:16px;padding:0 6px 8px;">+</span>
+  </div>
+  <div class="addr">
+    <div class="nav">
+      <span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg></span>
+      <span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></span>
+      <span><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.8h-2.8"/></svg></span>
+    </div>
+    <div class="omni"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#5f6a67" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="7" width="9.6" height="7" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg><span><b>netbanking.meridianbank.com</b>/signin</span></div>
+    <div class="ext">
+      <span class="slot" id="ext-icon">
+        <div class="mark" style="width:20px;height:20px;border-radius:6px;">
+          <svg class="grain" aria-hidden="true"><filter id="g-ext"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#g-ext)"/></svg>
+          <svg viewBox="0 0 28 28" width="20" height="20" fill="none" style="position:relative"><path d="M6.5 19.5c2.2-4.4 4.7-6.6 7.5-6.6s5.3 2.2 7.5 6.6" stroke="#0e3e39" stroke-width="2.2" stroke-linecap="round"/><path d="M9.2 9.6c1.5-1.3 3.1-2 4.8-2s3.3.7 4.8 2" stroke="#0e3e39" stroke-width="2.2" stroke-linecap="round" opacity=".55"/></svg>
+        </div>
+      </span>
+      <span class="slot" style="color:#8a9491;"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="1.2"/><circle cx="8" cy="3.5" r="1.2"/><circle cx="8" cy="12.5" r="1.2"/></svg></span>
+      <span style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#c9b8a6,#8c7361);"></span>
+    </div>
+  </div>
+
+  <div class="split">
+    <!-- ================= the bank page ================= -->
+    <div class="pg">
+      <div class="bank">
+        <header>
+          <div class="logo">Meridian Bank</div>
+          <nav><a>Locate a branch</a><a>Help</a><a>Open an account</a></nav>
+        </header>
+        <main>
+          <section class="bcard">
+            <h1>Sign in to NetBanking</h1>
+            <p class="lede">Use your customer ID and NetBanking password.</p>
+            <div class="field"><label>Customer ID</label><div class="inp" id="f-id"></div></div>
+            <div class="field"><label>NetBanking password</label><div class="inp pw" id="f-pw"></div></div>
+            <div class="frow">
+              <div class="field"><label>Registered email</label><div class="inp">ada.lovelace@example.org</div></div>
+              <div class="field"><label>Registered mobile</label><div class="inp">+91 98765 43210</div></div>
+            </div>
+            <div class="field"><label>PAN (for tax statements)</label><div class="inp">ABCDE1234F</div></div>
+            <span class="bbtn" id="f-submit">Sign in</span>
+            <div class="signed" id="signed">
+              <div class="ok"><svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg></div>
+              <h1>Welcome back, Ada</h1>
+              <p class="lede" style="margin:0">Signed in to NetBanking · Customer ID MB4470193</p>
+              <div class="sum">
+                <div>Savings balance<b>₹ 2,48,310.55</b></div>
+                <div>Last sign-in<b>Today, 11:42</b></div>
+                <div>Pending approvals<b>0</b></div>
+              </div>
+            </div>
+          </section>
+          <aside>
+            <div class="bcard">
+              <h2>Linked account</h2>
+              <dl>
+                <dt>Account holder</dt><dd>Ada Lovelace</dd>
+                <dt>Account number</dt><dd>50100247716839</dd>
+                <dt>IFSC</dt><dd>MERD0001234</dd>
+                <dt>Debit card</dt><dd>4539 1488 0343 6467</dd>
+              </dl>
+            </div>
+          </aside>
+        </main>
+        <footer>Meridian Bank never asks for your password over email or phone. This is a test fixture; all values shown are fictional.</footer>
+      </div>
+    </div>
+
+    <!-- ================= ATHENA side panel ================= -->
+    <div class="sp" id="sp">
+      <div class="side">
+        <div class="hdr">
+          <div class="brand">
+            <div class="mark" style="width:28px;height:28px;border-radius:8px;">
+              <svg class="grain" aria-hidden="true"><filter id="g-logo"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#g-logo)"/></svg>
+              <svg viewBox="0 0 28 28" width="28" height="28" fill="none" style="position:relative"><path d="M6.5 19.5c2.2-4.4 4.7-6.6 7.5-6.6s5.3 2.2 7.5 6.6" stroke="#0e3e39" stroke-width="2.2" stroke-linecap="round"/><path d="M9.2 9.6c1.5-1.3 3.1-2 4.8-2s3.3.7 4.8 2" stroke="#0e3e39" stroke-width="2.2" stroke-linecap="round" opacity=".55"/></svg>
+            </div>
+            <span class="name">ATHENA</span>
+          </div>
+          <span class="pill"><span class="dot"></span>Privacy active</span>
+        </div>
+        <div class="tabs">
+          <div class="tab on"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 4.2A1.7 1.7 0 0 1 3.9 2.5h8.2a1.7 1.7 0 0 1 1.7 1.7v5.4a1.7 1.7 0 0 1-1.7 1.7H7.2L4 13.5v-2.2h-.1a1.7 1.7 0 0 1-1.7-1.7z"/></svg>Assistant</div>
+          <div class="tab"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.9v1.6M8 12.5v1.6M1.9 8h1.6M12.5 8h1.6M3.7 3.7l1.1 1.1M11.2 11.2l1.1 1.1M3.7 12.3l1.1-1.1M11.2 4.8l1.1-1.1"/></svg>Settings</div>
+        </div>
+
+        <div class="body" id="body">
+          <div class="card">
+            <div class="between" style="margin-bottom:8px;"><span class="lbl">Current page</span><span class="row t3"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="8" height="8" rx="1.5"/><rect x="6.3" y="6.3" width="3.4" height="3.4" rx=".6"/><path d="M6 1.8V4M10 1.8V4M6 12v2.2M10 12v2.2M1.8 6H4M1.8 10H4M12 6h2.2M12 10h2.2"/></svg>On-device</span></div>
+            <div class="row" style="align-items:flex-start;">
+              <div style="width:30px;height:30px;border-radius:8px;background:#0b3d6b;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex:none;">M</div>
+              <div style="min-width:0;">
+                <div class="t1" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Meridian Bank — Sign in</div>
+                <div class="t2">netbanking.meridianbank.com</div>
+              </div>
+            </div>
+            <div class="row" style="margin-top:10px;color:#0f6b4f;font-size:12.5px;font-weight:500;"><span class="gdot"></span><span id="page-state">Ready for local screen analysis</span></div>
+          </div>
+
+          <div class="card wash">
+            <svg class="grain" aria-hidden="true"><filter id="g-wash"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#g-wash)"/></svg>
+            <div class="in">
+              <div class="row" style="align-items:flex-start;gap:10px;">
+                <div style="width:32px;height:32px;border-radius:9px;background:#0e4a44;color:#d9f2ea;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 13 3.6v4.1c0 3.1-2.1 5.3-5 6.5-2.9-1.2-5-3.4-5-6.5V3.6z"/><path d="m5.8 8 1.5 1.5L10.3 6.5"/></svg></div>
+                <div>
+                  <div style="font-size:15px;font-weight:600;letter-spacing:-0.01em;">Your privacy is protected</div>
+                  <div class="t2" style="color:#3f4d49;" id="privacy-sub">Sensitive data stays on this device.</div>
+                </div>
+              </div>
+              <div class="chips" style="margin-top:12px;" id="chips">
+                <span class="chip muted"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="M8 5v3.5l2 1.5"/></svg>Waiting for local analysis</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="lbl" style="margin-bottom:8px;">Ask ATHENA</div>
+            <div class="ta" id="ta"><span class="ph" id="ph">Ask for help with this page</span><span id="typed"></span></div>
+            <div class="btns" style="margin-top:10px;">
+              <span class="btn pri" id="ask"><span id="ask-label">Ask ATHENA</span><svg id="ask-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#cfe9e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 2.5 2.5 6.8l5 1.7 1.7 5z"/><path d="M13.5 2.5 7.5 8.5"/></svg></span>
+              <span class="btn sec"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#0e5a52" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 13 3.6v4.1c0 3.1-2.1 5.3-5 6.5-2.9-1.2-5-3.4-5-6.5V3.6z"/><path d="m5.8 8 1.5 1.5L10.3 6.5"/></svg>Analyze page safely</span>
+            </div>
+          </div>
+
+          <div class="card" id="preview">
+            <div class="between"><span class="lbl">Sanitized page preview</span><span class="link" id="view-link"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 8s2.3-4.2 6.2-4.2S14.2 8 14.2 8s-2.3 4.2-6.2 4.2S1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.9"/></svg>View what will be shared</span></div>
+            <div class="thumb" id="thumb">
+              <div class="empty">Nothing captured yet</div>
+              <div class="inner">
+                <div style="flex:1;display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:7px 10px;">
+                  <div><div class="ln" style="width:38px;margin-bottom:4px;"></div><div class="red">ACCOUNT_ID</div></div>
+                  <div><div class="ln" style="width:44px;margin-bottom:4px;"></div><div class="red">PASSWORD</div></div>
+                  <div><div class="ln" style="width:30px;margin-bottom:4px;"></div><div class="msk"></div></div>
+                  <div><div class="ln" style="width:34px;margin-bottom:4px;"></div><div class="msk"></div></div>
+                  <div><div class="ln" style="width:22px;margin-bottom:4px;"></div><div class="red">PAN</div></div>
+                  <div><div class="ln" style="width:26px;margin-bottom:4px;"></div><div class="fld" style="width:46px;background:#0b3d6b;border-color:#0b3d6b;"></div></div>
+                </div>
+                <div style="flex:none;width:78px;display:flex;flex-direction:column;gap:6px;padding-top:2px;">
+                  <div class="ln" style="width:52px;"></div>
+                  <div class="ln" style="width:40px;opacity:.6;"></div><div class="msk" style="width:64px;"></div>
+                  <div class="ln" style="width:30px;opacity:.6;"></div><div class="red" style="width:64px;">CARD</div>
+                </div>
+              </div>
+            </div>
+            <div class="legend">
+              <span class="k"><span class="sw" style="background:#17221f;"></span>Redacted</span>
+              <span class="k"><span class="sw" style="background:repeating-linear-gradient(135deg,#0e5a52 0 2px,#8fd0c4 2px 4px);"></span>Masked</span>
+              <span class="k"><span class="sw" style="background:#b28a6b;filter:blur(1.2px);"></span>Blurred</span>
+            </div>
+            <div class="t3" style="margin-top:10px;" id="preview-note">Personal data redacted. Only safe, useful content is shared with our AI.</div>
+            <pre class="code" id="code"><span class="key">"task"</span>: "Log me in to this portal."
+<span class="key">"elements"</span>: [
+  { "label": "Customer ID",         "value": <span class="tok">"[REDACTED:ACCOUNT_ID]"</span> },
+  { "label": "NetBanking password", "value": <span class="tok">"[REDACTED:PASSWORD]"</span> },
+  { "label": "Registered email",    "value": <span class="tok">"[EMAIL_1]"</span> },
+  { "label": "Registered mobile",   "value": <span class="tok">"[PHONE_1]"</span> },
+  { "label": "PAN",                 "value": <span class="tok">"[REDACTED:PAN]"</span> },
+  { "role": "button", "label": "Sign in" } ]
+<span class="key">"redaction_manifest"</span>: 7 entries · screenshot: 7 regions masked</pre>
+          </div>
+
+          <div class="card" id="plan">
+            <div class="between"><span class="lbl">Agent plan</span><span class="tag think" id="plan-tag">No plan yet</span></div>
+            <div class="plan-empty" id="plan-empty">Ask ATHENA and the plan will appear here for your approval.</div>
+            <div class="steps" id="steps" style="display:none;">
+              <div class="step"><span class="n">1</span><span class="ic"><svg class="wait" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/></svg><svg class="run" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg><svg class="done" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="m5.4 8.2 1.8 1.8 3.6-3.8"/></svg></span><span>Found the Customer ID and password fields</span></div>
+              <div class="step"><span class="n">2</span><span class="ic"><svg class="wait" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/></svg><svg class="run" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg><svg class="done" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="m5.4 8.2 1.8 1.8 3.6-3.8"/></svg></span><span>Type your Customer ID<span class="sub">From your local vault</span></span></div>
+              <div class="step"><span class="n">3</span><span class="ic"><svg class="wait" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/></svg><svg class="run" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg><svg class="done" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="m5.4 8.2 1.8 1.8 3.6-3.8"/></svg></span><span>Your password will remain local<span class="sub">The server only named the slot: user_saved:password</span></span></div>
+              <div class="step"><span class="n">4</span><span class="ic"><svg class="wait" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/></svg><svg class="run" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg><svg class="done" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><path d="m5.4 8.2 1.8 1.8 3.6-3.8"/></svg></span><span>Click Sign in</span></div>
+            </div>
+            <div class="btns" id="plan-btns" style="display:none;">
+              <span class="btn pri" id="approve"><span id="approve-label">Approve and proceed</span><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#cfe9e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></svg></span>
+              <span class="btn ghost">Cancel</span>
+            </div>
+          </div>
+
+          <div class="log">
+            <div class="hd">
+              <span class="row"><span class="lbl">Privacy activity</span><span class="cnt" id="log-count">0</span></span>
+              <span style="color:#8a9491;display:flex;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg></span>
+            </div>
+            <div class="list" id="log-list"></div>
+          </div>
+        </div>
+        <div class="toast" id="toast"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8fd0c4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 13 3.6v4.1c0 3.1-2.1 5.3-5 6.5-2.9-1.2-5-3.4-5-6.5V3.6z"/><path d="m5.8 8 1.5 1.5L10.3 6.5"/></svg><span id="toast-text"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="ripple"></div>
+  <div id="cursor"><svg width="22" height="26" viewBox="0 0 22 26"><path d="M3 2.5v18l4.6-4.2 3 7.2 3.6-1.5-3-7h6.3z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+</div>
+
+<script>
+// ponytail: a plain timed script. Every state change below is fake and deliberate.
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const cursor = $('cursor'), ripple = $('ripple');
+const winRect = () => $('win').getBoundingClientRect();
+
+function centerOf(el, dx = 0, dy = 0) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2 + dx, y: r.top + r.height / 2 + dy };
+}
+async function moveTo(el, dx = 0, dy = 0, ms = 550) {
+  const { x, y } = centerOf(el, dx, dy);
+  cursor.style.transitionDuration = `${ms}ms, ${ms}ms, .1s`;
+  cursor.style.left = `${x - 4}px`; cursor.style.top = `${y - 3}px`;
+  await sleep(ms + 60);
+}
+async function click(el) {
+  const { x, y } = centerOf(el);
+  ripple.style.left = `${x}px`; ripple.style.top = `${y}px`;
+  cursor.classList.add('down'); el.classList.add('pressed');
+  ripple.classList.remove('go'); void ripple.offsetWidth; ripple.classList.add('go');
+  await sleep(110);
+  cursor.classList.remove('down'); el.classList.remove('pressed');
+  await sleep(120);
+}
+async function typeInto(target, text, perChar = 42) {
+  for (const ch of text) { target.textContent += ch; await sleep(perChar + (ch === ' ' ? 30 : 0)); }
+}
+let logN = 0;
+function log(text, color, when = 'now') {
+  const ev = document.createElement('div');
+  ev.className = 'ev';
+  ev.innerHTML = `<span class="d" style="background:${color}"></span><span>${text}</span><span class="tm">${when}</span>`;
+  $('log-list').appendChild(ev);
+  $('log-count').textContent = String(++logN);
+  requestAnimationFrame(() => ev.classList.add('in'));
+}
+async function toast(text, ms = 2200) {
+  $('toast-text').textContent = text; $('toast').classList.add('in');
+  await sleep(ms); $('toast').classList.remove('in');
+}
+function chip(svg, text) {
+  const s = document.createElement('span');
+  s.className = 'chip'; s.style.opacity = '0'; s.style.transform = 'translateY(4px)';
+  s.innerHTML = `${svg}${text}`;
+  return s;
+}
+const I = {
+  lock: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="7" width="9.6" height="7" rx="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7"/></svg>',
+  mail: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3.5" width="12" height="9" rx="1.6"/><path d="m2.5 5 5.5 4 5.5-4"/></svg>',
+  face: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="6.6" r="2"/><path d="M4.2 12.4c.9-1.5 2.2-2.2 3.8-2.2s2.9.7 3.8 2.2"/></svg>',
+};
+const steps = () => [...document.querySelectorAll('#steps .step')];
+
+async function run() {
+  await sleep(900);
+  // 1. open the panel from the toolbar icon
+  await moveTo($('ext-icon'), 0, 0, 700);
+  await click($('ext-icon'));
+  $('ext-icon').classList.add('on');
+  $('sp').classList.add('open');
+  await sleep(900);
+
+  // 2. ask
+  await moveTo($('ta'), -40, 0, 600);
+  await click($('ta'));
+  $('ta').classList.add('focus'); $('ph').remove();
+  const caret = document.createElement('span'); caret.className = 'caret'; $('ta').appendChild(caret);
+  await sleep(250);
+  await typeInto($('typed'), 'Log me in to this portal.');
+  await sleep(500);
+  await moveTo($('ask'), 0, 0, 500);
+  await click($('ask'));
+  $('ta').classList.remove('focus'); caret.remove();
+
+  // 3. local analysis
+  $('ask').classList.add('busy'); $('ask-label').textContent = 'Analyzing on this device…';
+  $('ask-icon').outerHTML = '<span class="spin" id="ask-icon"></span>';
+  $('page-state').textContent = 'Analyzing screen locally';
+  log('Screen analyzed locally', '#1fa971');
+  await sleep(1300);
+  const chips = $('chips'); chips.innerHTML = '';
+  for (const c of [chip(I.lock, '3 secrets redacted'), chip(I.mail, '4 identifiers masked'), chip(I.face, 'No faces on this page')]) {
+    chips.appendChild(c); await sleep(40); c.style.opacity = '1'; c.style.transform = 'none'; await sleep(220);
+  }
+  $('thumb').classList.add('ready');
+  $('privacy-sub').textContent = 'Password, PAN and card number never left this device.';
+  log('7 sensitive regions masked', '#1fa971');
+  await sleep(900);
+
+  // 4. send sanitized context
+  $('ask-label').textContent = 'Sending sanitized context…';
+  log('Sanitized context sent', '#9aa5a1');
+  $('plan-tag').textContent = 'Reasoning…';
+  await sleep(1400);
+
+  // 5. plan arrives
+  $('ask').classList.remove('busy'); $('ask-label').textContent = 'Ask ATHENA';
+  $('ask-icon').outerHTML = '<svg id="ask-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#cfe9e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 2.5 2.5 6.8l5 1.7 1.7 5z"/><path d="M13.5 2.5 7.5 8.5"/></svg>';
+  $('page-state').textContent = 'Ready for local screen analysis';
+  $('plan-empty').style.display = 'none'; $('steps').style.display = ''; $('plan-btns').style.display = '';
+  $('plan-tag').className = 'tag'; $('plan-tag').textContent = 'Awaiting approval';
+  for (const s of steps()) { s.classList.add('in'); await sleep(170); }
+  log('Action blocked pending approval', '#e0a33a');
+  toast('Plan ready. Nothing sensitive left this device.');
+  await sleep(1400);
+
+  // 6. inspect what was shared
+  await moveTo($('view-link'), 0, 0, 600);
+  await click($('view-link'));
+  $('code').classList.add('show');
+  await sleep(2600);
+
+  // 7. approve
+  await moveTo($('approve'), 0, 0, 650);
+  await click($('approve'));
+  $('code').classList.remove('show');
+  $('plan-tag').textContent = 'Running';
+  $('approve-label').textContent = 'Running…';
+  $('approve').classList.add('busy');
+  const st = steps();
+  st[0].classList.add('run'); await sleep(500); st[0].classList.replace('run', 'done');
+  st[1].classList.add('run');
+  $('f-id').classList.add('focus'); await sleep(200);
+  await typeInto($('f-id'), 'MB4470193', 55);
+  $('f-id').classList.remove('focus'); st[1].classList.replace('run', 'done');
+  log('Customer ID typed from local vault', '#1fa971');
+  st[2].classList.add('run');
+  $('f-pw').classList.add('focus'); await sleep(200);
+  await typeInto($('f-pw'), '••••••••••••••••', 40);
+  $('f-pw').classList.remove('focus'); st[2].classList.replace('run', 'done');
+  log('Password resolved locally, never sent', '#1fa971');
+  st[3].classList.add('run');
+  await sleep(300);
+  $('f-submit').classList.add('pressed'); await sleep(140); $('f-submit').classList.remove('pressed');
+  await sleep(500);
+  $('signed').classList.add('in');
+  st[3].classList.replace('run', 'done');
+  $('plan-tag').className = 'tag ok'; $('plan-tag').textContent = 'Completed';
+  $('approve-label').textContent = 'Done'; $('approve').classList.remove('busy');
+  $('privacy-sub').textContent = 'Signed in. Your password never left this device.';
+  log('Signed in · no secret crossed the network', '#1fa971');
+  toast('Done. Your password stayed on this device.', 2600);
+  await moveTo($('signed'), 120, 40, 900);
+  await sleep(3200);
+  window.__done = true;
+}
+window.__start = () => { run(); };
+if (new URLSearchParams(location.search).has('autoplay')) window.__start();
+</script>
+</body>
+</html>

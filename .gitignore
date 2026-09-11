@@ -37,3 +37,4 @@ eval/fixtures/assets/
 # Design canvas: assembled output, regenerate with build.py + the design skill
 design/**/*.html
 !design/**/*.dc.html
+demo/*.mp4
