@@ -15,6 +15,7 @@
  */
 import type { BBox, RawDomNode, RawSnapshot } from '../shared/schema';
 import { SCHEMA_VERSION } from '../shared/schema';
+import { SHADOW_SEP } from '../shared/resolve-path';
 
 /** Bounds payload size and walk latency. Snapshots that hit this are flagged `truncated`. */
 const MAX_NODES = 400;
@@ -80,45 +81,60 @@ function isStableId(id: string): boolean {
   return digits / id.length <= 0.5;
 }
 
-function uniqueIdSelector(el: Element): string | null {
+type Root = Document | ShadowRoot;
+
+function uniqueIdSelector(el: Element, root: Root): string | null {
   const id = el.getAttribute('id');
   if (!id || !isStableId(id)) return null;
   try {
     const sel = `#${CSS.escape(id)}`;
-    if (document.querySelectorAll(sel).length === 1) return `${el.tagName.toLowerCase()}${sel}`;
+    if (root.querySelectorAll(sel).length === 1) return `${el.tagName.toLowerCase()}${sel}`;
   } catch {
     /* invalid selector — fall through to the structural path */
   }
   return null;
 }
 
-function cssPath(el: Element): string {
-  const direct = uniqueIdSelector(el);
-  if (direct) return direct;
+/** Path of a shadow host, cached so every node in that tree shares the prefix. */
+const hostPrefix = new WeakMap<ShadowRoot, string>();
+
+/**
+ * A selector unique within `root`, prefixed with the host's own path and
+ * ` >>> ` when `root` is a shadow root. `querySelector` cannot cross shadow
+ * boundaries, so the hop is explicit and `resolvePath()` walks it.
+ */
+function cssPath(el: Element, root: Root): string {
+  const prefix = root instanceof ShadowRoot ? (hostPrefix.get(root) ?? '') : '';
+  const direct = uniqueIdSelector(el, root);
+  if (direct) return prefix + direct;
 
   const parts: string[] = [];
   let cur: Element | null = el;
+  const top = root instanceof Document ? root.documentElement : null;
 
-  while (cur && cur !== document.documentElement && parts.length < MAX_PATH_SEGMENTS) {
+  while (cur && cur !== top && parts.length < MAX_PATH_SEGMENTS) {
     if (cur !== el) {
-      const anchor = uniqueIdSelector(cur);
+      const anchor = uniqueIdSelector(cur, root);
       if (anchor) {
         parts.unshift(anchor);
-        return parts.join(' > ');
+        return prefix + parts.join(' > ');
       }
     }
     const node: Element = cur;
     const tag = node.tagName.toLowerCase();
-    const parent = node.parentElement;
-    if (!parent) {
-      parts.unshift(tag);
+    // parentNode, not parentElement: a shadow root's direct children have a
+    // parentNode (the root) but no parentElement, and their siblings still count.
+    const parent = node.parentNode as ParentNode | null;
+    if (!parent || parent === root) {
+      const siblings = parent ? Array.from(parent.children).filter((c) => c.tagName === node.tagName) : [];
+      parts.unshift(siblings.length > 1 ? `${tag}:nth-of-type(${siblings.indexOf(node) + 1})` : tag);
       break;
     }
     const siblings = Array.from(parent.children).filter((c) => c.tagName === node.tagName);
     parts.unshift(siblings.length > 1 ? `${tag}:nth-of-type(${siblings.indexOf(node) + 1})` : tag);
-    cur = parent;
+    cur = node.parentElement;
   }
-  return parts.join(' > ');
+  return prefix + parts.join(' > ');
 }
 
 // ---------------------------------------------------------------------------
@@ -285,18 +301,7 @@ export function captureDomSnapshot(): RawSnapshot {
   const vh = window.innerHeight;
   let truncated = false;
 
-  const root = document.body ?? document.documentElement;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {
-    acceptNode(node) {
-      // FILTER_REJECT prunes the whole subtree — the cheapest possible win.
-      return SKIP_TAGS.has((node as Element).tagName.toLowerCase())
-        ? NodeFilter.FILTER_REJECT
-        : NodeFilter.FILTER_ACCEPT;
-    },
-  });
-
-  let el: Element | null = root;
-  while (el) {
+  const visit = (el: Element, root: Root): void => {
     const tag = el.tagName.toLowerCase();
     const elRole = role(el, tag);
     const interactive = isInteractive(el, tag, elRole);
@@ -324,7 +329,7 @@ export function captureDomSnapshot(): RawSnapshot {
           const { value, omitted } = readValue(el, tag, inputType);
 
           nodes.push({
-            path: cssPath(el),
+            path: cssPath(el, root),
             tag,
             role: elRole,
             label: accessibleName(el, tag),
@@ -348,16 +353,35 @@ export function captureDomSnapshot(): RawSnapshot {
             interactive,
             media,
           });
-
-          if (nodes.length >= MAX_NODES) {
-            truncated = true;
-            break;
-          }
         }
       }
     }
-    el = walker.nextNode() as Element | null;
-  }
+  };
+
+  const walk = (parent: Element | ShadowRoot, root: Root): void => {
+    for (const child of Array.from(parent.children)) {
+      if (truncated) return;
+      const tag = child.tagName.toLowerCase();
+      if (SKIP_TAGS.has(tag)) continue; // prunes the whole subtree — the cheapest possible win
+      visit(child, root);
+      if (nodes.length >= MAX_NODES) {
+        truncated = true;
+        return;
+      }
+      // Open shadow roots are part of what the user sees; closed ones are not
+      // reachable and are a documented ceiling.
+      const shadow = child.shadowRoot;
+      if (shadow) {
+        hostPrefix.set(shadow, cssPath(child, root) + SHADOW_SEP);
+        walk(shadow, shadow);
+      }
+      walk(child, root);
+    }
+  };
+
+  const body = document.body ?? document.documentElement;
+  visit(body, document);
+  walk(body, document);
 
   return {
     schema_version: SCHEMA_VERSION,
