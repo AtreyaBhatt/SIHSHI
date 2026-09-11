@@ -111,7 +111,7 @@ execute  ←───────────── executePlanFlow
 | Property | Enforced by | How to check |
 |---|---|---|
 | Raw snapshot cannot reach the network | Type of `requestPlan()`'s parameter | Read `agent-client.ts` |
-| Only one origin reachable | `host_permissions` (one host) | `grep -rn 'fetch(' extension/src` → 2 lines, both `agent-client.ts` |
+| Egress limited to declared and user-granted origins | `host_permissions` (the reasoning server) plus `optional_host_permissions` the user grants per site | `grep -rn 'fetch(' extension/src` → real calls only in `agent-client.ts` (server) and `perception/runtime.ts` (extension-local model URL) |
 | A leak fails loudly | `assertNoRawPii` in `build-request.ts` | `npm run test:redaction` |
 | A buggy client is caught anyway | `server/app/ingress.py` | `uv run pytest tests/test_ingress.py` |
 | Model cannot invent a target | `action_planner.py` selector allowlist | `uv run pytest tests/test_action_planner.py` |

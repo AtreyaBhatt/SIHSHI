@@ -88,9 +88,10 @@ Things to say while pointing at it:
 - **Cheapest, most precise detector first.** `type="password"` is not a guess.
   Regex runs only on what the heuristics did not already claim. Faces cost the
   most and run last, on image regions only. This is why the local pipeline is
-  ~70 ms, not seconds.
+  ~66 ms, not seconds.
 - **Three tiers, from the PRD.** Tier 1 hard-block (never leaves; `[REDACTED:PASSWORD]`,
-  black box). Tier 2 mask-but-keep-shape (`[EMAIL_1]`, `a***@***.org`) so the
+  black box; frames and trimmed regions the walk never scanned are declared here
+  too). Tier 2 mask-but-keep-shape (`[EMAIL_1]`, `a***@***.org`) so the
   model still knows "this is an email field". Tier 3 structure (labels,
   buttons, headings) passes through — the model needs it to act.
 - **Fail closed, twice.** The payload builder re-scans its own output with the
@@ -145,8 +146,8 @@ deliberate — PRD §9 — over-redact rather than leak."* Then the eval table.
 | Tier-1 detection recall | **1.000** | ≥ 0.90 |
 | Overall detection precision | **1.000** | ≥ 0.80 |
 | Tier-1 redaction precision (IoU ≥ 0.5) | **1.000** | ≥ 0.85 |
-| Overall recall | 0.931 (the two prose FNs) | — |
-| Local pipeline p50 | ~66–71 ms (capture 1 · screenshot ~40 · faces ~13 · redaction ~17) | < 300 ms |
+| Overall recall | 0.941 (the two prose FNs) | — |
+| Local pipeline p50 | ~66 ms (capture 1 · screenshot ~40 · faces ~13 · redaction ~17) | < 300 ms |
 | Package | ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) | < 20 MB |
 | Tests | 5 browser harnesses + capture harness + 31 server tests | — |
 
@@ -192,7 +193,7 @@ Who to point at for which claim:
 
 | Claim | Evidence |
 |---|---|
-| Raw data cannot reach the network | `requestPlan()` only accepts the type `build-request.ts` produces; `grep fetch( extension/src` → one file |
+| Raw data cannot reach the network | `requestPlan()` only accepts the type `build-request.ts` produces; `grep fetch( extension/src` → real calls only in `agent-client.ts` and `perception/runtime.ts` |
 | Every redaction is declared | `build-request.ts` pushes a manifest entry for every mask; `test:redaction` checks shape |
 | A leak fails loudly | `assertNoRawPii` + server `ingress.py`; `test:redaction`, `test_ingress.py` |
 | The model can't invent a selector | `action_planner.py` + `execute.ts`; `test_action_planner.py`, `test:e2e` |

@@ -117,6 +117,8 @@ Clicking the icon grants one-off access to that tab. **Enable on this site** in 
 page card grants ATHENA the site persistently (`optional_host_permissions`), so
 captures keep working across reloads and navigations there; **Disable** revokes
 it. Nothing is granted on sites you have not enabled.
+**Enable on this site** only appears once the panel can read the tab's URL —
+click the icon first on a site you have not enabled.
 
 The permission prompt itself cannot be scripted; the harnesses cover everything up to it.
 
@@ -316,23 +318,20 @@ Stated plainly, because overclaiming here is worse than underclaiming.
    them and the DOM gives no context inside a paragraph. The local NER model that
    would catch them was cut. This is visible in the recall number, not hidden
    behind it.
-3. **A service-specific customer identifier has no home in the taxonomy.**
-   `MB4470193` passes through. Adding a type is a product decision, so it is
-   named rather than quietly invented.
-4. **Pixel geometry is node-granular.** A detection spanning part of a paragraph
+3. **Pixel geometry is node-granular.** A detection spanning part of a paragraph
    is masked with the paragraph's box — over-redaction, never under-redaction.
    Text redaction is exact regardless.
-5. **Capture is viewport-only.** Content below the fold is not snapshotted,
+4. **Capture is viewport-only.** Content below the fold is not snapshotted,
    redacted, or sent.
-6. **The server is trusted to honour the redaction contract.** Schema validation
+5. **The server is trusted to honour the redaction contract.** Schema validation
    and redaction-aware prompting add friction; they are not a cryptographic
    guarantee. This is a heuristic redaction pipeline, **not** a zero-trust
    system, and should not be described as one.
-7. **The credential vault is a demo, not a password manager.** See step 4.
-8. **Face blurring covers vision only.** Voice, filenames and other non-visual
+6. **The credential vault is a demo, not a password manager.** See step 4.
+7. **Face blurring covers vision only.** Voice, filenames and other non-visual
    identity leaks on the same page are out of scope.
-9. **The eval corpus is self-authored screens.** See above.
-10. **Closed shadow roots are invisible.** They cannot be told apart from empty
+8. **The eval corpus is self-authored screens.** See above.
+9. **Closed shadow roots are invisible.** They cannot be told apart from empty
     custom elements, so their pixels are not masked. Open shadow roots are walked.
-11. **Frames are masked, not read.** An iframe's contents are black-boxed in the
+10. **Frames are masked, not read.** An iframe's contents are black-boxed in the
     screenshot and declared as a `frame`; same-origin frames are not walked.

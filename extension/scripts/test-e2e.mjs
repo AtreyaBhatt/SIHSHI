@@ -43,6 +43,7 @@ import { captureDomSnapshot } from '${resolve('src/capture/dom-snapshot.ts')}';
 import { buildAgentRequest } from '${resolve('src/redaction/build-request.ts')}';
 import { TokenRegistry } from '${resolve('src/redaction/tokens.ts')}';
 import { executeActions } from '${resolve('src/executor/execute.ts')}';
+import { resolvePath } from '${resolve('src/shared/resolve-path.ts')}';
 export async function buildPayload(task) {
   const snapshot = captureDomSnapshot();
   const { request } = await buildAgentRequest({
@@ -53,7 +54,7 @@ export async function buildPayload(task) {
 }
 export { executeActions };
 export function fieldValue(selector) {
-  const el = document.querySelector(selector);
+  const el = resolvePath(selector)[0];
   return el ? el.value : null;
 }
 `);

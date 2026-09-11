@@ -9,6 +9,6 @@
     { "id": "s2", "selector": "div#widget >>> input#inner-name", "type": "person_name", "tier": 2, "modality": "text", "value_present": true,
       "notes": "No <label>; only name=fullName identifies it." },
     { "id": "s3", "selector": "iframe#payment", "type": "frame", "tier": 1, "modality": "pixel", "value_present": true,
-      "notes": "Whole frame. Contents are never walked." }
+      "notes": "Whole frame. Contents are never walked. A frame is declared by construction, not detected; it counts toward the Tier-1 numbers as a masked region." }
   ]
 }
