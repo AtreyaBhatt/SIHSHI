@@ -66,6 +66,7 @@ class AgentRequest(Strict):
     dom_summary: list[SanitizedDomNode]
     redaction_manifest: list[RedactionManifestEntry] = Field(default_factory=list)
     prior_actions: list[AgentAction] = Field(default_factory=list)
+    truncated: bool = False
 
 
 class AgentResponse(Strict):

@@ -241,6 +241,7 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
     dom_summary: domSummary,
     redaction_manifest: manifest,
     prior_actions: options.priorActions ?? [],
+    truncated: snapshot.truncated,
   };
 
   assertNoRawPii(request);

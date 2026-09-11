@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>Long page</title>
+<style>body{margin:0;font:12px/1.3 system-ui;columns:6;padding:8px} p{margin:0 0 2px} button{display:block;font-size:11px}</style></head>
+<body>
+<script>
+  // 1200 visible text nodes and 60 buttons, the buttons LAST in document order.
+  for (let i = 0; i < 1200; i++) { const p = document.createElement('p'); p.textContent = 'Line ' + i; document.body.appendChild(p); }
+  for (let i = 0; i < 60; i++) { const b = document.createElement('button'); b.id = 'act-' + i; b.textContent = 'Action ' + i; document.body.appendChild(b); }
+</script>
+</body></html>

@@ -123,6 +123,28 @@ try {
   else fail(`iframe centre pixel is ${JSON.stringify(r.centre)} — the card number inside the frame is visible`);
   if (payload.includes('4539')) fail('card number from inside the iframe is in the payload text');
   else pass('nothing from inside the iframe is in the payload text');
+
+  console.log('\nnode budget (long-page.html):');
+  await call('Page.navigate', { url: `file://${resolve('../eval/fixtures/long-page.html')}` });
+  for (let i = 0; i < 40; i++) { await sleep(150); if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('location.href')).includes('long-page')) break; }
+  // The fixture's 1200 lines across 6 CSS columns need ~3700px of column
+  // height — taller than the 1280x800 window used for the iframe test above.
+  // captureDomSnapshot() only keeps on-screen nodes by design (it snapshots
+  // what the user currently sees, not the whole scrollable document), so the
+  // viewport must actually be tall enough to show this page's full content
+  // for the node-budget behavior under test to be exercised at all.
+  await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 6000, deviceScaleFactor: 1, mobile: false });
+  await evaluate(bundle);
+  const long = JSON.parse(await evaluate(`ATHENA.run(null).then((x) => JSON.stringify(x))`));
+  const buttons = long.nodes.filter((n) => n.tag === 'button').length;
+  if (long.truncated) pass(`snapshot reports truncated=true with ${long.nodes.length} nodes`);
+  else fail(`expected truncation on a 1260-node page, got ${long.nodes.length} nodes and truncated=${long.truncated}`);
+  if (long.nodes.length <= 800) pass('node count within the 800 budget');
+  else fail(`${long.nodes.length} nodes exceeds the budget`);
+  if (buttons === 60) pass('all 60 buttons kept despite being last in document order');
+  else fail(`only ${buttons} of 60 buttons survived the budget`);
+  if (long.request.truncated === true) pass('truncated is on the wire');
+  else fail('AgentRequest.truncated missing or false');
 } catch (err) {
   fail(err.message);
 } finally {

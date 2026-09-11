@@ -17,8 +17,10 @@ import type { BBox, RawDomNode, RawSnapshot } from '../shared/schema';
 import { SCHEMA_VERSION } from '../shared/schema';
 import { SHADOW_SEP } from '../shared/resolve-path';
 
-/** Bounds payload size and walk latency. Snapshots that hit this are flagged `truncated`. */
-const MAX_NODES = 400;
+/** What is sent. Snapshots that needed trimming are flagged `truncated`. */
+const MAX_NODES = 800;
+/** What is walked before giving up; bounds the getComputedStyle cost on pathological pages. */
+const HARD_WALK_LIMIT = 2500;
 const MAX_PATH_SEGMENTS = 8;
 
 /**
@@ -368,7 +370,7 @@ export function captureDomSnapshot(): RawSnapshot {
       const tag = child.tagName.toLowerCase();
       if (SKIP_TAGS.has(tag)) continue; // prunes the whole subtree — the cheapest possible win
       visit(child, root);
-      if (nodes.length >= MAX_NODES) {
+      if (nodes.length >= HARD_WALK_LIMIT) {
         truncated = true;
         return;
       }
@@ -387,6 +389,18 @@ export function captureDomSnapshot(): RawSnapshot {
   visit(body, document);
   walk(body, document);
 
+  // Interactive and media nodes are what the agent acts on and what the face
+  // detector scans; on an oversized page they must survive the cut even when
+  // they sit at the bottom of the document.
+  let kept = nodes;
+  if (nodes.length > MAX_NODES) {
+    truncated = true;
+    const priority = nodes.filter((n) => n.interactive || n.media);
+    const rest = nodes.filter((n) => !(n.interactive || n.media));
+    kept = [...priority, ...rest.slice(0, Math.max(0, MAX_NODES - priority.length))].slice(0, MAX_NODES);
+    kept.sort((a, b) => nodes.indexOf(a) - nodes.indexOf(b)); // back to document order
+  }
+
   return {
     schema_version: SCHEMA_VERSION,
     captured_at: new Date().toISOString(),
@@ -399,7 +413,7 @@ export function captureDomSnapshot(): RawSnapshot {
       scroll_x: Math.round(window.scrollX),
       scroll_y: Math.round(window.scrollY),
     },
-    nodes,
+    nodes: kept,
     truncated,
     timings: { dom_walk_ms: Math.round((performance.now() - start) * 100) / 100 },
   };

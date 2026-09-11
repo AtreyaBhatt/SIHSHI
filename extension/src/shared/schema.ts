@@ -195,6 +195,8 @@ export interface AgentRequest {
   dom_summary: SanitizedDomNode[];
   redaction_manifest: RedactionManifestEntry[];
   prior_actions: AgentAction[];
+  /** True when the snapshot hit the node budget: the model sees a partial page. */
+  truncated: boolean;
 }
 
 /** PRD §3.2 caps the action grammar at these verbs. Do not extend without discussion. */
