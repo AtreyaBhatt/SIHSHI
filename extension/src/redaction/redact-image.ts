@@ -31,6 +31,14 @@ const BLUR_PAD_RATIO = 0.25;
 const BLUR_MIN_RADIUS_PX = 10;
 const BLUR_RADIUS_RATIO = 0.45;
 
+/**
+ * Long-edge cap on the outbound PNG. Cloud VLM APIs reject images past a few
+ * MB and downsample beyond ~1568 px anyway; a retina capture is both. Masking
+ * happens at full resolution first, so nothing masked is ever unmasked by the
+ * resize — it only shrinks the payload.
+ */
+const MAX_EDGE_PX = 1568;
+
 function dataUrlToBlob(dataUrl: string): Blob {
   const comma = dataUrl.indexOf(',');
   if (comma === -1) throw new Error('Malformed data URL');
@@ -108,6 +116,13 @@ export async function redactScreenshot(
   }
 
   bitmap.close();
-  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  let out = canvas;
+  const longEdge = Math.max(canvas.width, canvas.height);
+  if (longEdge > MAX_EDGE_PX) {
+    const k = MAX_EDGE_PX / longEdge;
+    out = new OffscreenCanvas(Math.round(canvas.width * k), Math.round(canvas.height * k));
+    out.getContext('2d')!.drawImage(canvas, 0, 0, out.width, out.height);
+  }
+  const blob = await out.convertToBlob({ type: 'image/png' });
   return toBase64(await blob.arrayBuffer());
 }

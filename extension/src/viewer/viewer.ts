@@ -20,7 +20,8 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 
 const targetTabId = (() => {
   const raw = new URLSearchParams(location.search).get('tab');
-  const parsed = raw === null ? Number.NaN : Number(raw);
+  // Number('') is 0, and tab 0 does not exist.
+  const parsed = raw === null || raw === '' ? Number.NaN : Number(raw);
   return Number.isFinite(parsed) ? parsed : undefined;
 })();
 
@@ -29,7 +30,8 @@ let plan: PlanPreview | null = null;
 let execution: ExecutionResult | null = null;
 
 async function send<M extends PanelToWorker>(message: M): Promise<ResponseFor<M>> {
-  const reply = (await api.runtime.sendMessage(message)) as WorkerReply<ResponseFor<M>>;
+  const reply = (await api.runtime.sendMessage(message)) as WorkerReply<ResponseFor<M>> | undefined;
+  if (!reply) throw new Error('The extension worker did not respond — try again.');
   if (!reply.ok) throw new Error(reply.error);
   return reply.data;
 }

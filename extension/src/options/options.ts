@@ -48,8 +48,12 @@ async function renderVault(): Promise<void> {
 }
 
 $('save-url').addEventListener('click', async () => {
-  await setServerUrl(serverInput.value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL);
-  healthLine.textContent = 'Saved.';
+  try {
+    await setServerUrl(serverInput.value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL);
+    healthLine.textContent = 'Saved.';
+  } catch (err) {
+    healthLine.textContent = err instanceof Error ? err.message : String(err);
+  }
 });
 
 $('test-url').addEventListener('click', async () => {

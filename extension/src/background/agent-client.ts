@@ -20,6 +20,18 @@ export async function getServerUrl(): Promise<string> {
 }
 
 export async function setServerUrl(url: string): Promise<void> {
+  // "Only one origin is reachable" is a property of host_permissions, and a
+  // remote server with permissive CORS would answer a cross-origin fetch anyway.
+  // Refusing here keeps the settings field from widening what the manifest allows.
+  let origin: string;
+  try {
+    origin = new URL(url).origin;
+  } catch {
+    throw new Error(`Not a valid URL: ${url}`);
+  }
+  if (!(await api.permissions.contains({ origins: [`${origin}/*`] }))) {
+    throw new Error(`${origin} is not in the extension's host_permissions; the manifest decides which server is reachable.`);
+  }
   await api.storage.local.set({ [SERVER_URL_KEY]: url });
 }
 

@@ -71,6 +71,8 @@ let execution: ExecutionResult | null = null;
 let inspectedTabId: number | null = null;
 let currentTabId: number | null = null;
 let currentPageLabel = 'the page under inspection';
+/** The page the capture (and therefore the plan) describes — not whatever tab is active at approval time. */
+let inspectedPageLabel = currentPageLabel;
 
 interface Activity { at: number; text: string; tone: 'ok' | 'info' | 'warn' }
 const activity: Activity[] = [];
@@ -80,7 +82,8 @@ let rebuildTimer: number | undefined;
 // --- plumbing ---------------------------------------------------------------
 
 async function send<M extends PanelToWorker>(message: M): Promise<ResponseFor<M>> {
-  const reply = (await api.runtime.sendMessage(message)) as WorkerReply<ResponseFor<M>>;
+  const reply = (await api.runtime.sendMessage(message)) as WorkerReply<ResponseFor<M>> | undefined;
+  if (!reply) throw new Error('The extension worker did not respond — try again.');
   if (!reply.ok) throw new Error(reply.error);
   return reply.data;
 }
@@ -457,6 +460,7 @@ async function captureAndRedact(): Promise<void> {
   setPerceptionNote('Capturing…');
   capture = await send({ type: 'athena:run-capture' });
   inspectedTabId = currentTabId;
+  inspectedPageLabel = currentPageLabel;
   note(`Captured ${capture.snapshot.nodes.length} nodes from ${capture.snapshot.viewport.width}×${capture.snapshot.viewport.height}`, 'ok');
 
   preview = await send({
@@ -499,10 +503,10 @@ function openApproval(): void {
   const response = plan.response;
   const rows: Array<[string, string, boolean]> = [
     ['Actions', String(response.actions.length), false],
-    ['Target', currentPageLabel, false],
+    ['Target', inspectedPageLabel, false],
     ['Local credential', response.requires_client_secret ? 'resolved on this device' : 'not required', response.requires_client_secret],
   ];
-  $('approval-body').innerHTML = `ATHENA will run <strong>${response.actions.length} action${response.actions.length === 1 ? '' : 's'}</strong> on ${esc(currentPageLabel)}.${
+  $('approval-body').innerHTML = `ATHENA will run <strong>${response.actions.length} action${response.actions.length === 1 ? '' : 's'}</strong> on ${esc(inspectedPageLabel)}.${
     response.requires_client_secret ? ' Your stored credential is filled in locally and never sent to the server.' : ''
   }`;
   $('approval-summary').innerHTML = rows
@@ -535,11 +539,12 @@ askButton.addEventListener('click', async () => {
   askButton.disabled = true;
   analyzeButton.disabled = true;
   try {
-    if (!capture) {
-      capture = await send({ type: 'athena:run-capture' });
-      inspectedTabId = currentTabId;
-      note(`Captured ${capture.snapshot.nodes.length} nodes`, 'ok');
-    }
+    // Always a fresh capture. Planning from a snapshot of a tab the user has
+    // since left would send another page's selectors to be executed on this one.
+    capture = await send({ type: 'athena:run-capture' });
+    inspectedTabId = currentTabId;
+    inspectedPageLabel = currentPageLabel;
+    note(`Captured ${capture.snapshot.nodes.length} nodes`, 'ok');
     execution = null;
     plan = await send({
       type: 'athena:request-plan',
@@ -703,8 +708,12 @@ function renderSlots(vault: Vault): void {
 
 $('save-url').addEventListener('click', async () => {
   const input = $<HTMLInputElement>('server-url');
-  await setServerUrl(input.value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL);
-  $('health').textContent = 'Saved.';
+  try {
+    await setServerUrl(input.value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL);
+    $('health').textContent = 'Saved.';
+  } catch (err) {
+    $('health').textContent = err instanceof Error ? err.message : String(err);
+  }
 });
 
 $('test-url').addEventListener('click', async () => {

@@ -31,6 +31,8 @@ import type { DetectFacesReply } from '../perception/offscreen';
  * do not switch it to storage.local, which would put page values on disk.
  */
 const LAST_CAPTURE_KEY = 'athena:last-capture';
+/** Same store, same reasoning; the plan holds only the sanitized request and the server's reply. */
+const LAST_PLAN_KEY = 'athena:last-plan';
 
 /**
  * Kept in worker memory so the panel can reopen without re-capturing; session
@@ -48,13 +50,48 @@ let tokens = new TokenRegistry(newSessionId());
 /** Multi-turn history for PRD §7.1. Verbs and selectors only — never a result. */
 let priorActions: AgentAction[] = [];
 
-/** The plan the user may execute. Held only until the next plan replaces it. */
-let lastPlan: { request: AgentRequest; response: AgentResponse } | null = null;
+/**
+ * The plan the user may execute. Held only until the next plan replaces it.
+ * Mirrored to session storage because the worker is routinely suspended while
+ * the user reads the approval prompt, and "No plan to execute" thirty seconds
+ * after a plan was shown is not an acceptable answer.
+ */
+interface StoredPlan { request: AgentRequest; response: AgentResponse; tab_id: number; page_url: string }
+let lastPlan: StoredPlan | null = null;
+
+async function setLastPlan(plan: StoredPlan | null): Promise<void> {
+  lastPlan = plan;
+  try {
+    if (plan) await api.storage.session.set({ [LAST_PLAN_KEY]: plan });
+    else await api.storage.session.remove(LAST_PLAN_KEY);
+  } catch {
+    // Memory copy still stands.
+  }
+}
+
+async function getLastPlan(): Promise<StoredPlan | null> {
+  if (lastPlan) return lastPlan;
+  try {
+    const stored = await api.storage.session.get(LAST_PLAN_KEY);
+    lastPlan = (stored?.[LAST_PLAN_KEY] as StoredPlan | undefined) ?? null;
+  } catch {
+    lastPlan = null;
+  }
+  return lastPlan;
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
 
 function resetSession(): string {
   tokens = new TokenRegistry(newSessionId());
   priorActions = [];
-  lastPlan = null;
+  void setLastPlan(null);
   return tokens.session_id;
 }
 
@@ -110,14 +147,13 @@ async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetecti
   }
 }
 
-async function buildPayload(threshold: number, taskInstruction: string): Promise<PayloadPreview> {
-  if (!lastCapture) throw new Error('Nothing captured yet.');
+async function buildPayload(capture: CaptureResult, threshold: number, taskInstruction: string): Promise<PayloadPreview> {
   const started = performance.now();
   try {
-    const { faces, note } = await detectFaces(lastCapture);
+    const { faces, note } = await detectFaces(capture);
     const { request, detections } = await buildAgentRequest({
-      snapshot: lastCapture.snapshot,
-      screenshotDataUrl: lastCapture.screenshot_data_url,
+      snapshot: capture.snapshot,
+      screenshotDataUrl: capture.screenshot_data_url,
       taskInstruction,
       tokens,
       threshold,
@@ -196,6 +232,7 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
   const screenshotMs = performance.now() - shot0;
 
   const result: CaptureResult = {
+    tab_id: tabId,
     snapshot,
     screenshot_data_url: screenshotDataUrl,
     screenshot_error: screenshotError,
@@ -232,7 +269,9 @@ async function getLastCapture(): Promise<CaptureResult | null> {
  * type is the one that function alone produces.
  */
 async function requestPlanFlow(threshold: number, taskInstruction: string): Promise<PlanPreview> {
-  const preview = await buildPayload(threshold, taskInstruction);
+  const capture = await getLastCapture();
+  if (!capture) throw new Error('Nothing captured yet.');
+  const preview = await buildPayload(capture, threshold, taskInstruction);
   if (!preview.request) {
     return { preview, response: null, network_ms: 0, error: preview.error ?? 'No payload was built.' };
   }
@@ -240,7 +279,7 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
   const started = performance.now();
   try {
     const response = await requestPlan(preview.request);
-    lastPlan = { request: preview.request, response };
+    await setLastPlan({ request: preview.request, response, tab_id: capture.tab_id, page_url: capture.snapshot.page_url });
     return {
       preview,
       response,
@@ -248,7 +287,7 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
       error: null,
     };
   } catch (err) {
-    lastPlan = null;
+    await setLastPlan(null);
     return {
       preview,
       response: null,
@@ -264,10 +303,20 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
  * the extension: the server named the slot, the browser filled it.
  */
 async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
-  if (!lastPlan) throw new Error('No plan to execute — request one first.');
+  const plan = await getLastPlan();
+  if (!plan) throw new Error('No plan to execute — request one first.');
+
+  // The plan was made for one page in one tab. The user may have switched tabs
+  // or the page may have redirected since; typing a resolved credential into
+  // whatever is there now is exactly the leak this project exists to prevent.
+  const tab = await targetTab(tabId ?? plan.tab_id);
+  if (!tab?.id) throw new Error('No active tab.');
+  if (!tab.url || originOf(tab.url) !== originOf(plan.page_url)) {
+    throw new Error('The page changed since it was captured — capture and plan again before executing.');
+  }
 
   const actions: ExecutableAction[] = [];
-  for (const action of lastPlan.response.actions) {
+  for (const action of plan.response.actions) {
     const executable: ExecutableAction = { action: action.action };
     if (action.selector) executable.selector = action.selector;
     if (action.value_ref) {
@@ -280,15 +329,13 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
     actions.push(executable);
   }
 
-  const tab = await targetTab(tabId);
-  if (!tab?.id) throw new Error('No active tab.');
   await api.scripting.executeScript({ target: { tabId: tab.id }, files: ['capture/content-script.js'] });
 
   const started = performance.now();
   const reply = (await api.tabs.sendMessage(tab.id, {
     type: 'athena:execute',
     actions,
-    allowed_selectors: lastPlan.request.dom_summary.map((node) => node.path),
+    allowed_selectors: plan.request.dom_summary.map((node) => node.path),
   })) as ContentToWorker;
 
   if (!reply?.ok || !('outcomes' in reply)) {
@@ -296,7 +343,7 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
   }
 
   // Only what was attempted, never what was read or typed.
-  priorActions = [...priorActions, ...lastPlan.response.actions];
+  priorActions = [...priorActions, ...plan.response.actions];
 
   return {
     outcomes: reply.outcomes,
@@ -325,7 +372,13 @@ api.runtime.onMessage.addListener(
       return true;
     }
     if (message?.type === 'athena:build-payload') {
-      buildPayload(message.threshold, message.task_instruction).then(ok).catch(fail);
+      getLastCapture()
+        .then((capture) => {
+          if (!capture) throw new Error('Nothing captured yet.');
+          return buildPayload(capture, message.threshold, message.task_instruction);
+        })
+        .then(ok)
+        .catch(fail);
       return true;
     }
     if (message?.type === 'athena:reset-session') {

@@ -155,6 +155,8 @@ export interface RawSnapshot {
 
 /** What the service worker hands back to the panel. LOCAL ONLY. */
 export interface CaptureResult {
+  /** The tab the snapshot was taken from. Execution targets this tab, not "whatever is active now". */
+  tab_id: number;
   snapshot: RawSnapshot;
   /** Unredacted PNG data URL. LOCAL ONLY — M3 blurs a canvas copy of this. */
   screenshot_data_url: string | null;
