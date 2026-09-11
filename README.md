@@ -91,14 +91,29 @@ Extension **Details → Extension options**, then add two slots:
 
 ## Using it
 
-Click the PPVA toolbar icon on any normal `http(s)` page.
+Click the AAVARAN toolbar icon on any normal `http(s)` page. The **side panel**
+opens beside the page and stays there — including across tab switches, which is
+the point: the approval prompt has to survive long enough to approve it.
 
 | | |
 |---|---|
-| **Capture tab** | runs capture → detect → redact locally, sends nothing |
-| **Open demo view ↗** | the full-page side-by-side — this is the one to show people |
+| **Ask AAVARAN** | captures → detects → redacts locally, sends only the sanitized context, then shows the plan it gets back |
+| **Analyze page safely** | the same capture → detect → redact with no network request at all |
+| **View what will be shared** | the redaction manifest and the exact request body |
+| **Demo view** | the full-page side-by-side — this is the one to show people |
 | **Threshold slider** | lower = more redaction. Default 0.5, deliberately conservative |
-| **new session** | discards the token mapping (`[EMAIL_1]` → value) |
+| **Approve and proceed** | reviews the plan in a modal, then executes it against the live page |
+| **New session** | discards the token mapping (`[EMAIL_1]` → value) |
+
+The panel reads top to bottom as the argument: what page this is, what stayed on
+the device, the ask box, what local perception found, what would actually be
+sent, what the server proposed, and the activity log. The **Settings** tab holds
+the server URL and the local vault.
+
+`activeTab` is granted per tab when you click the icon, so the panel can only
+inspect a page you have invoked it on. On any other tab it says so rather than
+showing a stale title — and when you switch away from a captured page it marks
+itself stale instead of implying the capture still describes what you are looking at.
 
 The **demo view** has three columns — what was on screen, what was detected
 (Tier 1 red, Tier 2 amber), and the exact bytes that crossed the network beside
@@ -245,10 +260,11 @@ password into a real password field while the server only ever sees
 | Symptom | Cause |
 |---|---|
 | *"Cannot capture a browser-internal page"* | `chrome://`, the Web Store, or a PDF viewer. Open a normal page. |
-| *"No access to that tab yet"* in the demo view | `activeTab` lapsed. Open the popup on the page you want, then launch the demo view from there. |
+| *"No access to that tab yet"* in the demo view | `activeTab` lapsed. Open the panel on the page you want, then launch the demo view from there. |
+| The panel says *"Panel is stale"* | You switched tabs after capturing. Capture again for the new tab. |
 | Nothing happens on a `file://` page | Enable **Allow access to file URLs** in the extension's Details, or serve over HTTP. |
 | *"No local credential is stored for user_saved:password"* | Add the vault slots (step 4). |
-| `faces —` in the stats strip | `npm run fetch:model` was skipped, or the page has no faces. |
+| The perception card's note reads `faces —` | `npm run fetch:model` was skipped, or the page has no faces. |
 | Server unreachable from the extension | It must be on port **8787** — the only origin `host_permissions` allows. |
 | `npm run test:*` cannot find Chrome | `PPVA_CHROME=/path/to/chrome npm run test:e2e` |
 | Server rejects with `raw_pii_in_payload` | Working as intended: the client's redaction missed something the server caught. It names the path and pattern, never the value. |

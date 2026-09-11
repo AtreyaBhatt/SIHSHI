@@ -88,7 +88,8 @@ execute  ←───────────── executePlanFlow
 | `redaction/redact-image.ts` | Pixel masking | Tier 1 solid fill; faces blur. Blur regions are padded 25% and the radius scales with face size — **tuned against the detector**, not by eye. |
 | `redaction/build-request.ts` | **The only AgentRequest constructor** | Fails closed: re-scans the finished payload and throws rather than return one that still matches a pattern. |
 | `background/agent-client.ts` | **The only `fetch`** | Its parameter type is the one `build-request.ts` alone produces. |
-| `background/service-worker.ts` | Orchestration | Accepts an explicit `tab_id` because the viewer is itself a tab. |
+| `background/service-worker.ts` | Orchestration | Accepts an explicit `tab_id` because the viewer is itself a tab. It is also the only place `setPanelBehavior` is called, which is what binds the toolbar icon to the side panel — MV3 has no manifest key for that. |
+| `sidebar/sidebar.ts` | **The user surface** | Replaced the toolbar popup so the approval prompt survives long enough to be approved. Unlike a popup it outlives tab switches and worker suspensions, so page context is re-derived from `chrome.tabs` events and every render comes from worker state. |
 | `executor/execute.ts` | Acts on the live DOM | Re-checks selectors against the client's own snapshot — server-side check guards a confused model, this one guards a compromised server. Values arrive pre-resolved; nothing here logs one. |
 | `shared/schema.ts` | The contract | `Raw*` (local, real values) vs `AgentRequest` (wire). Conflating them is the bug the project exists to prevent. |
 | `shared/vault.ts` | `value_ref` resolution | Demo vault. Chrome exposes no API for the real password manager, so §13 Q2 has only one answer. |
@@ -220,6 +221,8 @@ Three things to know before relying on it:
 | 6 | **Capture is viewport-only** | Below-the-fold content is never snapshotted, redacted, or sent. |
 | 7 | **WebGPU is a build flag, defaulting off** | jsep runtime is 26.5 MB vs 13.3 MB; shipping it exceeds PRD §8's budget for marginal gain on a one-shot 320×240 model. |
 | 8 | **Vault is unencrypted** | Chrome exposes no API for the real password manager. Labelled as a demo vault in the options UI. |
+| 9 | **The panel can only inspect a tab it was invoked on** | `activeTab` is granted per tab on the toolbar click. Switching tabs does not re-grant it, so the panel marks itself stale and asks the user to invoke it on the new page rather than pretending. Fixing it properly means `optional_host_permissions` and a per-site enable, which is a permission escalation this product should argue for explicitly, not ship quietly. |
+| 10 | **The panel is styled to `design/aavaran-sidebar/`; the options and viewer pages are not** | The panel adopts the design's white/Instrument Sans system. The other two pages still carry the earlier look, so the extension is visually inconsistent until someone decides the design wins everywhere. |
 
 ---
 
