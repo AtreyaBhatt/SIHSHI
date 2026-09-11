@@ -3,7 +3,7 @@
   "page": "fixtures/kyc-form.html",
   "source": "fixture",
   "annotator": "authored from the fixture's planted values, independently of the detectors",
-  "notes": "td#cust-ref (SU-2019-884210) is not annotated, for the same reason as the bank fixture's customer ID: no PRD §4.3 type covers it. The four prose items in p#agent-note are annotated at their exact text ranges, which is where this build's node-granular pixel geometry is expected to cost redaction precision.",
+  "notes": "The four prose items in p#agent-note are annotated at their exact text ranges, which is where this build's node-granular pixel geometry is expected to cost redaction precision.",
   "items": [
     { "id": "b1", "selector": "input#applicant-name", "type": "person_name", "tier": 2, "modality": "text", "value_present": true },
     { "id": "b2", "selector": "input#dob", "type": "date_of_birth", "tier": 2, "modality": "text", "value_present": true },
@@ -26,6 +26,8 @@
     { "id": "b14", "selector": "p#agent-note", "text": "42 Nandidurga Road, Benson Town, Bengaluru 560046", "type": "address", "tier": 2, "modality": "text", "value_present": true,
       "notes": "Free prose. Expected to be missed for the same reason." },
     { "id": "b15", "selector": "p#agent-note", "text": "9845012345", "type": "phone", "tier": 2, "modality": "text", "value_present": true },
-    { "id": "b16", "selector": "p#agent-note", "text": "rohan.iyer@example.net", "type": "email", "tier": 2, "modality": "text", "value_present": true }
+    { "id": "b16", "selector": "p#agent-note", "text": "rohan.iyer@example.net", "type": "email", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "b17", "selector": "td#cust-ref", "type": "account_id", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "Named only by the adjacent <th>Customer reference</th>." }
   ]
 }

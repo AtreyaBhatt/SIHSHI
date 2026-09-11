@@ -52,7 +52,9 @@ export type PiiType =
   | 'phone'
   | 'address'
   | 'person_name'
-  | 'date_of_birth';
+  | 'date_of_birth'
+  /** A service-specific identifier: customer/member/policy/reference numbers, usernames. Identifying, not secret. */
+  | 'account_id';
 
 export const TIER_BY_TYPE: Record<PiiType, PiiTier> = {
   password: 1,
@@ -73,6 +75,7 @@ export const TIER_BY_TYPE: Record<PiiType, PiiTier> = {
   address: 2,
   person_name: 2,
   date_of_birth: 2,
+  account_id: 2,
 };
 
 export type MaskingStrategy = 'blackbox' | 'blur' | 'token' | 'partial';

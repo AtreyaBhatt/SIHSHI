@@ -8,7 +8,7 @@
     "device_pixel_ratio": 1
   },
   "annotator": "authored from the fixture's planted values, independently of the detectors",
-  "notes": "The customer ID in input#customer-id (MB4470193) is deliberately NOT annotated. It is identifying, but no type in the PRD §4.3 taxonomy covers a service-specific account identifier, and inventing one would change the taxonomy the corpus and demo script assume. It is therefore neither a true positive nor a false negative here — it is out of scope, and named as such rather than quietly omitted.",
+  "notes": "Every planted value is annotated. The customer ID is a Tier-2 account_id: identifying, not secret.",
   "annotations": [
     {
       "id": "a1",
@@ -124,6 +124,21 @@
       "dom_path": "aside dl dd:nth-of-type(1)",
       "value_present": true,
       "notes": "Named only by the adjacent <dt>Account holder</dt>; no attribute on the value itself."
+    },
+    {
+      "id": "a9",
+      "type": "account_id",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        191,
+        213.75,
+        741,
+        252.75
+      ],
+      "dom_path": "input#customer-id",
+      "value_present": true,
+      "notes": "Service-specific identifier. Named only by its label and autocomplete=username."
     }
   ]
 }

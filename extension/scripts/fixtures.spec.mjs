@@ -28,6 +28,7 @@ export const FIXTURES = [
       ['email', 'ada.lovelace@example.org'],
       ['phone', '98765 43210'],
       ['person name', 'Ada Lovelace'],
+      ['customer id', 'MB4470193'],
     ],
     mustAppear: [
       ['password label', 'NetBanking password'],
@@ -35,15 +36,12 @@ export const FIXTURES = [
       ['heading', 'Sign in to NetBanking'],
       ['field label', 'Registered mobile'],
     ],
-    manifestTypes: ['password', 'pan', 'bank_account', 'ifsc', 'card_number', 'email', 'phone', 'person_name'],
+    manifestTypes: ['password', 'pan', 'bank_account', 'ifsc', 'card_number', 'email', 'phone', 'person_name', 'account_id'],
     redactedFields: [
       ['password field', 'input#password'],
       ['PAN field', 'input#pan'],
       ['account number cell', 'dd#account-number'],
-    ],
-    knownGaps: [
-      ['customer id in a labelled field', 'MB4470193',
-        'no type in the PRD §4.3 taxonomy covers a service-specific account identifier'],
+      ['customer id field', 'input#customer-id'],
     ],
   },
   {
@@ -57,6 +55,7 @@ export const FIXTURES = [
       ['IFSC', 'SMPK0000456'],
       ['email in a table', 'rohan.iyer@example.net'],
       ['phone in a field', '9845012345'],
+      ['customer reference', 'SU-2019-884210'],
     ],
     // "42 Nandidurga Road" also appears in the agent's prose note, where
     // address-in-prose is a known gap, so a whole-payload grep would conflate
@@ -67,6 +66,7 @@ export const FIXTURES = [
       ['empty PAN field', 'input#pan'],
       ['empty OTP field', 'input#otp'],
       ['applicant name', 'input#applicant-name'],
+      ['customer reference cell', 'td#cust-ref'],
     ],
     mustAppear: [
       ['form heading', 'Complete your KYC'],
@@ -76,14 +76,12 @@ export const FIXTURES = [
       ['non-sensitive status', 'Awaiting verification'],
       ['prose kept around the redactions', 'Meter reading confirmed'],
     ],
-    manifestTypes: ['aadhaar', 'pan', 'otp', 'bank_account', 'ifsc', 'email', 'phone', 'address', 'date_of_birth', 'person_name'],
+    manifestTypes: ['aadhaar', 'pan', 'otp', 'bank_account', 'ifsc', 'email', 'phone', 'address', 'date_of_birth', 'person_name', 'account_id'],
     knownGaps: [
       ['person name in free prose', 'Rohan Iyer, was not carrying',
         'needs the local NER model (PRD §6.2.3 step 3), cut from this build'],
       ['postal address in free prose', 'Benson Town, Bengaluru',
         'same — regex cannot bound an address and DOM context is absent in prose'],
-      ['customer reference', 'SU-2019-884210',
-        'no type in the PRD §4.3 taxonomy covers a service-specific account identifier'],
     ],
   },
   {

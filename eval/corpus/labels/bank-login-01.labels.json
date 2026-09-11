@@ -3,7 +3,7 @@
   "page": "fixtures/bank-login.html",
   "source": "fixture",
   "annotator": "authored from the fixture's planted values, independently of the detectors",
-  "notes": "The customer ID in input#customer-id (MB4470193) is deliberately NOT annotated. It is identifying, but no type in the PRD §4.3 taxonomy covers a service-specific account identifier, and inventing one would change the taxonomy the corpus and demo script assume. It is therefore neither a true positive nor a false negative here — it is out of scope, and named as such rather than quietly omitted.",
+  "notes": "Every planted value is annotated. The customer ID is a Tier-2 account_id: identifying, not secret.",
   "items": [
     { "id": "a1", "selector": "input#password", "type": "password", "tier": 1, "modality": "text", "value_present": true,
       "notes": "The value is never read at capture time; the DOM heuristic alone must flag it." },
@@ -15,6 +15,8 @@
     { "id": "a6", "selector": "dd#ifsc", "type": "ifsc", "tier": 1, "modality": "text", "value_present": true },
     { "id": "a7", "selector": "dd#card-number", "type": "card_number", "tier": 1, "modality": "text", "value_present": true },
     { "id": "a8", "selector": "aside dl dd:nth-of-type(1)", "type": "person_name", "tier": 2, "modality": "text", "value_present": true,
-      "notes": "Named only by the adjacent <dt>Account holder</dt>; no attribute on the value itself." }
+      "notes": "Named only by the adjacent <dt>Account holder</dt>; no attribute on the value itself." },
+    { "id": "a9", "selector": "input#customer-id", "type": "account_id", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "Service-specific identifier. Named only by its label and autocomplete=username." }
   ]
 }

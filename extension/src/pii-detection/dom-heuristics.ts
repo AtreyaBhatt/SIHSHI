@@ -141,4 +141,15 @@ export const DOM_RULES: DomRule[] = [
     confidence: 0.88,
     test: (n, c) => ac(n) === 'bday' || /date[ -]?of[ -]?birth|\bdob\b|birth[ -]?date|birthday/.test(c),
   },
+  {
+    type: 'account_id',
+    detector: 'dom:account-id',
+    confidence: 0.85,
+    // "account number" also matches here, but bank_account is Tier 1 and
+    // `better()` prefers the lower tier, so this only wins where no Tier-1
+    // rule fires: customer ids, member numbers, usernames, reference numbers.
+    test: (n, c) =>
+      /(^|\s)username($|\s)/.test(ac(n)) ||
+      /\b(customer|member(ship)?|subscriber|policy|client|user|login|account)[ -_]?(id|number|no|handle)\b|\breference[ -_]?(number|no|id)\b|\bcust(omer)?[ -_]?ref(erence)?\b|\bcrn\b|\buser[ -_]?name\b/.test(c),
+  },
 ];
