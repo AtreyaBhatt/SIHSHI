@@ -38,3 +38,6 @@ eval/fixtures/assets/
 design/**/*.html
 !design/**/*.dc.html
 demo/*.mp4
+
+# SDD scratch (task briefs, reports, ledger)
+.superpowers/
