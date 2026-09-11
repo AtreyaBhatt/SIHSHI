@@ -76,6 +76,12 @@ def build_user_message(request: AgentRequest) -> str:
             indent=1,
         ),
     ]
+    if request.truncated:
+        parts.append(
+            "## note\n"
+            "The page had more elements than the capture budget; this view is partial. "
+            "Prefer scrolling or acting on what is visible over assuming an element is absent."
+        )
     if request.redaction_manifest:
         parts.append(
             "## redaction_manifest\n" + json.dumps(
