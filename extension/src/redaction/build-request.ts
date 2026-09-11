@@ -226,6 +226,19 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
     });
   }
 
+  for (const [index, bbox] of snapshot.unscanned.entries()) {
+    manifest.push({
+      id: tokens.idFor('frame', null, `unscanned:${index}`),
+      type: 'frame',
+      tier: TIER_BY_TYPE.frame,
+      bbox,
+      dom_path: null,
+      masking: 'blackbox',
+      detector: 'capture:budget',
+      confidence: 1,
+    });
+  }
+
   let screenshotRedacted: string | null = null;
   if (screenshotDataUrl) {
     const regions: RedactionRegion[] = manifest

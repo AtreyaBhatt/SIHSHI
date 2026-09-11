@@ -45,7 +45,7 @@ export type PiiType =
   | 'bank_account'
   | 'ifsc'
   | 'face'
-  /** An iframe/embed whose contents the DOM walk cannot see. Not PII in itself — an unscanned region, masked because unscanned pixels are unproven pixels. */
+  /** A region whose contents were never walked — an iframe/embed the DOM walk cannot see into, or a node dropped by the capture budget. Not PII in itself — masked because unscanned pixels are unproven pixels. */
   | 'frame'
   // Tier 2 — mask but preserve shape
   | 'email'
@@ -156,6 +156,8 @@ export interface RawSnapshot {
   nodes: RawDomNode[];
   /** True if the node cap was hit and the snapshot is incomplete. */
   truncated: boolean;
+  /** Boxes of nodes trimmed by the node budget. Never scanned, so never sent as pixels either — build-request masks and declares them. */
+  unscanned: BBox[];
   timings: { dom_walk_ms: number };
 }
 

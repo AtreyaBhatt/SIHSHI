@@ -57,7 +57,7 @@ export async function run(shotDataUrl) {
     const px = ctx.getImageData(Math.round(((x1 + x2) / 2) * scale), Math.round(((y1 + y2) / 2) * scale), 1, 1).data;
     centre = [px[0], px[1], px[2]];
   }
-  return { nodes: snapshot.nodes, resolution, request, centre, truncated: snapshot.truncated };
+  return { nodes: snapshot.nodes, resolution, request, centre, truncated: snapshot.truncated, nodes_unscanned: snapshot.unscanned.length };
 }
 `);
 await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
@@ -109,15 +109,16 @@ try {
   else pass('email inside the shadow root redacted');
   if (payload.includes('Grace Hopper')) fail('raw name inside the shadow root is in the payload');
   else pass('name inside the shadow root redacted');
-  if (payload.includes('Continue')) pass('shadow button label kept');
-  else fail('shadow button label lost');
+  const go = r.request.dom_summary.find((n) => n.path === 'div#widget >>> button#inner-go');
+  if (go?.label === 'Continue') pass('shadow button label kept');
+  else fail(`shadow button label lost: ${JSON.stringify(go)}`);
 
   console.log('\niframe:');
   const frame = byPath.get('iframe#payment');
   if (frame?.media === 'iframe' && frame.role === 'frame') pass("iframe captured with media 'iframe' and role 'frame'");
   else fail(`iframe node: ${JSON.stringify(frame)}`);
-  const entry = r.request.redaction_manifest.find((e) => e.type === 'frame' && e.dom_path === 'iframe#payment');
-  if (entry?.tier === 1 && entry.masking === 'blackbox') pass('manifest declares the frame as a Tier-1 blackbox region');
+  const frameEntry = r.request.redaction_manifest.find((e) => e.type === 'frame' && e.dom_path === 'iframe#payment');
+  if (frameEntry?.tier === 1 && frameEntry.masking === 'blackbox') pass('manifest declares the frame as a Tier-1 blackbox region');
   else fail(`no frame manifest entry: ${JSON.stringify(r.request.redaction_manifest.map((e) => e.type))}`);
   if (r.centre && r.centre.every((v) => v < 16)) pass(`iframe pixels are black in the redacted screenshot (${r.centre.join(',')})`);
   else fail(`iframe centre pixel is ${JSON.stringify(r.centre)} — the card number inside the frame is visible`);
@@ -136,6 +137,7 @@ try {
   await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 6000, deviceScaleFactor: 1, mobile: false });
   await evaluate(bundle);
   const long = JSON.parse(await evaluate(`ATHENA.run(null).then((x) => JSON.stringify(x))`));
+  console.log(`nodes ${long.nodes.length} · nodes_unscanned ${long.nodes_unscanned}`);
   const buttons = long.nodes.filter((n) => n.tag === 'button').length;
   if (long.truncated) pass(`snapshot reports truncated=true with ${long.nodes.length} nodes`);
   else fail(`expected truncation on a 1260-node page, got ${long.nodes.length} nodes and truncated=${long.truncated}`);
@@ -145,6 +147,9 @@ try {
   else fail(`only ${buttons} of 60 buttons survived the budget`);
   if (long.request.truncated === true) pass('truncated is on the wire');
   else fail('AgentRequest.truncated missing or false');
+  const budgetEntries = long.request.redaction_manifest.filter((e) => e.detector === 'capture:budget').length;
+  if (budgetEntries === long.nodes_unscanned) pass(`${budgetEntries} trimmed node(s) declared in the manifest as capture:budget frame entries`);
+  else fail(`${budgetEntries} capture:budget manifest entries but ${long.nodes_unscanned} nodes_unscanned`);
 
   console.log('\nmore interactive nodes than the budget (many-controls.html):');
   await call('Page.navigate', { url: `file://${resolve('../eval/fixtures/many-controls.html')}` });
@@ -157,8 +162,8 @@ try {
   const manyButtons = many.nodes.filter((n) => n.tag === 'button').length;
   if (manyButtons === 900) pass('all 900 buttons kept when interactive nodes alone exceed the budget');
   else fail(`only ${manyButtons} of 900 buttons survived the budget`);
-  if (many.truncated === true) pass('snapshot reports truncated=true');
-  else fail(`expected truncated=true, got ${many.truncated}`);
+  if (many.truncated === false) pass('all nodes kept, so truncated=false');
+  else fail(`expected truncated=false, got ${many.truncated}`);
 } catch (err) {
   fail(err.message);
 } finally {

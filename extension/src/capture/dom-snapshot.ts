@@ -19,7 +19,7 @@ import { SHADOW_SEP } from '../shared/resolve-path';
 
 /** What is sent. Snapshots that needed trimming are flagged `truncated`. */
 const MAX_NODES = 800;
-/** What is walked before giving up; bounds the getComputedStyle cost on pathological pages. */
+/** Cap on emitted candidates before the walk stops; bounds the trim work, not the per-element geometry cost. */
 const HARD_WALK_LIMIT = 2500;
 const MAX_PATH_SEGMENTS = 8;
 
@@ -395,11 +395,16 @@ export function captureDomSnapshot(): RawSnapshot {
   // page with more than MAX_NODES interactive elements sends them all and the
   // budget is exceeded — the agent cannot act on what it was not told about.
   let kept = nodes;
+  let unscanned: BBox[] = [];
   if (nodes.length > MAX_NODES) {
-    truncated = true;
     const order = new Map(nodes.map((n, i) => [n, i]));
     const priority = nodes.filter((n) => n.interactive || n.media);
     const rest = nodes.filter((n) => !(n.interactive || n.media));
+    const dropped = rest.slice(Math.max(0, MAX_NODES - priority.length));
+    if (dropped.length > 0) {
+      truncated = true;
+      unscanned = dropped.map((n) => n.bbox);
+    }
     kept = [...priority, ...rest.slice(0, Math.max(0, MAX_NODES - priority.length))];
     kept.sort((a, b) => order.get(a)! - order.get(b)!); // back to document order
   }
@@ -418,6 +423,7 @@ export function captureDomSnapshot(): RawSnapshot {
     },
     nodes: kept,
     truncated,
+    unscanned,
     timings: { dom_walk_ms: Math.round((performance.now() - start) * 100) / 100 },
   };
 }
