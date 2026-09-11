@@ -201,7 +201,7 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
     // activeTab was granted for a different tab, or has lapsed because this one
     // navigated. Without it we cannot even read the URL, let alone inject.
     throw new Error(
-      'No access to that tab yet. Open the ATHENA side panel on the page you want to inspect, then launch the demo view from there.',
+      'ATHENA has no access to this tab. Click the ATHENA toolbar icon on the page (one-off), or enable ATHENA on the site from the panel (persistent).',
     );
   }
   if (isRestrictedUrl(tab.url)) {

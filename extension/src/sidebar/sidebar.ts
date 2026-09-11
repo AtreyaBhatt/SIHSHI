@@ -73,6 +73,8 @@ let currentTabId: number | null = null;
 let currentPageLabel = 'the page under inspection';
 /** The page the capture (and therefore the plan) describes — not whatever tab is active at approval time. */
 let inspectedPageLabel = currentPageLabel;
+/** Origin pattern for chrome.permissions; null when the tab has no readable URL. */
+let currentOriginPattern: string | null = null;
 
 interface Activity { at: number; text: string; tone: 'ok' | 'info' | 'warn' }
 const activity: Activity[] = [];
@@ -133,6 +135,23 @@ function renderActivity(): void {
 function updatePill(stale = false): void {
   pillEl.classList.toggle('stale', stale);
   pillText.textContent = stale ? 'Panel is stale' : 'Privacy active';
+}
+
+async function renderSiteAccess(url: string | undefined): Promise<void> {
+  const button = $<HTMLButtonElement>('site-access');
+  const note = $('site-access-note');
+  currentOriginPattern = null;
+  if (!url || isRestrictedUrl(url)) { button.hidden = true; note.textContent = ''; return; }
+  let origin: string;
+  try { origin = new URL(url).origin; } catch { button.hidden = true; note.textContent = ''; return; }
+  if (!/^https?:$/.test(new URL(url).protocol)) { button.hidden = true; note.textContent = ''; return; }
+  currentOriginPattern = `${origin}/*`;
+  const granted = await api.permissions.contains({ origins: [currentOriginPattern] });
+  button.hidden = false;
+  button.textContent = granted ? 'Disable on this site' : 'Enable on this site';
+  note.textContent = granted
+    ? `Enabled on ${new URL(url).host} — captures work here without clicking the icon.`
+    : 'One-off access only. Enable to keep working here across navigations.';
 }
 
 /** Narrow, non-screenshot status for the card the message belongs to. */
@@ -220,6 +239,7 @@ async function refreshPageContext(): Promise<void> {
 
   if (!tab) {
     show('No active tab', '—', 'Nothing to inspect.', true);
+    void renderSiteAccess(undefined);
     return;
   }
   if (tab.url === undefined) {
@@ -228,10 +248,12 @@ async function refreshPageContext(): Promise<void> {
     // when it does — so keep re-checking until the page becomes readable.
     window.clearTimeout(pageTimer);
     pageTimer = window.setTimeout(() => void refreshPageContext(), 1000);
+    void renderSiteAccess(undefined);
     return;
   }
   if (isRestrictedUrl(tab.url)) {
     show(tab.title ?? 'Restricted page', 'Browser-internal page', 'This page cannot be inspected.', true);
+    void renderSiteAccess(undefined);
     return;
   }
 
@@ -248,13 +270,14 @@ async function refreshPageContext(): Promise<void> {
     stale ? 'Switched page — capture again for this tab.' : capture ? 'Captured from this tab.' : 'Ready for local screen analysis',
     stale,
   );
+  void renderSiteAccess(tab.url);
 }
 
 // --- renderers --------------------------------------------------------------
 
 function renderPrivacy(): void {
   const detections = preview?.detections ?? [];
-  const secrets = detections.filter((d) => d.tier === 1 && d.type !== 'face').length;
+  const secrets = detections.filter((d) => d.tier === 1 && d.type !== 'face' && d.type !== 'frame').length;
   const masked = detections.filter((d) => d.tier === 2).length;
   const faces = detections.filter((d) => d.type === 'face').length;
 
@@ -610,6 +633,24 @@ thresholdInput.addEventListener('input', () => {
 });
 
 showBoxes.addEventListener('change', renderDetections);
+
+$('site-access').addEventListener('click', async () => {
+  if (!currentOriginPattern) return;
+  const granted = await api.permissions.contains({ origins: [currentOriginPattern] });
+  try {
+    if (granted) {
+      await api.permissions.remove({ origins: [currentOriginPattern] });
+      note(`Disabled on ${currentOriginPattern}`, 'info');
+    } else {
+      // Must run directly from the click: chrome.permissions.request needs a user gesture.
+      const ok = await api.permissions.request({ origins: [currentOriginPattern] });
+      note(ok ? `Enabled on ${currentOriginPattern}` : 'Permission request declined', ok ? 'ok' : 'warn');
+    }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), true);
+  }
+  await refreshPageContext();
+});
 
 previewLink.addEventListener('click', () => {
   const open = outbound.hidden;
