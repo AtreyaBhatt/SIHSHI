@@ -13,7 +13,7 @@
 import { api, isRestrictedUrl } from '../shared/browser';
 import type { CaptureResult } from '../shared/schema';
 import type {
-  ContentToWorker, ExecutionResult, HealthReport, PayloadPreview, PlanPreview, PopupToWorker, WorkerReply,
+  ContentToWorker, ExecutionResult, HealthReport, PanelToWorker, PayloadPreview, PlanPreview, WorkerReply,
 } from '../shared/messages';
 import type { AgentAction, AgentRequest, AgentResponse } from '../shared/schema';
 import type { ExecutableAction } from '../executor/execute';
@@ -32,7 +32,10 @@ import type { DetectFacesReply } from '../perception/offscreen';
  */
 const LAST_CAPTURE_KEY = 'ppva:last-capture';
 
-/** Kept in worker memory so the popup can reopen without re-capturing; session storage is best-effort. */
+/**
+ * Kept in worker memory so the panel can reopen without re-capturing; session
+ * storage is best-effort, and the panel outlives enough tab switches to notice.
+ */
 let lastCapture: CaptureResult | null = null;
 
 /**
@@ -159,7 +162,7 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
     // activeTab was granted for a different tab, or has lapsed because this one
     // navigated. Without it we cannot even read the URL, let alone inject.
     throw new Error(
-      'No access to that tab yet. Open the PPVA popup on the page you want to inspect, then launch the demo view from there.',
+      'No access to that tab yet. Open the PPVA side panel on the page you want to inspect, then launch the demo view from there.',
     );
   }
   if (isRestrictedUrl(tab.url)) {
@@ -307,7 +310,7 @@ async function health(): Promise<HealthReport> {
 }
 
 api.runtime.onMessage.addListener(
-  (message: PopupToWorker, _sender, sendResponse: (r: WorkerReply<never>) => void) => {
+  (message: PanelToWorker, _sender, sendResponse: (r: WorkerReply<never>) => void) => {
     const fail = (err: unknown) =>
       sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
 
@@ -344,3 +347,20 @@ api.runtime.onMessage.addListener(
     return false;
   },
 );
+
+/**
+ * Bind the toolbar icon to the panel.
+ *
+ * MV3 has no manifest key for "this extension's UI is a side panel" the way
+ * `action.default_popup` declares a popup, so the association is made at runtime.
+ * `setPanelBehavior` is idempotent and cheap, and the worker is torn down and
+ * restarted freely, so this runs on every start: that is also what makes the
+ * binding survive an extension reload or an update.
+ */
+if (api.sidePanel) {
+  api.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((err) => console.warn('[ppva] could not bind the toolbar icon to the side panel:', err));
+} else {
+  console.warn('[ppva] chrome.sidePanel is unavailable; open the panel from the side-panel picker.');
+}

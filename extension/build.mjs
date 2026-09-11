@@ -23,26 +23,27 @@ const ORT_ARTIFACT = ORT_EP === 'webgpu' ? 'ort-wasm-simd-threaded.jsep' : 'ort-
  * Three separate bundles because the MV3 runtime contexts differ:
  *  - service worker  -> ESM (manifest declares "type": "module")
  *  - content script  -> IIFE (content scripts cannot be ES modules)
- *  - popup           -> ESM (loaded via <script type="module">)
+ *  - side panel      -> ESM (loaded via <script type="module">)
  */
 const targets = [
   { in: 'src/background/service-worker.ts', out: 'dist/background/service-worker.js', format: 'esm' },
   { in: 'src/capture/content-script.ts', out: 'dist/capture/content-script.js', format: 'iife' },
-  { in: 'src/popup/popup.ts', out: 'dist/popup/popup.js', format: 'esm' },
+  { in: 'src/sidebar/sidebar.ts', out: 'dist/sidebar/sidebar.js', format: 'esm' },
   { in: 'src/options/options.ts', out: 'dist/options/options.js', format: 'esm' },
   { in: 'src/perception/offscreen.ts', out: 'dist/perception/offscreen.js', format: 'esm' },
   { in: 'src/viewer/viewer.ts', out: 'dist/viewer/viewer.js', format: 'esm' },
 ];
 
 async function copyStatic() {
-  for (const dir of ['dist/popup', 'dist/options', 'dist/perception', 'dist/viewer', 'dist/ort', 'dist/models']) {
+  for (const dir of ['dist/sidebar', 'dist/options', 'dist/perception', 'dist/viewer', 'dist/assets', 'dist/ort', 'dist/models']) {
     await mkdir(dir, { recursive: true });
   }
   await cp('manifest.json', 'dist/manifest.json');
-  await cp('src/popup/popup.html', 'dist/popup/popup.html');
-  await cp('src/popup/popup.css', 'dist/popup/popup.css');
+  await cp('src/sidebar/sidebar.html', 'dist/sidebar/sidebar.html');
+  await cp('src/sidebar/sidebar.css', 'dist/sidebar/sidebar.css');
   await cp('src/options/options.html', 'dist/options/options.html');
-  await cp('src/popup/popup.css', 'dist/options/options.css');
+  await cp('src/options/options.css', 'dist/options/options.css');
+  await cp('src/assets', 'dist/assets', { recursive: true });
   await cp('src/perception/offscreen.html', 'dist/perception/offscreen.html');
   await cp('src/viewer/viewer.html', 'dist/viewer/viewer.html');
   await cp('src/viewer/viewer.css', 'dist/viewer/viewer.css');

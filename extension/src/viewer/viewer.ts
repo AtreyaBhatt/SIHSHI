@@ -3,8 +3,9 @@
  *
  * PRD §10 calls this diff "likely the single most persuasive artifact" for
  * judges, and the claim it has to support is a comparison — the third column is
- * only meaningful next to the first. A tabbed popup cannot show a comparison,
- * which is why this is a full page rather than more panes in the toolbar.
+ * only meaningful next to the first. A panel 400 px wide cannot show three
+ * columns side by side, which is why this is a full page rather than more
+ * sections in the panel.
  *
  * It runs in its own tab, so it must be told which tab to inspect: querying for
  * the active tab from here would capture the viewer looking at itself.
@@ -12,7 +13,7 @@
 import { api } from '../shared/browser';
 import type { BBox, CaptureResult, RedactionManifestEntry } from '../shared/schema';
 import type {
-  ExecutionResult, PlanPreview, PopupToWorker, ResponseFor, WorkerReply,
+  ExecutionResult, PanelToWorker, PlanPreview, ResponseFor, WorkerReply,
 } from '../shared/messages';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -27,7 +28,7 @@ let capture: CaptureResult | null = null;
 let plan: PlanPreview | null = null;
 let execution: ExecutionResult | null = null;
 
-async function send<M extends PopupToWorker>(message: M): Promise<ResponseFor<M>> {
+async function send<M extends PanelToWorker>(message: M): Promise<ResponseFor<M>> {
   const reply = (await api.runtime.sendMessage(message)) as WorkerReply<ResponseFor<M>>;
   if (!reply.ok) throw new Error(reply.error);
   return reply.data;
@@ -224,5 +225,5 @@ $('threshold').addEventListener('input', () => {
 });
 
 if (targetTabId === undefined) {
-  setStatus('Opened without a target tab — open this view from the PPVA popup so it knows which page to inspect.', true);
+  setStatus('Opened without a target tab — open this view from the PPVA side panel so it knows which page to inspect.', true);
 }

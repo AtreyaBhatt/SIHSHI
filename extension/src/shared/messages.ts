@@ -1,4 +1,4 @@
-/** Message protocol between popup ⇄ service worker ⇄ content script. */
+/** Message protocol between extension pages ⇄ service worker ⇄ content script. */
 import type { AgentRequest, AgentResponse, CaptureResult, RawSnapshot } from './schema';
 import type { Detection } from '../pii-detection/types';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
@@ -6,10 +6,10 @@ import type { ActionOutcome, ExecutableAction } from '../executor/execute';
 /**
  * `tab_id` exists because the full-page viewer is itself a tab: without it the
  * worker would query for the active tab and capture the viewer instead of the
- * page under inspection. The popup can omit it — when the popup is open, the
- * active tab is the right one.
+ * page under inspection. The side panel and the popup before it can omit it —
+ * when the panel is open, the active tab is the one the user is looking at.
  */
-export type PopupToWorker =
+export type PanelToWorker =
   | { type: 'ppva:run-capture'; tab_id?: number }
   | { type: 'ppva:get-last-capture' }
   | { type: 'ppva:build-payload'; threshold: number; task_instruction: string }
@@ -62,8 +62,8 @@ export interface HealthReport {
 
 export type WorkerReply<T> = { ok: true; data: T } | { ok: false; error: string };
 
-/** Ties each request to the shape it answers with, so the popup needs no casts. */
-export type ResponseFor<M extends PopupToWorker> =
+/** Ties each request to the shape it answers with, so callers need no casts. */
+export type ResponseFor<M extends PanelToWorker> =
   M extends { type: 'ppva:run-capture' } ? CaptureResult
   : M extends { type: 'ppva:get-last-capture' } ? CaptureResult | null
   : M extends { type: 'ppva:build-payload' } ? PayloadPreview

@@ -153,7 +153,7 @@ export interface RawSnapshot {
   timings: { dom_walk_ms: number };
 }
 
-/** What the service worker hands back to the popup. LOCAL ONLY. */
+/** What the service worker hands back to the panel. LOCAL ONLY. */
 export interface CaptureResult {
   snapshot: RawSnapshot;
   /** Unredacted PNG data URL. LOCAL ONLY — M3 blurs a canvas copy of this. */
