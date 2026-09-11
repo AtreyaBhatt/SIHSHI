@@ -11,10 +11,10 @@
  * Consequently this registry lives in service-worker memory and is NEVER
  * written to chrome.storage, IndexedDB, or anywhere else. Do not add persistence.
  */
-import type { PiiType } from '../shared/schema';
+import type { PiiType } from "../shared/schema";
 
 function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9@.]/g, '');
+  return value.toLowerCase().replace(/[^a-z0-9@.]/g, "");
 }
 
 export class TokenRegistry {

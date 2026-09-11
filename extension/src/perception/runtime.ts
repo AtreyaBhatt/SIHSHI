@@ -63,9 +63,23 @@ export async function getSession(
     const started = performance.now();
     configureRuntime(wasmBaseUrl);
 
-    const response = await fetch(modelUrl); // extension-local URL, never the network
-    if (!response.ok) throw new Error(`Model not found at ${modelUrl} (${response.status})`);
+    let response: Response;
+    try {
+      response = await fetch(modelUrl); // extension-local URL, never the network
+    } catch {
+      throw new Error(
+        `Face model could not be fetched from ${modelUrl}. Run "npm run fetch:model" and rebuild the extension.`,
+      );
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Face model is unavailable at ${modelUrl} (${response.status}). Run "npm run fetch:model" and rebuild the extension.`,
+      );
+    }
     const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength === 0) {
+      throw new Error(`Face model at ${modelUrl} is empty. Run "npm run fetch:model" and rebuild the extension.`);
+    }
 
     const providers = await availableProviders();
     const session = await ort.InferenceSession.create(bytes, {

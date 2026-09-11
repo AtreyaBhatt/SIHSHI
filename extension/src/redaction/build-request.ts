@@ -19,15 +19,20 @@ import type {
   RawSnapshot,
   RedactionManifestEntry,
   SanitizedDomNode,
-} from '../shared/schema';
-import { TIER_BY_TYPE } from '../shared/schema';
-import type { Detection, DetectionField } from '../pii-detection/types';
-import { DEFAULT_THRESHOLD, detectPii } from '../pii-detection/detect';
-import { PATTERNS } from '../pii-detection/patterns';
-import { applySpans, maskingFor, replacementFor, type SpanReplacement } from './redact-text';
-import { redactScreenshot, type RedactionRegion } from './redact-image';
-import type { TokenRegistry } from './tokens';
-import type { FaceDetection } from '../perception/face-detect';
+} from "../shared/schema";
+import { TIER_BY_TYPE } from "../shared/schema";
+import type { Detection, DetectionField } from "../pii-detection/types";
+import { DEFAULT_THRESHOLD, detectPii } from "../pii-detection/detect";
+import { PATTERNS } from "../pii-detection/patterns";
+import {
+  applySpans,
+  maskingFor,
+  replacementFor,
+  type SpanReplacement,
+} from "./redact-text";
+import { redactScreenshot, type RedactionRegion } from "./redact-image";
+import type { TokenRegistry } from "./tokens";
+import type { FaceDetection } from "../perception/face-detect";
 
 export interface BuildOptions {
   snapshot: RawSnapshot;
@@ -52,8 +57,10 @@ export interface BuildResult {
 
 export class RawPiiLeakError extends Error {
   constructor(readonly offenders: string[]) {
-    super(`Refusing to build a payload: ${offenders.length} raw PII pattern(s) survived redaction — ${offenders.join('; ')}`);
-    this.name = 'RawPiiLeakError';
+    super(
+      `Refusing to build a payload: ${offenders.length} raw PII pattern(s) survived redaction — ${offenders.join("; ")}`,
+    );
+    this.name = "RawPiiLeakError";
   }
 }
 
@@ -62,9 +69,17 @@ export class RawPiiLeakError extends Error {
  * value, or a static element's text. The two are told apart by `role`, so the
  * contract stays exactly as documented rather than growing a field.
  */
-function contentFieldOf(node: RawDomNode): { field: DetectionField; content: string | null } {
-  const isControl = node.input_type !== null || node.tag === 'textarea' || node.tag === 'select';
-  return isControl ? { field: 'value', content: node.value } : { field: 'text', content: node.text };
+function contentFieldOf(node: RawDomNode): {
+  field: DetectionField;
+  content: string | null;
+} {
+  const isControl =
+    node.input_type !== null ||
+    node.tag === "textarea" ||
+    node.tag === "select";
+  return isControl
+    ? { field: "value", content: node.value }
+    : { field: "text", content: node.text };
 }
 
 function sanitizeField(
@@ -120,9 +135,16 @@ function sanitizeField(
 /** Client-side mirror of the server ingress check (PRD §6.2.6). */
 function assertNoRawPii(request: AgentRequest): void {
   const offenders: string[] = [];
-  const fields: Array<[string, string | null | undefined]> = [['task_instruction', request.task_instruction]];
-  for (const node of request.dom_summary) fields.push([`${node.path}.label`, node.label], [`${node.path}.value`, node.value]);
-  for (const [i, action] of request.prior_actions.entries()) fields.push([`prior_actions[${i}].value`, action.value]);
+  const fields: Array<[string, string | null | undefined]> = [
+    ["task_instruction", request.task_instruction],
+  ];
+  for (const node of request.dom_summary)
+    fields.push(
+      [`${node.path}.label`, node.label],
+      [`${node.path}.value`, node.value],
+    );
+  for (const [i, action] of request.prior_actions.entries())
+    fields.push([`prior_actions[${i}].value`, action.value]);
 
   for (const [where, text] of fields) {
     if (!text) continue;
@@ -140,9 +162,13 @@ function assertNoRawPii(request: AgentRequest): void {
   if (offenders.length > 0) throw new RawPiiLeakError(offenders);
 }
 
-export async function buildAgentRequest(options: BuildOptions): Promise<BuildResult> {
+export async function buildAgentRequest(
+  options: BuildOptions,
+): Promise<BuildResult> {
   const { snapshot, screenshotDataUrl, taskInstruction, tokens } = options;
-  const detections = detectPii(snapshot, { threshold: options.threshold ?? DEFAULT_THRESHOLD });
+  const detections = detectPii(snapshot, {
+    threshold: options.threshold ?? DEFAULT_THRESHOLD,
+  });
 
   const byNode = new Map<string, Detection[]>();
   for (const detection of detections) {
@@ -168,33 +194,33 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
 
     // Belt and braces: a password value we declined to read at capture time must
     // still be declared, even if every detector somehow missed the field.
-    if (node.value_omitted === 'password' && !value) {
-      const id = tokens.idFor('password', null, node.path);
+    if (node.value_omitted === "password" && !value) {
+      const id = tokens.idFor("password", null, node.path);
       manifest.push({
         id,
-        type: 'password',
+        type: "password",
         tier: TIER_BY_TYPE.password,
         bbox: node.bbox,
         dom_path: node.path,
-        masking: 'blackbox',
-        detector: 'capture:value-omitted',
+        masking: "blackbox",
+        detector: "capture:value-omitted",
         confidence: 1,
       });
-      value = '[REDACTED:PASSWORD]';
+      value = "[REDACTED:PASSWORD]";
     }
 
     // A frame's contents were never walked, so nothing about them is proven
     // safe. The frame is declared and its pixels are filled; the node itself
     // stays in dom_summary so the model knows a frame is there.
-    if (node.media === 'iframe') {
+    if (node.media === "iframe") {
       manifest.push({
-        id: tokens.idFor('frame', null, node.path),
-        type: 'frame',
+        id: tokens.idFor("frame", null, node.path),
+        type: "frame",
         tier: TIER_BY_TYPE.frame,
         bbox: node.bbox,
         dom_path: node.path,
-        masking: 'blackbox',
-        detector: 'capture:iframe',
+        masking: "blackbox",
+        detector: "capture:iframe",
         confidence: 1,
       });
     }
@@ -204,7 +230,7 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
       role: node.role,
       label: sanitizeField(
         node.label,
-        nodeDetections.filter((d) => d.field === 'label'),
+        nodeDetections.filter((d) => d.field === "label"),
         node,
         tokens,
         manifest,
@@ -215,26 +241,26 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
 
   for (const [index, face] of (options.faces ?? []).entries()) {
     manifest.push({
-      id: tokens.idFor('face', null, `face:${index}`),
-      type: 'face',
+      id: tokens.idFor("face", null, `face:${index}`),
+      type: "face",
       tier: TIER_BY_TYPE.face,
       bbox: face.bbox,
       dom_path: null,
-      masking: 'blur',
-      detector: 'onnx:ultraface-rfb320',
+      masking: "blur",
+      detector: "onnx:ultraface-rfb320",
       confidence: face.score,
     });
   }
 
   for (const [index, bbox] of snapshot.unscanned.entries()) {
     manifest.push({
-      id: tokens.idFor('frame', null, `unscanned:${index}`),
-      type: 'frame',
+      id: tokens.idFor("frame", null, `unscanned:${index}`),
+      type: "frame",
       tier: TIER_BY_TYPE.frame,
       bbox,
       dom_path: null,
-      masking: 'blackbox',
-      detector: 'capture:budget',
+      masking: "blackbox",
+      detector: "capture:budget",
       confidence: 1,
     });
   }
@@ -244,7 +270,11 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
     const regions: RedactionRegion[] = manifest
       .filter((entry) => entry.bbox !== null)
       .map((entry) => ({ bbox: entry.bbox!, masking: entry.masking }));
-    screenshotRedacted = await redactScreenshot(screenshotDataUrl, regions, snapshot.viewport.width);
+    screenshotRedacted = await redactScreenshot(
+      screenshotDataUrl,
+      regions,
+      snapshot.viewport.width,
+    );
   }
 
   const request: AgentRequest = {
@@ -261,29 +291,34 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
 
   // Faces join the returned detections for the viewer's benefit only — they were
   // never part of the node-keyed grouping above.
-  const faceDetections: Detection[] = (options.faces ?? []).map((face, index) => ({
-    node_path: `(face ${index + 1})`,
-    field: 'text',
-    type: 'face',
-    tier: TIER_BY_TYPE.face,
-    detector: 'onnx:ultraface-rfb320',
-    confidence: face.score,
-    span: null,
-    bbox: face.bbox,
-  }));
+  const faceDetections: Detection[] = (options.faces ?? []).map(
+    (face, index) => ({
+      node_path: `(face ${index + 1})`,
+      field: "text",
+      type: "face",
+      tier: TIER_BY_TYPE.face,
+      detector: "onnx:ultraface-rfb320",
+      confidence: face.score,
+      span: null,
+      bbox: face.bbox,
+    }),
+  );
 
   const frameDetections: Detection[] = snapshot.nodes
-    .filter((node) => node.media === 'iframe')
+    .filter((node) => node.media === "iframe")
     .map((node) => ({
       node_path: node.path,
-      field: 'text',
-      type: 'frame',
+      field: "text",
+      type: "frame",
       tier: TIER_BY_TYPE.frame,
-      detector: 'capture:iframe',
+      detector: "capture:iframe",
       confidence: 1,
       span: null,
       bbox: node.bbox,
     }));
 
-  return { request, detections: [...detections, ...faceDetections, ...frameDetections] };
+  return {
+    request,
+    detections: [...detections, ...faceDetections, ...frameDetections],
+  };
 }
