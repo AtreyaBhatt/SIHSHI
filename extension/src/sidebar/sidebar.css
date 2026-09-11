@@ -51,6 +51,7 @@ a { color: #0e5a52; text-decoration: none; } a:hover { color: #0a433d; }
 .tab { display: flex; align-items: center; gap: 6px; padding: 8px 10px 10px; font-size: 13px; font-weight: 500; color: #7b8683; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab.on { color: #17221f; border-bottom-color: #17221f; }
 .body { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; }
+.body > * { flex-shrink: 0; } /* overflow:hidden cards (.wash) must not collapse inside the scrolling column */
 .body.view { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #dfe5e2 transparent; }
 .card { background: #ffffff; border: 1px solid #e6ebe9; border-radius: 12px; padding: 14px; }
 .lbl { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8a9491; }
