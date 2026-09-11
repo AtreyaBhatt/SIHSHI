@@ -184,6 +184,8 @@ ATHENA_VLM_MODEL=Qwen/Qwen2-VL-7B-Instruct \
 | `ATHENA_MODEL` | `claude-opus-5` | cloud model id |
 | `ATHENA_VLM_BASE_URL` | `http://127.0.0.1:8000/v1` | self-hosted endpoint |
 | `ATHENA_VLM_MODEL` | `Qwen/Qwen2-VL-7B-Instruct` | self-hosted model id |
+| `ATHENA_MODEL_TIMEOUT` | `60` | seconds before a cloud call is abandoned (the client gets an empty plan, not a hang) |
+| `ATHENA_VLM_TIMEOUT` | `120` | same, for the self-hosted endpoint |
 | `ATHENA_INGRESS_POLICY` | `reject` | `reject` fails closed; `redact` scrubs and continues |
 | `ATHENA_LOG_LEVEL` | `INFO` | |
 | `ATHENA_ORT_EP` | `wasm` | build flag: `webgpu` ships the 26.5 MB runtime instead of 13.3 MB |
@@ -202,7 +204,7 @@ npm run test:scenario-b  # 22 faces detected → 0 after blurring
 npm run test:e2e         # full loop: no secret out, no secret back, field still filled
 npm run preview:viewer   # renders the demo view with real data -> eval/results/viewer.png
 
-cd ../server && uv run pytest    # 26 tests: ingress, planner guardrails, endpoint
+cd ../server && uv run pytest    # 31 tests: ingress, planner guardrails, endpoint, provider failure modes
 ```
 
 Each harness starts its own Chrome (and, where needed, its own server) and cleans
@@ -273,15 +275,15 @@ password into a real password field while the server only ever sees
 
 ## Results
 
-2 screens, 24 labelled items, threshold 0.5:
+3 screens, 29 labelled items, threshold 0.5:
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.917 | 0.957 |
+| overall | 1.000 | 0.931 | 0.964 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.846 | 0.917 |
+| tier 2 | 1.000 | 0.867 | 0.929 |
 
-Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, overall 0.909.
+Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, overall 0.926.
 All three PRD §8 targets met.
 
 Latency p50/p95 ms — capture 1.1/1.5 · screenshot 39.5/66.0 · perception
@@ -290,7 +292,7 @@ Latency p50/p95 ms — capture 1.1/1.5 · screenshot 39.5/66.0 · perception
 
 Package ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) against a 20 MB budget.
 
-**Read the detection numbers as an upper bound, not an estimate.** Two fixture
+**Read the detection numbers as an upper bound, not an estimate.** Three fixture
 screens written by the same author as the detectors measure internal
 consistency, not generalisation. PRD §8 calls for ≥ 50 screens.
 
@@ -322,4 +324,4 @@ Stated plainly, because overclaiming here is worse than underclaiming.
 7. **The credential vault is a demo, not a password manager.** See step 4.
 8. **Face blurring covers vision only.** Voice, filenames and other non-visual
    identity leaks on the same page are out of scope.
-9. **The eval corpus is 2 self-authored screens.** See above.
+9. **The eval corpus is 3 self-authored screens.** See above.

@@ -151,7 +151,6 @@ try {
   await rm(workdir, { recursive: true, force: true }).catch(() => {});
 }
 
-await rm(dirname(OUT), { recursive: true, force: true }).catch(() => {});
 await (await import('node:fs/promises')).mkdir(dirname(OUT), { recursive: true });
 await writeFile(OUT, `${JSON.stringify({ threshold: THRESHOLD, screens: results }, null, 2)}\n`);
 console.log(`\nwrote ${OUT}`);

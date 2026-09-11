@@ -15,13 +15,12 @@ Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preservin
 | Milestones | PRD §12 M1–M6 complete |
 | Demo scenarios | A (credentials), B (faces), C (structured PII) — all working end to end |
 | Code | 4,361 lines of source (extension + server) · 2,547 lines of test/eval harness · 1,261 of fixtures and docs |
-| Tests | 28 server (pytest) + 5 browser-driving extension suites — **all green** |
-| Eval | All three PRD §8 accuracy targets met, on a corpus of 2 self-authored screens |
+| Tests | 31 server (pytest) + 5 browser-driving extension suites — **all green** |
+| Eval | All three PRD §8 accuracy targets met, on a corpus of 3 self-authored screens |
 | Latency | 71 ms local p50 against a 300 ms budget |
 | Package | ~15 MB against a 20 MB budget |
-| Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 2 screens |
+| Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 3 screens |
 
-**There is uncommitted work in the tree** — an OpenRouter provider. See §8.
 
 ---
 
@@ -79,7 +78,7 @@ execute  ←───────────── executePlanFlow
 | `perception/runtime.ts` | ONNX session, EP selection | Checks `navigator.gpu`, requests `['webgpu','wasm']`, falls back. Which wasm artifact ships is the `ATHENA_ORT_EP` build flag. |
 | `perception/face-detect.ts` | UltraFace pre/post + NMS | Full-frame 320×240 pass; `regions` adds per-media passes for small faces. Model outputs decoded boxes — no anchor maths. |
 | `perception/offscreen.ts` | Hosts inference | **Why an offscreen doc:** a content script inherits the *visited page's* CSP and many sites forbid `wasm-unsafe-eval`; service-worker wasm/WebGPU support is uneven. |
-| `pii-detection/dom-heuristics.ts` | Stage 1, 16 rules | Structural tags (`label/dt/th/legend/caption`) are **exempt** — otherwise a rule keyed on "password" redacts the label that identified the field. |
+| `pii-detection/dom-heuristics.ts` | Stage 1, 16 rules | Structural tags (`label/dt/th/legend/caption/h1–h6`) and non-controls with no text (buttons, links) are **exempt** — otherwise a rule keyed on "password" redacts the label that identified the field. |
 | `pii-detection/patterns.ts` | Stage 2 regex | Only self-validating formats match context-free. Ambiguous types (bank account, OTP, passport, DOB) are gated on node context. |
 | `pii-detection/validators.ts` | Luhn + Verhoeff | Luhn alone passes ~10% of random digit runs; the issuer-digit check is what makes card detection precise. |
 | `pii-detection/detect.ts` | The cascade | Pure functions over a serialized snapshot — **no DOM access** — so `eval/predict.mjs` replays production logic in Node. |
@@ -103,7 +102,7 @@ execute  ←───────────── executePlanFlow
 | `patterns.py` | Server-side detectors | Deliberately an **independent reimplementation**, not shared code — sharing would let one bug defeat both layers. |
 | `prompt.py` | Redaction-aware system prompt | A project deliverable. Changing it needs a note in the writeup or the eval numbers stop being comparable. |
 | `action_planner.py` | Constrains model output | Selector allowlist (the important one), no literal into a Tier 1 field, no marker echo, shape checks. Violations are dropped and reported, not raised. |
-| `providers/` | mock / anthropic / openai-compat / openrouter | **mock is the default** and is not a stub — it plans Scenario A from the sanitized payload alone, proving redaction didn't destroy task accuracy. |
+| `providers/` | mock / anthropic / openai-compat | **mock is the default** and is not a stub — it plans Scenario A from the sanitized payload alone, proving redaction didn't destroy task accuracy. |
 
 ---
 
@@ -132,7 +131,7 @@ execute  ←───────────── executePlanFlow
 | `npm run test:scenario-b` | 22 faces → 0 after blurring, with the mute button still labelled |
 | `npm run test:e2e` | Full loop: no secret out, no secret back, field still filled, form submitted |
 | `npm run preview:viewer` | The demo view renders with real data → `eval/results/viewer.png` |
-| `uv run pytest` | 28 tests: ingress, planner guardrails, endpoint, OpenRouter wiring |
+| `uv run pytest` | 31 tests: ingress, planner guardrails, endpoint, provider failure modes |
 
 Each harness starts its own Chrome (and server where needed) and cleans up.
 `fixtures.spec.mjs` reports **known recall gaps** rather than hiding them, and
@@ -142,15 +141,15 @@ says so if one closes.
 
 ## 7. Measured results
 
-Detection — 2 screens, 24 labelled items, threshold 0.5:
+Detection — 3 screens, 29 labelled items, threshold 0.5:
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.917 | 0.957 |
+| overall | 1.000 | 0.931 | 0.964 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.846 | 0.917 |
+| tier 2 | 1.000 | 0.867 | 0.929 |
 
-Redaction precision (pixel, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.818, overall 0.909.
+Redaction precision (pixel, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.846, overall 0.926.
 All three PRD §8 targets met.
 
 Latency p50/p95 ms (10 runs, mock provider): capture 1.1/1.5 · screenshot 39.5/66.0 ·
@@ -159,7 +158,7 @@ perception 14.4/16.8 · redaction 16.5/18.4 · network 4.0/6.1 · execute 0.7/1.
 a real VLM call lands in that row and will dominate. Regenerate with
 `node eval/latency_stages.mjs 20 && python3 eval/latency_bench.py`.
 
-> **The single most important caveat in this repository.** Those 1.000s are on two
+> **The single most important caveat in this repository.** Those 1.000s are on three
 > fixture screens written by the same author as the detectors, scored against
 > ground truth that same author wrote. That measures internal consistency, not
 > generalisation. PRD §8 calls for ≥ 50 screens. `run_eval.py` prints this every
@@ -175,45 +174,14 @@ change that** — ground truth derived from the detectors returns 1.0 for everyt
 
 ## 8. Uncommitted work in the tree
 
-An **OpenRouter provider**, not authored by the previous session. Reviewed:
-
-```
-M  server/app/providers/__init__.py      + "openrouter" branch
-M  server/app/providers/openai_compat.py + _headers() hook (refactor, no behaviour change)
-?? server/app/providers/openrouter.py    subclass: own base URL, model, auth, attribution headers
-?? server/tests/test_openrouter.py       2 tests, no network
-M  README.md                             backend #4 + env-var rows
-```
-
-Assessment: **sound and safe to commit.** It subclasses `OpenAICompatProvider`
-and reuses the multimodal request and plan parsing; the `_headers()` hook is a
-clean seam. Tests pass in isolation and in both orderings (28 total). The
-attribution header `X-OpenRouter-Title` is correct — I verified it against
-OpenRouter's docs rather than "correcting" it to `X-Title` from memory (both are
-accepted).
-
-Three things to know before relying on it:
-
-1. **It has never been run against the live API.** The tests stub `httpx`. The
-   same caveat already applies to `openai-compat`.
-2. **`response_format: json_schema` passthrough varies by underlying model.**
-   `OpenAICompatProvider.plan` falls back to best-effort JSON parsing and returns
-   an empty plan on failure, so a model that ignores it degrades to "no actions"
-   rather than crashing — but that will look like a broken demo.
-3. **It adds a hop to the threat model.** Redaction and ingress still run first,
-   so no raw PII reaches it. But the sanitized payload — structural labels,
-   redacted screenshot — now transits OpenRouter *and* the model provider behind
-   it. PRD §9.3 already says the server is trusted to honour the contract; this
-   makes that two parties instead of one. Worth one line in the writeup if
-   OpenRouter is used for the demo.
-
----
+None. An OpenRouter provider that a previous session reviewed here was discarded
+rather than committed; `providers/` holds mock, anthropic and openai-compat only.
 
 ## 9. Known gaps and open decisions
 
 | # | Gap | Status |
 |---|---|---|
-| 1 | **Corpus is 2 self-authored screens** | The single highest-value thing to fix. Harness takes real annotations unchanged. |
+| 1 | **Corpus is 3 self-authored screens** | The single highest-value thing to fix. Harness takes real annotations unchanged. |
 | 2 | **Names/addresses in free prose undetected** | Needs the local NER model cut from this build. The only recall gap; visible in the numbers, not hidden. |
 | 3 | **Customer identifiers have no taxonomy entry** | `MB4470193` passes through. Adding a `PiiType` is a **product decision** — deliberately not invented. |
 | 4 | **Self-hosted VLM untested against real weights** | Interface and implementation exist; nobody has pointed it at Qwen2-VL. |
@@ -234,11 +202,9 @@ Ranked:
    their author has seen would change what 40% of the rubric is actually worth.
    Write `eval/corpus/labels/<id>.labels.json`, put the page in `eval/fixtures/`,
    run `measure_labels.mjs && predict.mjs && run_eval.py`.
-2. **Commit or discard the OpenRouter work** (§8). It is currently the only
-   uncommitted state.
-3. **Run one of the non-mock providers against a live endpoint** and see whether
+2. **Run one of the non-mock providers against a live endpoint** and see whether
    structured output survives. That is the biggest untested surface.
-4. **Decide gap #3** (customer-identifier taxonomy) — a one-line product call
+3. **Decide gap #3** (customer-identifier taxonomy) — a one-line product call
    that closes a visible passthrough.
 
 ---
