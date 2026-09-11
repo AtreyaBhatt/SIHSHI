@@ -3,12 +3,6 @@ import type { AgentRequest, AgentResponse, CaptureResult, RawSnapshot } from './
 import type { Detection } from '../pii-detection/types';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
 
-/**
- * `tab_id` exists because the full-page viewer is itself a tab: without it the
- * worker would query for the active tab and capture the viewer instead of the
- * page under inspection. The side panel and the popup before it can omit it —
- * when the panel is open, the active tab is the one the user is looking at.
- */
 export type PanelToWorker =
   | { type: 'athena:run-capture'; tab_id?: number }
   | { type: 'athena:get-last-capture' }
@@ -27,16 +21,11 @@ export type ContentToWorker =
   | { ok: true; outcomes: ActionOutcome[] }
   | { ok: false; error: string };
 
-/**
- * What the diff viewer renders. `request` is null whenever the redaction engine
- * refused to build one — the viewer shows the refusal rather than a payload.
- */
 export interface PayloadPreview {
   session_id: string;
   request: AgentRequest | null;
   detections: Detection[];
   build_ms: number;
-  /** What the local face detector did, or why it did nothing. */
   perception_note: string | null;
   error: string | null;
 }
@@ -54,15 +43,14 @@ export interface ExecutionResult {
 }
 
 export interface HealthReport {
-  status: string;
-  provider: string;
-  ingress_policy: string;
-  server_url: string;
+  base_url: string;
+  model: string;
+  format: 'openai' | 'anthropic';
+  api_key_set: boolean;
 }
 
 export type WorkerReply<T> = { ok: true; data: T } | { ok: false; error: string };
 
-/** Ties each request to the shape it answers with, so callers need no casts. */
 export type ResponseFor<M extends PanelToWorker> =
   M extends { type: 'athena:run-capture' } ? CaptureResult
   : M extends { type: 'athena:get-last-capture' } ? CaptureResult | null

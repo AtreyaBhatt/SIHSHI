@@ -15,19 +15,16 @@
  *
  * Usage:  npm run test:e2e
  */
+import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
-
 const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
 const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9335);
-const SERVER_PORT = Number(process.env.ATHENA_SERVER_PORT ?? 8788);
-const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const fixture = resolve(process.argv[2] ?? '../eval/fixtures/bank-login.html');
-const serverDir = resolve('../server');
 
 /** Stands in for the local vault. These strings must never reach the server. */
 const VAULT = { 'user_saved:username': 'demo-user-42', 'user_saved:password': 'demo-secret-123' };
@@ -44,6 +41,7 @@ import { buildAgentRequest } from '${resolve('src/redaction/build-request.ts')}'
 import { TokenRegistry } from '${resolve('src/redaction/tokens.ts')}';
 import { executeActions } from '${resolve('src/executor/execute.ts')}';
 import { resolvePath } from '${resolve('src/shared/resolve-path.ts')}';
+import { requestProviderPlan } from '${resolve('src/background/agent-client.ts')}';
 export async function buildPayload(task) {
   const snapshot = captureDomSnapshot();
   const { request } = await buildAgentRequest({
@@ -52,6 +50,7 @@ export async function buildPayload(task) {
   });
   return request;
 }
+export async function providerPlan(request, settings, key) { return requestProviderPlan(request, settings, key); }
 export { executeActions };
 export function fieldValue(selector) {
   const el = resolvePath(selector)[0];
@@ -60,22 +59,41 @@ export function fieldValue(selector) {
 `);
 await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
 const bundle = await readFile(join(workdir, 'bundle.js'), 'utf8');
+const received = [];
+const fixtureHtml = await readFile(fixture, 'utf8');
+const provider = createServer(async (req, res) => {
+  if (req.method === 'GET' && req.url === '/fixture') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(fixtureHtml); return; }
+  if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type, authorization, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access', 'access-control-allow-private-network': 'true' }); res.end(); return; }
+  const chunks = []; for await (const chunk of req) chunks.push(chunk);
+  const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  received.push({ path: req.url, headers: req.headers, body });
+  const user = body.messages?.find((message) => message.role === 'user');
+  const text = user?.content?.find((part) => part.type === 'text')?.text ?? '';
+  const match = text.match(/## dom_summary\n([\s\S]*?)\n\n(?:## |Plan)/);
+  const nodes = match ? JSON.parse(match[1]) : [];
+  const customerPath = nodes.find((node) => node.path.includes('customer-id'))?.path;
+  const passwordPath = nodes.find((node) => node.path.includes('password'))?.path;
+  const submitPath = nodes.find((node) => node.path.includes('submit'))?.path;
+  const actions = [
+    customerPath && { action: 'type', selector: customerPath, value_ref: 'user_saved:username' },
+    passwordPath && { action: 'type', selector: passwordPath, value_ref: 'user_saved:password' },
+    submitPath && { action: 'click', selector: submitPath },
+  ].filter(Boolean);
+  const planText = JSON.stringify({ reasoning_summary: 'The visible form can use local credential references.', actions, requires_client_secret: true });
+  const payload = req.url === '/messages' ? { content: [{ type: 'text', text: '```json\n' + planText + '\n```' }] } : { choices: [{ message: { content: planText } }] };
+  res.writeHead(200, { 'access-control-allow-origin': '*', 'content-type': 'application/json' }); res.end(JSON.stringify(payload));
+});
+await new Promise((resolveListen) => provider.listen(0, '127.0.0.1', resolveListen));
+const SERVER_URL = `http://127.0.0.1:${provider.address().port}`;
 
-const server = spawn('uv', ['run', 'uvicorn', 'main:app', '--port', String(SERVER_PORT), '--log-level', 'warning'], { cwd: serverDir, stdio: 'ignore' });
 const chrome = spawn(CHROME, [
   '--headless=new', `--remote-debugging-port=${CDP_PORT}`, '--window-size=1280,800',
   '--disable-gpu', '--no-first-run', '--hide-scrollbars',
-  `--user-data-dir=${join(workdir, 'profile')}`, `file://${fixture}`,
+  `--user-data-dir=${join(workdir, 'profile')}`, `${SERVER_URL}/fixture`,
 ], { stdio: 'ignore' });
 
 let socket;
 try {
-  let health = null;
-  for (let i = 0; i < 80 && !health; i++) {
-    try { health = await (await fetch(`${SERVER_URL}/healthz`)).json(); } catch { await sleep(250); }
-  }
-  if (!health) throw new Error(`Server never came up on ${SERVER_URL}`);
-  console.log(`server       provider=${health.provider} ingress=${health.ingress_policy}`);
 
   let pages = [];
   for (let i = 0; i < 60 && pages.length === 0; i++) {
@@ -101,6 +119,12 @@ try {
     if (reply.result?.exceptionDetails) throw new Error(JSON.stringify(reply.result.exceptionDetails, null, 2));
     return reply.result?.result?.value;
   };
+  const command = async (method, params = {}) => {
+    const id = ++nextId;
+    const reply = await new Promise((ok) => { pending.set(id, ok); socket.send(JSON.stringify({ id, method, params })); });
+    return reply;
+  };
+  await command('Page.navigate', { url: `${SERVER_URL}/fixture` });
 
   for (let i = 0; i < 40 && (await evaluate('document.readyState')) !== 'complete'; i++) await sleep(200);
   await evaluate(bundle);
@@ -120,14 +144,22 @@ try {
   if (requestBody.includes('hunter2-not-real')) fail("the page's own password value appears in the request");
   else pass("the page's own password value absent");
 
-  // --- server ---------------------------------------------------------------
-  const httpResponse = await fetch(`${SERVER_URL}/agent/plan`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: requestBody,
-  });
-  if (httpResponse.status !== 200) throw new Error(`Server returned ${httpResponse.status}: ${await httpResponse.text()}`);
-  const plan = await httpResponse.json();
+  // --- direct provider ------------------------------------------------------
+  const providerSettings = { base_url: SERVER_URL, model: 'stub-model', anthropic_format: false };
+  const plan = JSON.parse(await evaluate(
+    `ATHENA.providerPlan(${JSON.stringify(request)}, ${JSON.stringify(providerSettings)}, "stub-api-key").then(r => JSON.stringify(r))`,
+  ));
+  const anthropicPlan = JSON.parse(await evaluate(
+    `ATHENA.providerPlan(${JSON.stringify(request)}, ${JSON.stringify({ ...providerSettings, anthropic_format: true })}, "stub-api-key").then(r => JSON.stringify(r))`,
+  ));
   const planBody = JSON.stringify(plan);
   console.log(`\nplan         ${plan.actions.length} actions, requires_client_secret=${plan.requires_client_secret}`);
+  if (anthropicPlan.actions.length === plan.actions.length) pass('OpenAI and Anthropic provider formats parsed');
+  else fail('Anthropic provider response was not parsed');
+  if (received.some((call) => call.path === '/chat/completions' && call.headers.authorization === 'Bearer stub-api-key')) pass('OpenAI provider request used Bearer auth');
+  else fail('OpenAI provider request was malformed');
+  if (received.some((call) => call.path === '/messages' && call.headers['x-api-key'] === 'stub-api-key')) pass('Anthropic provider request used x-api-key auth');
+  else fail('Anthropic provider request was malformed');
 
   console.log('\nthe response carries no secret, only references:');
   for (const [, secret] of Object.entries(VAULT)) {
@@ -189,7 +221,7 @@ try {
 } finally {
   socket?.close();
   chrome.kill('SIGKILL');
-  server.kill('SIGTERM');
+  await new Promise((resolveClose) => provider.close(resolveClose));
   await sleep(200);
   await rm(workdir, { recursive: true, force: true }).catch(() => {});
 }

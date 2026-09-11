@@ -182,20 +182,17 @@
       <!-- ------------------------------ settings ------------------------------- -->
       <div id="view-settings" class="body view" role="tabpanel" aria-labelledby="tab-settings" hidden>
         <div class="card">
-          <span class="lbl">Reasoning server</span>
-          <div class="t3" style="margin-top:6px;">Must match a host in the extension manifest. The extension can reach this origin and nothing else.</div>
-          <div class="field-row">
-            <input type="text" id="server-url" class="text" placeholder="http://127.0.0.1:8787" aria-label="Reasoning server URL" />
-            <button id="save-url" class="btn sec sm" type="button">Save</button>
-            <button id="test-url" class="btn ghost sm" type="button">Test</button>
-          </div>
-          <div class="t3 status-line settings" id="health"></div>
+          <span class="lbl">Model provider</span>
+          <div class="t3" style="margin-top:6px;">Requests go directly from the extension service worker to the configured provider. The API key stays in a provider-origin HttpOnly cookie.</div>
+          <div class="field-row"><label class="t3"><input type="checkbox" id="anthropic-format" /> Use Anthropic format</label></div>
+          <div class="field-row"><input type="text" id="provider-base-url" class="text" placeholder="https://openrouter.ai/api/v1" aria-label="Provider base URL" autocomplete="off" /><input type="text" id="provider-model" class="text" placeholder="openai/gpt-4o-mini" aria-label="Provider model" autocomplete="off" /><button id="save-provider" class="btn sec sm" type="button">Save</button></div>
+          <div class="field-row"><input type="password" id="provider-api-key" class="text" placeholder="Enter provider API key" aria-label="Provider API key" autocomplete="off" /><button id="delete-api-key" class="btn ghost sm destructive" type="button" hidden>Delete API key</button></div>
+          <div class="t3 status-line settings" id="provider-health" role="status" aria-live="polite"></div>
         </div>
-
         <div class="card">
           <span class="lbl">Local credential vault</span>
           <div class="callout"><strong>Demo vault, not a password manager.</strong> Values are stored unencrypted in <code>chrome.storage.local</code>, readable by anything with storage access to this profile. Use throwaway credentials.</div>
-          <div class="t3" style="margin-top:9px;">The server sees only <code>value_ref</code>; the slot is resolved here, at execution time.</div>
+          <div class="t3" style="margin-top:9px;">The provider sees only <code>value_ref</code>; the slot is resolved here, at execution time.</div>
           <div id="slots" class="list"></div>
           <div class="field-row">
             <input type="text" id="new-slot" class="text short" placeholder="slot (e.g. username)" aria-label="New slot name" />

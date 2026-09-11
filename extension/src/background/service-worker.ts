@@ -19,7 +19,7 @@ import type { AgentAction, AgentRequest, AgentResponse } from '../shared/schema'
 import type { ExecutableAction } from '../executor/execute';
 import { buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId } from '../redaction/tokens';
-import { checkHealth, getServerUrl, requestPlan } from './agent-client';
+import { getProviderStatus, requestPlan } from './agent-client';
 import { resolveValueRef } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
@@ -355,8 +355,7 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
 }
 
 async function health(): Promise<HealthReport> {
-  const report = await checkHealth();
-  return { ...report, server_url: await getServerUrl() };
+  return getProviderStatus();
 }
 
 api.runtime.onMessage.addListener(

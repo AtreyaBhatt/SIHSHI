@@ -121,6 +121,10 @@ main { flex: 1; overflow: hidden; }
   background: var(--bg); color: var(--fg); font: inherit; font-size: 12.5px;
 }
 .text.short { flex: 0 0 180px; }
+.provider-row { margin-bottom: 8px; }
+.checkbox { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.checkbox input { accent-color: var(--accent); }
+.destructive { color: var(--warn-fg); background: none; border: 0; cursor: pointer; }
 
 .plan { font-size: 12px; }
 .plan .summary { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }

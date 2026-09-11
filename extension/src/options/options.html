@@ -1,49 +1,18 @@
-<link rel="stylesheet" href="options.css" />
-<div class="app" style="height:auto">
-  <header>
-    <div class="brand">
-      <span class="dot"></span>
-      <div>
-        <h1>ATHENA settings</h1>
-        <p class="sub">Reasoning server and local credential vault</p>
-      </div>
-    </div>
-  </header>
-
-  <main style="overflow:visible">
-    <section class="pane active">
-      <h3>Reasoning server</h3>
-      <p class="note">
-        Must match a host in the extension manifest. The extension can reach this origin and
-        nothing else.
-      </p>
-      <div class="row">
-        <input type="text" id="server-url" class="text" placeholder="http://127.0.0.1:8787" />
-        <button id="save-url" class="primary">Save</button>
-        <button id="test-url" class="link">Test</button>
-      </div>
-      <p id="health" class="note"></p>
-
-      <h3>Local credential vault</h3>
-      <div class="banner blocked">
-        <strong>This is a demo vault, not a password manager.</strong>
-        Values are stored unencrypted in <code>chrome.storage.local</code>, readable by anything
-        with storage access to this browser profile. Chrome exposes no API for reading the real
-        password manager, so this is the only way to demonstrate <code>value_ref</code>. Use
-        throwaway test credentials.
-      </div>
-      <p class="note">
-        The server never sees these. It returns <code>value_ref: "user_saved:password"</code> and
-        the slot is resolved here, locally, at execution time.
-      </p>
-      <div id="slots"></div>
-      <div class="row">
-        <input type="text" id="new-slot" class="text short" placeholder="slot (e.g. username)" />
-        <input type="text" id="new-value" class="text" placeholder="value" />
-        <button id="add-slot" class="primary">Add</button>
-      </div>
-      <p id="vault-status" class="note"></p>
-    </section>
-  </main>
-</div>
-<script type="module" src="options.js"></script>
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ATHENA settings</title><link rel="stylesheet" href="options.css"></head>
+<body>
+<div class="app" style="height:auto"><header><div class="brand"><span class="dot"></span><div><h1>ATHENA settings</h1><p class="sub">Direct provider and local credential vault</p></div></div></header>
+<main style="overflow:visible"><section class="pane active">
+<h3>Model provider</h3>
+<p class="note">Requests go directly from the extension service worker to this provider. Only locally redacted context is sent. The API key is stored as a provider-origin HttpOnly cookie and is never shown after saving.</p>
+<div class="row provider-row"><label class="checkbox"><input type="checkbox" id="anthropic-format"> Use Anthropic format</label></div>
+<div class="row provider-row"><input type="text" id="provider-base-url" class="text" placeholder="https://openrouter.ai/api/v1" aria-label="Provider base URL" autocomplete="off"><input type="text" id="provider-model" class="text" placeholder="openai/gpt-4o-mini" aria-label="Provider model" autocomplete="off"><button id="save-provider" class="btn sec sm" type="button">Save</button></div>
+<div class="row provider-row"><input type="password" id="provider-api-key" class="text" placeholder="Enter provider API key" aria-label="Provider API key" autocomplete="off"><button id="delete-api-key" class="btn ghost sm destructive" type="button" hidden>Delete API key</button></div>
+<div class="t3 status-line settings" id="provider-health" role="status" aria-live="polite"></div>
+<h3>Local credential vault</h3>
+<p class="note">Secrets stay local and are referenced in plans as user_saved:name.</p>
+<div class="row"><input id="new-slot" class="text" placeholder="slot name" aria-label="New vault slot"><input id="new-value" class="text" type="password" placeholder="value" aria-label="New vault value"><button id="add-slot" class="btn sec sm" type="button">Add</button></div>
+<div id="vault-status" class="t3 status-line" role="status"></div><div id="slots"></div>
+</section></main></div><script type="module" src="options.js"></script>
+</body></html>

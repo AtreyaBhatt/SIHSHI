@@ -9,8 +9,13 @@
 
 declare const browser: typeof chrome | undefined;
 
-export const api: typeof chrome =
-  typeof browser !== 'undefined' && browser ? (browser as typeof chrome) : chrome;
+const extensionApi = typeof browser !== 'undefined' && browser
+  ? browser
+  : typeof chrome !== 'undefined'
+    ? chrome
+    : null;
+
+export const api = extensionApi as typeof chrome;
 
 export function isRestrictedUrl(url: string | undefined): boolean {
   if (!url) return true;

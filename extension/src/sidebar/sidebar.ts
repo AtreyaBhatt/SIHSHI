@@ -27,7 +27,7 @@
  * badge and steps — and the activity log keeps the record either way.
  */
 import { api, isRestrictedUrl } from '../shared/browser';
-import { DEFAULT_SERVER_URL, getServerUrl, setServerUrl } from '../background/agent-client';
+import { deleteProviderApiKey, getProviderSettings, saveProviderSettings, type ProviderSettings } from '../background/agent-client';
 import { readVault, writeVault, type Vault } from '../shared/vault';
 import type { CaptureResult, RedactionManifestEntry } from '../shared/schema';
 import type {
@@ -772,40 +772,21 @@ function renderSlots(vault: Vault): void {
   }
 }
 
-$('save-url').addEventListener('click', async () => {
-  const input = $<HTMLInputElement>('server-url');
-  try {
-    await setServerUrl(input.value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL);
-    $('health').textContent = 'Saved.';
-  } catch (err) {
-    $('health').textContent = err instanceof Error ? err.message : String(err);
-  }
-});
-
-$('test-url').addEventListener('click', async () => {
-  $('health').textContent = 'Checking…';
-  try {
-    const report = await send({ type: 'athena:check-health' });
-    $('health').textContent = `Reachable — provider "${report.provider}", ingress policy "${report.ingress_policy}".`;
-  } catch (err) {
-    $('health').textContent = `Unreachable: ${err instanceof Error ? err.message : String(err)}`;
-  }
-});
-
+let providerSettings: ProviderSettings | null = null;
+function renderProvider(settings: ProviderSettings): void {
+  providerSettings = settings;
+  const format = $<HTMLInputElement>('anthropic-format'); const baseUrl = $<HTMLInputElement>('provider-base-url'); const model = $<HTMLInputElement>('provider-model'); const key = $<HTMLInputElement>('provider-api-key'); const del = $<HTMLButtonElement>('delete-api-key');
+  format.checked = settings.anthropic_format; baseUrl.value = settings.base_url; model.value = settings.model; key.value = ''; key.placeholder = settings.api_key_present ? 'API key stored — leave blank to keep it' : 'Enter provider API key'; del.hidden = !settings.api_key_present;
+  $('provider-health').textContent = settings.api_key_present ? `Configured · ${settings.anthropic_format ? 'anthropic' : 'openai'} · ${settings.base_url}` : 'Not configured · add an API key to enable planning.';
+}
+async function refreshProvider(): Promise<void> { renderProvider(await getProviderSettings()); }
+$('save-provider').addEventListener('click', async () => { const baseUrl = $<HTMLInputElement>('provider-base-url'); const model = $<HTMLInputElement>('provider-model'); const format = $<HTMLInputElement>('anthropic-format'); const key = $<HTMLInputElement>('provider-api-key'); try { const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked, api_key: key.value }, providerSettings?.base_url); renderProvider(saved); } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not save provider settings.'; } });
+$('delete-api-key').addEventListener('click', async () => { if (!providerSettings) return; try { await deleteProviderApiKey(providerSettings.base_url); await refreshProvider(); $('provider-health').textContent = 'API key deleted.'; } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not delete the API key.'; } });
 $('add-slot').addEventListener('click', async () => {
-  const slotInput = $<HTMLInputElement>('new-slot');
-  const valueInput = $<HTMLInputElement>('new-value');
-  const slot = slotInput.value.trim();
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(slot)) {
-    $('vault-status').textContent = 'Slot names may contain letters, digits, dot, dash and underscore.';
-    return;
-  }
+  const slotInput = $<HTMLInputElement>('new-slot'); const valueInput = $<HTMLInputElement>('new-value'); const slot = slotInput.value.trim();
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(slot)) { $('vault-status').textContent = 'Slot names may contain letters, digits, dot, dash and underscore.'; return; }
   const next = { ...(await readVault()), [slot]: valueInput.value };
-  await writeVault(next);
-  slotInput.value = '';
-  valueInput.value = '';
-  $('vault-status').textContent = `Stored user_saved:${slot}.`;
-  renderSlots(next);
+  await writeVault(next); slotInput.value = ''; valueInput.value = ''; $('vault-status').textContent = `Stored user_saved:${slot}.`; renderSlots(next);
 });
 
 $('open-options').addEventListener('click', () => {
@@ -827,15 +808,9 @@ api.tabs.onUpdated.addListener((_tabId, info) => {
 
 void (async () => {
   renderActivity();
-  try {
-    $<HTMLInputElement>('server-url').value = await getServerUrl();
-    renderSlots(await readVault());
-  } catch (err) {
-    $('health').textContent = `Could not read local settings: ${err instanceof Error ? err.message : String(err)}`;
-  }
-
+  try { await refreshProvider(); renderSlots(await readVault()); }
+  catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not read local settings.'; }
   await refreshPageContext();
-
   try {
     capture = await send({ type: 'athena:get-last-capture' });
     if (capture) {

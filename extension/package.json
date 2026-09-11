@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-capture.mjs",
     "test:capture": "node scripts/test-capture.mjs",
-    "test:redaction": "node scripts/test-redaction.mjs",
+    "test:provider": "node scripts/test-provider.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "test:faces": "node scripts/test-faces.mjs",
     "fetch:model": "curl -sSL --create-dirs -o models/version-RFB-320.onnx https://github.com/onnx/models/raw/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx",

@@ -1,91 +1,30 @@
-/**
- * Settings for the server origin and the local credential vault.
- *
- * Stored values are shown as slot names with a masked length, never as text. The
- * point of `value_ref` is that a secret has exactly one home; echoing it into a
- * settings page for convenience would put a copy in the DOM of a page that any
- * screenshot — including one taken by this very extension — could capture.
- */
-import { DEFAULT_SERVER_URL, getServerUrl, setServerUrl } from '../background/agent-client';
-import { readVault, writeVault, type Vault } from '../shared/vault';
-import { api } from '../shared/browser';
+import { deleteProviderApiKey, getProviderSettings, saveProviderSettings, type ProviderSettings } from '../background/agent-client';
+import { readVault, writeVault } from '../shared/vault';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
-
-const serverInput = $<HTMLInputElement>('server-url');
-const healthLine = $('health');
-const slotsEl = $('slots');
+const format = $<HTMLInputElement>('anthropic-format');
+const baseUrl = $<HTMLInputElement>('provider-base-url');
+const model = $<HTMLInputElement>('provider-model');
+const key = $<HTMLInputElement>('provider-api-key');
+const del = $<HTMLButtonElement>('delete-api-key');
+const health = $('provider-health');
+const slots = $('slots');
 const vaultStatus = $('vault-status');
+let current: ProviderSettings | null = null;
 
-function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+function esc(value: string): string { return value.replace(/[&<>\"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!); }
+function renderProvider(settings: ProviderSettings): void {
+  current = settings; format.checked = settings.anthropic_format; baseUrl.value = settings.base_url; model.value = settings.model; key.value = '';
+  key.placeholder = settings.api_key_present ? 'API key stored — leave blank to keep it' : 'Enter provider API key'; del.hidden = !settings.api_key_present;
+  health.textContent = settings.api_key_present ? `Configured · ${settings.anthropic_format ? 'anthropic' : 'openai'} · ${settings.base_url}` : 'Not configured · add an API key to enable planning.';
 }
-
+async function refreshProvider(): Promise<void> { renderProvider(await getProviderSettings()); }
 async function renderVault(): Promise<void> {
-  const vault = await readVault();
-  const slots = Object.keys(vault).sort();
-  slotsEl.innerHTML = slots.length
-    ? `<table class="man"><thead><tr><th>value_ref</th><th>stored</th><th></th></tr></thead><tbody>${slots
-        .map(
-          (slot) => `<tr>
-            <td>user_saved:${esc(slot)}</td>
-            <td>${'•'.repeat(Math.min(vault[slot]!.length, 16))} (${vault[slot]!.length} chars)</td>
-            <td><button class="link" data-remove="${esc(slot)}">remove</button></td>
-          </tr>`,
-        )
-        .join('')}</tbody></table>`
-    : '<p class="empty">No credentials stored. The executor will refuse any value_ref it cannot resolve.</p>';
-
-  for (const button of slotsEl.querySelectorAll<HTMLButtonElement>('[data-remove]')) {
-    button.addEventListener('click', async () => {
-      const next: Vault = { ...(await readVault()) };
-      delete next[button.dataset.remove!];
-      await writeVault(next);
-      vaultStatus.textContent = `Removed ${button.dataset.remove}.`;
-      await renderVault();
-    });
-  }
+  const vault = await readVault(); const names = Object.keys(vault).sort();
+  slots.innerHTML = names.length ? `<table class="man"><thead><tr><th>value_ref</th><th>stored</th><th></th></tr></thead><tbody>${names.map((name) => `<tr><td>user_saved:${esc(name)}</td><td>${'•'.repeat(Math.min(vault[name]!.length, 16))} (${vault[name]!.length} chars)</td><td><button class="link" data-remove="${esc(name)}">remove</button></td></tr>`).join('')}</tbody></table>` : '<p class="empty">No local credentials saved.</p>';
+  slots.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((button) => button.addEventListener('click', async () => { const next = { ...(await readVault()) }; delete next[button.dataset.remove!]; await writeVault(next); await renderVault(); }));
 }
-
-$('save-url').addEventListener('click', async () => {
-  try {
-    await setServerUrl(serverInput.value.trim().replace(/\/+$/, '') || DEFAULT_SERVER_URL);
-    healthLine.textContent = 'Saved.';
-  } catch (err) {
-    healthLine.textContent = err instanceof Error ? err.message : String(err);
-  }
-});
-
-$('test-url').addEventListener('click', async () => {
-  healthLine.textContent = 'Checking…';
-  try {
-    const reply = (await api.runtime.sendMessage({ type: 'athena:check-health' })) as
-      | { ok: true; data: { provider: string; ingress_policy: string; server_url: string } }
-      | { ok: false; error: string };
-    healthLine.textContent = reply.ok
-      ? `Reachable — provider "${reply.data.provider}", ingress policy "${reply.data.ingress_policy}".`
-      : `Unreachable: ${reply.error}`;
-  } catch (err) {
-    healthLine.textContent = `Unreachable: ${err instanceof Error ? err.message : String(err)}`;
-  }
-});
-
-$('add-slot').addEventListener('click', async () => {
-  const slotInput = $<HTMLInputElement>('new-slot');
-  const valueInput = $<HTMLInputElement>('new-value');
-  const slot = slotInput.value.trim();
-  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(slot)) {
-    vaultStatus.textContent = 'Slot names may contain letters, digits, dot, dash and underscore.';
-    return;
-  }
-  await writeVault({ ...(await readVault()), [slot]: valueInput.value });
-  slotInput.value = '';
-  valueInput.value = '';
-  vaultStatus.textContent = `Stored user_saved:${slot}.`;
-  await renderVault();
-});
-
-void (async () => {
-  serverInput.value = await getServerUrl();
-  await renderVault();
-})();
+$('save-provider').addEventListener('click', async () => { try { const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked, api_key: key.value }, current?.base_url); renderProvider(saved); health.textContent = `Saved. ${health.textContent}`; } catch (err) { health.textContent = err instanceof Error ? err.message : 'Could not save provider settings.'; } });
+del.addEventListener('click', async () => { if (!current) return; try { await deleteProviderApiKey(current.base_url); await refreshProvider(); health.textContent = 'API key deleted.'; } catch (err) { health.textContent = err instanceof Error ? err.message : 'Could not delete the API key.'; } });
+$('add-slot').addEventListener('click', async () => { const nameInput = $<HTMLInputElement>('new-slot'); const valueInput = $<HTMLInputElement>('new-value'); const name = nameInput.value.trim(); if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name)) { vaultStatus.textContent = 'Slot names may contain letters, digits, dot, dash and underscore.'; return; } await writeVault({ ...(await readVault()), [name]: valueInput.value }); nameInput.value = ''; valueInput.value = ''; vaultStatus.textContent = `Stored user_saved:${name}`; await renderVault(); });
+void (async () => { try { await refreshProvider(); await renderVault(); } catch (err) { health.textContent = err instanceof Error ? err.message : 'Could not read local settings.'; } })();

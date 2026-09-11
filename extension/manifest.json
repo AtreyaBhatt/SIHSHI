@@ -2,18 +2,18 @@
   "manifest_version": 3,
   "name": "ATHENA — Privacy-Preserving Vision Agent",
   "version": "0.1.0",
-  "description": "Local perception and redaction for browser agents. Only sanitized context reaches the reasoning server.",
+  "description": "Local perception and redaction for browser agents. Only sanitized context reaches the configured model provider.",
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
+    "cookies",
     "offscreen",
     "sidePanel"
   ],
   "host_permissions": [
-    "http://127.0.0.1:8787/*",
-    "http://localhost:8787/*"
+    "https://openrouter.ai/*"
   ],
   "optional_host_permissions": [
     "https://*/*",
