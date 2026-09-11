@@ -133,7 +133,7 @@ export interface RawDomNode {
   };
   bbox: BBox;
   interactive: boolean;
-  /** Non-null for image/video/canvas/svg — the regions M3's face detector will scan. */
+  /** Non-null for image/video/canvas/svg/picture (regions the face detector scans) and for iframe/frame/object/embed ('iframe' — masked whole, never scanned). */
   media: 'img' | 'video' | 'canvas' | 'svg' | 'picture' | 'iframe' | null;
 }
 

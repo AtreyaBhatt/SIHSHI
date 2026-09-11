@@ -129,7 +129,10 @@ async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetecti
   if (!capture.screenshot_data_url) return { faces: [], note: 'no screenshot to scan' };
   try {
     await ensureOffscreen();
-    const regions = capture.snapshot.nodes.filter((n) => n.media).map((n) => n.bbox);
+    // Frames are black-boxed unconditionally (build-request emits a `frame`
+    // entry), so scanning their pixels for faces is inference spent on a
+    // region that is already gone.
+    const regions = capture.snapshot.nodes.filter((n) => n.media && n.media !== 'iframe').map((n) => n.bbox);
     const reply = (await api.runtime.sendMessage({
       type: 'athena:detect-faces',
       screenshot_data_url: capture.screenshot_data_url,
