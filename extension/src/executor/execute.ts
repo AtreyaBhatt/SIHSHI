@@ -15,6 +15,7 @@
  * — the server-side check protects against a confused model, this one against a
  * compromised or buggy server.
  */
+import { resolvePath } from '../shared/resolve-path';
 
 export type ExecutableVerb = 'click' | 'type' | 'focus' | 'scroll' | 'read' | 'wait';
 
@@ -41,12 +42,7 @@ const NEEDS_SELECTOR = new Set<ExecutableVerb>(['click', 'type', 'focus']);
 const WAIT_MS = 400;
 
 function findOne(selector: string): Element {
-  let matches: NodeListOf<Element>;
-  try {
-    matches = document.querySelectorAll(selector);
-  } catch {
-    throw new Error(`Selector is not valid CSS: ${selector}`);
-  }
+  const matches = resolvePath(selector);
   if (matches.length === 0) throw new Error(`No element matches ${selector}`);
   if (matches.length > 1) throw new Error(`${matches.length} elements match ${selector} — refusing to guess`);
   return matches[0]!;

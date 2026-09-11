@@ -49,11 +49,11 @@ export async function predict(threshold) {
   const capture_ms = performance.now() - t0;
 
   const t1 = performance.now();
-  const detections = detectPii(snapshot, { threshold });
+  detectPii(snapshot, { threshold });
   const detect_ms = performance.now() - t1;
 
   const t2 = performance.now();
-  const { request } = await buildAgentRequest({
+  const { request, detections } = await buildAgentRequest({
     snapshot, screenshotDataUrl: null, taskInstruction: 'eval',
     tokens: new TokenRegistry('eval-session'), threshold,
   });

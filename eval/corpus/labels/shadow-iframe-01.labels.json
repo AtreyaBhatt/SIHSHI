@@ -1,0 +1,14 @@
+{
+  "screen_id": "shadow-iframe-01",
+  "page": "fixtures/shadow-iframe.html",
+  "source": "fixture",
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "Two values live inside an open shadow root and are named with ' >>> ' selectors; the iframe is annotated as a frame (an unscanned region, boxed whole) with modality pixel. The card number printed inside the iframe is not annotated separately: the DOM walk cannot see it and the frame box is what protects it.",
+  "items": [
+    { "id": "s1", "selector": "div#widget >>> input#inner-email", "type": "email", "tier": 2, "modality": "text", "value_present": true },
+    { "id": "s2", "selector": "div#widget >>> input#inner-name", "type": "person_name", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "No <label>; only name=fullName identifies it." },
+    { "id": "s3", "selector": "iframe#payment", "type": "frame", "tier": 1, "modality": "pixel", "value_present": true,
+      "notes": "Whole frame. Contents are never walked." }
+  ]
+}

@@ -53,7 +53,9 @@ automated.
 **Ground truth must never be derived from the detectors.** Neither path imports
 anything from `extension/src/pii-detection` or `extension/src/redaction`. If it
 did, the eval would be measuring the detectors against themselves and every
-number would come back 1.0.
+number would come back 1.0. Selectors may use ` >>> ` to reach into open shadow
+roots; they are resolved with `extension/src/shared/resolve-path.ts`, which
+contains no detection logic.
 
 `<screen_id>` is lowercase kebab-case and stable: `bank-login-01`, `kyc-form-03`,
 `video-grid-02`. The `.png` and `.json` basenames must match.

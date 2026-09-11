@@ -259,5 +259,18 @@ export async function buildAgentRequest(options: BuildOptions): Promise<BuildRes
     bbox: face.bbox,
   }));
 
-  return { request, detections: [...detections, ...faceDetections] };
+  const frameDetections: Detection[] = snapshot.nodes
+    .filter((node) => node.media === 'iframe')
+    .map((node) => ({
+      node_path: node.path,
+      field: 'text',
+      type: 'frame',
+      tier: TIER_BY_TYPE.frame,
+      detector: 'capture:iframe',
+      confidence: 1,
+      span: null,
+      bbox: node.bbox,
+    }));
+
+  return { request, detections: [...detections, ...faceDetections, ...frameDetections] };
 }

@@ -22,6 +22,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LABELS_DIR = join(HERE, 'corpus/labels');
@@ -29,12 +30,17 @@ const SCREENS_DIR = join(HERE, 'corpus/screens');
 const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
 const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9340);
 
+const EXT = resolve(HERE, '../extension');
+// esbuild lives in the extension's dependency tree; borrow it exactly as predict.mjs does.
+const { build } = createRequire(join(EXT, 'package.json'))('esbuild');
+
 /** The corpus viewport, fixed so every bbox is comparable across screens. */
 const VIEWPORT = { width: 1280, height: 800 };
 
 const MEASURE = `(spec) => {
-  const el = document.querySelector(spec.selector);
-  if (!el) return { error: 'selector matched nothing: ' + spec.selector };
+  const found = ATHENA_RESOLVE.resolvePath(spec.selector);
+  if (found.length !== 1) return { error: 'selector matched ' + found.length + ' elements: ' + spec.selector };
+  const el = found[0];
 
   if (!spec.text) {
     const r = el.getBoundingClientRect();
@@ -70,6 +76,13 @@ const MEASURE = `(spec) => {
   }
   return { error: 'text not found in ' + spec.selector + ': ' + spec.text };
 }`;
+
+const resolverDir = await mkdtemp(join(tmpdir(), 'athena-resolver-'));
+await build({
+  stdin: { contents: `export { resolvePath } from '${join(EXT, 'src/shared/resolve-path.ts')}';`, resolveDir: EXT, loader: 'ts' },
+  outfile: join(resolverDir, 'resolver.js'), bundle: true, format: 'iife', globalName: 'ATHENA_RESOLVE', target: 'chrome116', logLevel: 'error',
+});
+const resolver = await readFile(join(resolverDir, 'resolver.js'), 'utf8');
 
 const profile = await mkdtemp(join(tmpdir(), 'athena-measure-'));
 const chrome = spawn(CHROME, [
@@ -122,6 +135,7 @@ try {
       if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('location.protocol')) === 'file:') break;
     }
     await sleep(350); // let fonts and background images settle before measuring
+    await evaluate(resolver);
 
     const viewport = await evaluate('JSON.stringify({width: innerWidth, height: innerHeight})');
     const annotations = [];
@@ -177,6 +191,7 @@ try {
   chrome.kill('SIGKILL');
   await sleep(150);
   await rm(profile, { recursive: true, force: true }).catch(() => {});
+  await rm(resolverDir, { recursive: true, force: true }).catch(() => {});
 }
 
 console.log(problems === 0 ? '\nOK' : `\nFAIL — ${problems} problem(s)`);

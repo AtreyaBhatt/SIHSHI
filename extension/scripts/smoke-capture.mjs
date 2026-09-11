@@ -13,7 +13,7 @@
  * Usage:  npm run smoke [-- path/to/fixture.html]
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -26,8 +26,14 @@ const fixture = resolve(process.argv[2] ?? '../eval/fixtures/bank-login.html');
 const workdir = await mkdtemp(join(tmpdir(), 'athena-smoke-'));
 const bundlePath = join(workdir, 'snapshot.js');
 
+const entry = join(workdir, 'entry.ts');
+await writeFile(entry, `
+export { captureDomSnapshot } from '${resolve('src/capture/dom-snapshot.ts')}';
+export { resolvePath } from '${resolve('src/shared/resolve-path.ts')}';
+`);
+
 await build({
-  entryPoints: ['src/capture/dom-snapshot.ts'],
+  entryPoints: [entry],
   outfile: bundlePath,
   bundle: true,
   format: 'iife',
@@ -91,8 +97,7 @@ try {
     const snap = ATHENA.captureDomSnapshot();
     const problems = [];
     for (const n of snap.nodes) {
-      let count = -1;
-      try { count = document.querySelectorAll(n.path).length; } catch { count = -2; }
+      const count = ATHENA.resolvePath(n.path).length;
       if (count !== 1) problems.push(n.path + ' → resolves to ' + count + ' elements');
       const [x1, y1, x2, y2] = n.bbox;
       if (x2 <= x1 || y2 <= y1) problems.push(n.path + ' → degenerate bbox');
