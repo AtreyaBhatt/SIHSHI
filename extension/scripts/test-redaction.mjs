@@ -118,6 +118,12 @@ try {
       console.log(`emitted payload -> ${process.env.ATHENA_EMIT_PAYLOAD}`);
     }
 
+    // In the normal pass the cascade catches everything; a firewall hit here
+    // means a detector gap that the second layer is papering over.
+    console.log('\nfirewall is silent when every detector is on:');
+    if (result.firewall?.masked === 0 && result.firewall?.blocked === 0) pass('firewall masked 0 · blocked 0');
+    else fail(`detector gap: firewall masked ${result.firewall?.masked} · blocked ${result.firewall?.blocked} (${(result.firewall?.hits ?? []).map((h) => `${h.field} firewall:${h.rule}`).join(', ')})`);
+
     console.log('\nno raw value survives into the payload:');
     for (const [name, secret] of spec.mustNotAppear) {
       if (payload.includes(secret)) fail(`${name} — "${secret}" IS PRESENT in the payload`);

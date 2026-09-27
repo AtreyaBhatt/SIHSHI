@@ -139,6 +139,12 @@ try {
       await evaluate(`ATHENA.predict(${THRESHOLD}).then((r) => JSON.stringify(r))`),
     );
     const r = results[screen.screen_id];
+    // Firewall entries are the second layer's catch, not a detector's
+    // prediction; scoring them would hide a detector gap. Absent in a normal pass.
+    const firewallEntries = r.manifest.filter((e) => e.detector.startsWith('firewall:')).length;
+    r.manifest = r.manifest.filter((e) => !e.detector.startsWith('firewall:'));
+    if (firewallEntries > 0) console.log(`  ${screen.screen_id}: ${firewallEntries} firewall:* manifest entr(ies) excluded from scoring (detector gap)`);
+    else console.log(`  ${screen.screen_id}: 0 firewall:* manifest entries`);
     console.log(`  ${screen.screen_id}: ${r.detections.length} detections, ${r.manifest.length} redactions, ${r.timings.capture_ms + r.timings.detect_ms + r.timings.redact_ms} ms`);
   }
 } catch (err) {

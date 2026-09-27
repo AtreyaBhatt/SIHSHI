@@ -198,6 +198,10 @@ console.log('typed secrets (build-request)');
   try { assertNoTypedSecrets(echoed, ['blue-heron-42']); } catch { echoOk = false; }
   check(echoOk, 'egress check passes once the echo is masked');
 
+  const history = [{ verb: 'type', selector: 'input#u', value: 'mail abcd@gmail.com', outcome: 'ok' }];
+  const withHistory = (await buildAgentRequest({ ...opts, tokens: new TokenRegistry('s4'), priorActions: history })).request;
+  check(withHistory.prior_actions[0].value === 'mail [EMAIL_1]' && history[0].value === 'mail abcd@gmail.com', 'prior actions are masked in a copy; run history is untouched');
+
   // A Tier-1 entry already existing for a path must not be read as "already
   // masked" — a span-based detector can leave raw text (including the typed
   // secret) sitting next to its own redaction marker in the same field.
@@ -283,6 +287,45 @@ console.log('firewall');
   rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
   check(rep.masked === 0 && rep.blocked === 0, 'short numbers, existing tokens and slot names do not fire');
   check(FIREWALL_RULES.every((r) => typeof r.name === 'string' && r.regex instanceof RegExp), 'rules table is data');
+
+  const one = (value) => { const r = mk([{ path: 'p#x', role: null, label: null, value }]); let rep = null, err = null; try { rep = scanRequest(r, new TokenRegistry('s'), nodesByPath(r.dom_summary)); } catch (e) { err = e; } return { r, rep, err, out: r.dom_summary[0].value }; };
+  let o = one('john+news@my-bank.com');
+  check(o.out === '[EMAIL_1]' && o.r.redaction_manifest.length === 1 && o.r.redaction_manifest[0].id === 'EMAIL_1', `overlapping upi does not split an email (${o.out})`);
+  o = one('a@b.co a@b.co');
+  check(o.out === '[EMAIL_1] [EMAIL_1]' && o.r.redaction_manifest.length === 1, `repeated value: both replaced, one manifest entry (${o.out}, ${o.r.redaction_manifest.length})`);
+  o = one('9845012345@ybl');
+  check(o.out === '[ACCOUNT_ID_1]' && o.r.redaction_manifest.length === 1 && o.r.redaction_manifest[0].type === 'account_id', `UPI with a phone-number handle is one account_id (${o.out})`);
+  o = one('[EMAIL_1]priya@okaxis');
+  check(o.out === '[EMAIL_1][ACCOUNT_ID_1]', `marker-adjacent UPI id masked (${o.out})`);
+  o = one('pay priya@okaxis.');
+  check(o.out === 'pay [ACCOUNT_ID_1].', `UPI id before a full stop masked (${o.out})`);
+  for (const v of ['+919845012345', '09845012345']) { o = one(`call ${v}`); check(o.out === 'call [PHONE_1]', `phone with prefix ${v} masked (${o.out})`); }
+  for (const [v, rule] of [['4111 1111 1111 1111 12 28', 'card'], ['4111111111111111 123', 'card'], ['Order 5500 0055 5555 5559 0 items', 'card'], ['2345 6789 0124', 'aadhaar'], ['ABCDE1234F', 'pan'], ['SBIN0001234', 'ifsc'], ['123-45-6789', 'ssn']]) {
+    o = one(v);
+    check(o.err?.name === 'RawPiiLeakError' && o.err.message.includes(`firewall:${rule}`) && !o.err.message.includes(v.slice(0, 6)), `${rule} blocks: ${o.err?.message ?? 'not blocked'}`);
+  }
+  o = one('2345 6789 0125');
+  check(!o.err && o.rep.blocked === 0, 'Verhoeff-invalid 12 digits pass');
+  o = one('Ｏｒｄｅｒ ｎｏ. ４２');
+  check(o.out === 'Ｏｒｄｅｒ ｎｏ. ４２' && o.rep.masked === 0, 'text with no hits is returned unchanged (no NFKC rewrite)');
+  o = one('Ｏｒｄｅｒ ４２ — a@b.co');
+  check(o.out === 'Ｏｒｄｅｒ ４２ — [EMAIL_1]', `a hit is replaced in the original text (${o.out})`);
+}
+
+console.log('demo detector switch');
+{
+  const session = {}; const local = { 'athena:debug-disabled-detectors': ['regex:email'] };
+  const area = (store) => ({ get: async (k) => (k in store ? { [k]: store[k] } : {}), set: async (v) => { Object.assign(store, v); }, remove: async (k) => { delete store[k]; } });
+  globalThis.chrome = { storage: { session: area(session), local: area(local) } };
+  await build({ entryPoints: ['src/background/debug-detectors.ts'], outfile: join(temp, 'debug-detectors.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error' });
+  const { setDisabledDetectors, readDisabledDetectors } = await import(`file://${join(temp, 'debug-detectors.mjs')}`);
+  await new Promise((r) => setTimeout(r, 0));
+  check(!('athena:debug-disabled-detectors' in local) && (await readDisabledDetectors()) === undefined, 'a switch left in storage.local by an earlier build is dropped');
+  check(JSON.stringify(await setDisabledDetectors(['regex:email', 'dom:email'])) === '["regex:email","dom:email"]' && session['athena:debug-disabled-detectors'].length === 2, 'known names are stored in storage.session');
+  let err = null; try { await setDisabledDetectors(['regex:email', 'regex:nope']); } catch (e) { err = e; }
+  check(/not detector names/.test(err?.message ?? '') && !err.message.includes('regex:nope') && session['athena:debug-disabled-detectors'].length === 2, 'an unknown name is rejected and nothing changes');
+  check((await setDisabledDetectors([])).length === 0 && (await readDisabledDetectors()) === undefined, 'an empty list clears the switch');
+  delete globalThis.chrome;
 }
 
 await rm(temp, { recursive: true, force: true });

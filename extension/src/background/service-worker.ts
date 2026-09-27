@@ -31,6 +31,7 @@ import {
   approve, drive, newRun, stop, type Run, type RunStatus,
 } from './agent/loop';
 import { DEFAULT_THRESHOLD } from '../pii-detection/detect';
+import { readDisabledDetectors, setDisabledDetectors } from './debug-detectors';
 
 /**
  * The cached capture holds a raw snapshot with real values. chrome.storage.session
@@ -217,25 +218,6 @@ async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetecti
     };
   } catch (err) {
     return { faces: [], note: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/**
- * Demo-only switch: names of detectors (DomRule/PatternRule `detector`, e.g.
- * `regex:email`) that `detectPii` skips this pass, so the independent firewall
- * scan (`redaction/firewall.ts`) is the one that catches the value instead —
- * proof it works, not a way to make it optional. Never read by the firewall.
- */
-const DEBUG_DISABLED_DETECTORS_KEY = 'athena:debug-disabled-detectors';
-
-async function readDisabledDetectors(): Promise<Set<string> | undefined> {
-  try {
-    const stored = (await api.storage.local.get(DEBUG_DISABLED_DETECTORS_KEY))?.[
-      DEBUG_DISABLED_DETECTORS_KEY
-    ] as string[] | undefined;
-    return stored && stored.length > 0 ? new Set(stored) : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -668,9 +650,9 @@ api.runtime.onMessage.addListener(
 
     // Content scripts run in page renderers; vault messages come only from our own
     // extension pages (panel, options — the options page may sit in a tab, so no !sender.tab test).
-    if (typeof message?.type === 'string' && message.type.startsWith('athena:vault-')
+    if (typeof message?.type === 'string' && (message.type.startsWith('athena:vault-') || message.type === 'athena:debug-detectors')
       && !(sender.id === api.runtime.id && typeof sender.url === 'string' && sender.url.startsWith(api.runtime.getURL('')))) {
-      fail(new Error('Refused: vault messages are accepted from extension pages only.'));
+      fail(new Error('Refused: vault and debug messages are accepted from extension pages only.'));
       return true;
     }
 
@@ -712,6 +694,7 @@ api.runtime.onMessage.addListener(
       return true;
     }
     // Vault: values only travel panel → worker; every reply is a VaultStatus (slot names, flags).
+    if (message?.type === 'athena:debug-detectors') { setDisabledDetectors(message.names).then(ok).catch(fail); return true; }
     if (message?.type === 'athena:vault-status') { vaultStatus().then(ok).catch(fail); return true; }
     // Only VaultError messages (wrong passphrase, mismatch, no vault) reach the panel verbatim.
     const failVault = (fallback: string) => (err: unknown) => fail(err instanceof VaultError ? err : new Error(fallback));

@@ -345,7 +345,8 @@ export async function buildAgentRequest(
     screenshot_redacted: null,
     dom_summary: domSummary,
     redaction_manifest: manifest,
-    prior_actions: options.priorActions ?? [],
+    // Deep-copied: the firewall masks in place and run.history must stay untouched.
+    prior_actions: (options.priorActions ?? []).map((a) => structuredClone(a)),
     truncated: snapshot.truncated,
     available_refs: options.availableRefs ?? [],
   };

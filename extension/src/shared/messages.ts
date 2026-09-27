@@ -19,6 +19,7 @@ export type PanelToWorker =
   | { type: 'athena:run-stop' }
   | { type: 'athena:run-get' }
   | { type: 'athena:run-grant-and-resume' }
+  | { type: 'athena:debug-detectors'; names?: string[] }
   | { type: 'athena:vault-status' }
   | { type: 'athena:vault-create'; passphrase: string; confirm: string }
   | { type: 'athena:vault-unlock'; passphrase: string }
@@ -87,5 +88,6 @@ export type ResponseFor<M extends PanelToWorker> =
   : M extends { type: 'athena:run-stop' } ? Run
   : M extends { type: 'athena:run-get' } ? Run | null
   : M extends { type: 'athena:run-grant-and-resume' } ? Run
+  : M extends { type: 'athena:debug-detectors' } ? string[]
   : M extends { type: `athena:vault-${string}` } ? VaultStatus
   : never;

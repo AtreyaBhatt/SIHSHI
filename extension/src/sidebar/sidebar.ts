@@ -65,6 +65,8 @@ const toastMessage = $('toast-message');
 
 let capture: CaptureResult | null = null;
 let preview: PayloadPreview | null = null;
+/** The demo switch's current set (worker-validated, storage.session); shown as a red chip while non-empty. */
+let disabledDetectors: string[] = [];
 let plan: PlanPreview | null = null;
 let execution: ExecutionResult | null = null;
 let run: Run | null = null;
@@ -409,6 +411,8 @@ function renderPrivacy(): void {
   const firewallChip = $<HTMLSpanElement>('chip-firewall');
   firewallChip.hidden = !firewall || (firewall.masked === 0 && firewall.blocked === 0);
   if (firewall) $('chip-firewall-text').textContent = `firewall masked ${firewall.masked} · blocked ${firewall.blocked}`;
+  $('chip-detectors-off').hidden = disabledDetectors.length === 0;
+  $('chip-detectors-off-text').textContent = `detectors off: ${disabledDetectors.join(', ')}`;
 
   const sub = $('privacy-sub');
   if (!preview) sub.textContent = 'Sensitive data stays on this device.';
@@ -971,22 +975,21 @@ $('open-options').addEventListener('click', () => {
 
 // --- demo: disable a detector ------------------------------------------------
 
-/** Mirrors service-worker.ts's DEBUG_DISABLED_DETECTORS_KEY. Read by detectPii only — never by the firewall. */
-const DEBUG_DISABLED_DETECTORS_KEY = 'athena:debug-disabled-detectors';
+/** The worker validates names and keeps them in storage.session. Read by detectPii only — never by the firewall. */
 const debugDetectorsInput = $<HTMLInputElement>('debug-detectors');
-async function loadDebugDetectors(): Promise<void> {
-  try {
-    const stored = (await api.storage.local.get(DEBUG_DISABLED_DETECTORS_KEY))?.[
-      DEBUG_DISABLED_DETECTORS_KEY
-    ] as string[] | undefined;
-    debugDetectorsInput.value = (stored ?? []).join(', ');
-  } catch {
-    // Leave the field blank; the worker treats a missing key as "nothing disabled".
-  }
+function showDebugDetectors(names: string[]): void {
+  disabledDetectors = names;
+  debugDetectorsInput.value = names.join(', ');
+  renderPrivacy();
 }
-debugDetectorsInput.addEventListener('change', () => {
+async function loadDebugDetectors(): Promise<void> {
+  try { showDebugDetectors(await send({ type: 'athena:debug-detectors' })); }
+  catch { /* Leave the field blank; the worker treats a missing key as "nothing disabled". */ }
+}
+debugDetectorsInput.addEventListener('change', async () => {
   const names = debugDetectorsInput.value.split(',').map((s) => s.trim()).filter(Boolean);
-  void api.storage.local.set({ [DEBUG_DISABLED_DETECTORS_KEY]: names });
+  try { showDebugDetectors(await send({ type: 'athena:debug-detectors', names })); $('debug-detectors-status').textContent = ''; }
+  catch (err) { $('debug-detectors-status').textContent = err instanceof Error ? err.message : String(err); }
 });
 
 // --- lifecycle --------------------------------------------------------------

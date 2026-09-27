@@ -70,6 +70,8 @@ a { color: #0e5a52; text-decoration: none; } a:hover { color: #0a433d; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px; background: rgba(255,255,255,.9); border: 1px solid rgba(14,90,82,.14); color: #17221f; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .chip svg { color: #0e5a52; }
 .chip.muted { color: #8a9491; }
+.chip.danger { background: #fdecea; border-color: #f3cfc7; color: #a8321c; }
+.chip.danger svg { color: #a8321c; }
 .chip.muted svg { color: #8a9491; }
 .ta { display: block; width: 100%; border: 1px solid #dfe5e2; border-radius: 10px; padding: 11px 12px; min-height: 72px; font: inherit; font-size: 13.5px; line-height: 1.5; color: #17221f; background: #fbfcfb; box-shadow: inset 0 1px 0 rgba(0,0,0,.02); resize: vertical; outline: none; }
 .ta:focus { border-color: #8fd0c4; box-shadow: 0 0 0 3px rgba(143,208,196,.18); }
