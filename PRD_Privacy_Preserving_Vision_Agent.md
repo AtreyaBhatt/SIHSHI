@@ -205,6 +205,7 @@ Example manifest entry:
 
 #### 6.2.7 Server: Redaction-Aware VLM/LLM Reasoning
 - System prompt explicitly instructs the model: treat `[REDACTED:*]` and `[TOKEN_N]` markers as opaque placeholders; do not attempt to infer their contents; use only visible structure, labels, and layout to decide the next action.
+- Prompt change (2026-09-28, phase 5a): the marker list now says Tier-1 identifiers (card, Aadhaar, PAN, bank account, passport, SSN, IFSC) arrive as numbered tokens such as `[AADHAAR_1]`, only passwords, OTPs, CVVs and faces arrive as `[REDACTED:TYPE]`, and a token may be Tier 1 or Tier 2. Same text in `server/app/prompt.py` and `extension/src/background/agent-client.ts`; the detector-level eval does not use the prompt, so its numbers are unaffected.
 - Model choice: open-weights VLM (Qwen2-VL, LLaVA-NeXT, InternVL) self-hostable for the "offline deployable" requirement; cloud-hosted equivalent permitted during live demo per the problem statement.
 
 #### 6.2.8 Server: Action Planner / Response Formatter
