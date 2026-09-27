@@ -28,7 +28,7 @@ const request = {
   session_id: 'session-1', task_instruction: 'Click the safe button', screenshot_redacted: 'data:image/png;base64,REDACTED_PIXELS',
   dom_summary: [{ path: 'button#safe', role: 'button', label: 'Continue', value: null }, { path: 'input#password', role: 'textbox', label: 'Password', value: '[REDACTED:PASSWORD]' }],
   redaction_manifest: [{ id: 'PASSWORD_1', type: 'password', tier: 1, bbox: null, dom_path: 'input#password', masking: 'blackbox', detector: 'test', confidence: 1 }],
-  prior_actions: [], truncated: false,
+  prior_actions: [], truncated: false, available_refs: [],
 };
 
 const defaults = await readProviderSettings();
