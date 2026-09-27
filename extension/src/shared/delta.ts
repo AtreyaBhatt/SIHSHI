@@ -71,8 +71,14 @@ export function hashNode(n: RawDomNode): string {
     n.attrs.alt ?? '',
     n.media ?? '',
     n.attrs.src_hash ?? '',
+    n.attrs.loaded ?? '',
   ].join('|');
   return fnv1a(key);
+}
+
+/** True when two boxes share any area — touching edges do not count. */
+function bboxIntersects(a: BBox, b: BBox): boolean {
+  return a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 }
 
 function area(n: RawDomNode): number {
@@ -145,8 +151,21 @@ export function planDelta(
     if (firstStep || prevHash === undefined || prevHash !== hash) changedPaths.add(n.path);
   }
 
+  // Something disappeared entirely (a path the previous step knew about is
+  // gone from this one) — conservatively re-process every media node, since a
+  // removed element can uncover or otherwise change what is visible anywhere
+  // on the page without any media node's own hash moving.
+  const nodeRemoved = !firstStep && Array.from(prev!.hashes.keys()).some((p) => !hashes.has(p));
+
   const mediaNodes = nodes.filter(isMedia);
-  const changedMedia = mediaNodes.filter((n) => changedPaths.has(n.path) || alwaysChanged(n));
+  const changedOrNewNodes = firstStep ? [] : nodes.filter((n) => changedPaths.has(n.path));
+  const changedMedia = mediaNodes.filter((n) => {
+    if (changedPaths.has(n.path) || alwaysChanged(n) || nodeRemoved) return true;
+    // A media node whose own hash is unchanged may still sit under something
+    // that changed or newly appeared this step — its pixels may no longer be
+    // what the last face pass saw, so the region pass must re-run.
+    return changedOrNewNodes.some((other) => other.path !== n.path && bboxIntersects(other.bbox, n.bbox));
+  });
   const unchangedMedia = mediaNodes.filter((n) => !changedMedia.includes(n));
 
   const reusedFaces: FaceBox[] = [];

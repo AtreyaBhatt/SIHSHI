@@ -162,6 +162,13 @@ export interface RawDomNode {
      * so a swapped image at the same path/box/alt is still seen as changed.
      */
     src_hash: string | null;
+    /**
+     * `<img>` load state at capture time: `'1'` when `complete && naturalWidth
+     * > 0`, else `'0'`; null for every other tag. Folded into `hashNode` so an
+     * image finishing its load between two steps hashes differently even when
+     * its `src`/box/alt never changed.
+     */
+    loaded: string | null;
   };
   bbox: BBox;
   interactive: boolean;

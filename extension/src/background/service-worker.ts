@@ -253,17 +253,29 @@ function toFaceDetection(f: FaceBox): FaceDetection {
  * error) the returned state is `prev` unchanged, so nothing that went
  * unscanned is ever remembered as "no faces".
  */
+/**
+ * `screenshotWithheld` is true only when the detector actually failed (an
+ * `ok: false` reply, or a thrown error) — never for the "no screenshot to
+ * scan" case, where there was nothing to withhold in the first place.
+ * `buildPayload` uses it to drop the screenshot from this step's request
+ * entirely: an unscanned image can hide an unblurred face, so a page that
+ * cannot be proven face-clean must not leave the device as pixels. This holds
+ * even when the page has no media nodes at all — a failed detector call means
+ * the full-frame pass never ran, whether or not there was anything region-
+ * specific to scan.
+ */
 async function detectFaces(
   capture: CaptureResult,
   prev: StepState | null,
-): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null }> {
+): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null; screenshotWithheld: boolean }> {
   const plan = planDelta(prev, capture.snapshot.nodes);
   const { changedMedia, reusedFaces, report } = plan;
   const { width, height } = capture.snapshot.viewport;
   const reusedDetections = reusedFaces.map((f) => toFaceDetection({ ...f, bbox: padBox(f.bbox, width, height) }));
-  const failed = (note: string) => ({ faces: reusedDetections, note, report, state: advance(prev, plan, null) });
+  const failed = (note: string, screenshotWithheld: boolean) =>
+    ({ faces: reusedDetections, note, report, state: advance(prev, plan, null), screenshotWithheld });
 
-  if (capture.screenshot_data_url === null) return failed('no screenshot to scan');
+  if (capture.screenshot_data_url === null) return failed('no screenshot to scan', false);
 
   try {
     await ensureOffscreen();
@@ -279,15 +291,16 @@ async function detectFaces(
       // No full_frame knob exists: the whole-frame pass always runs (DeltaVision K1).
     })) as DetectFacesReply;
 
-    if (!reply?.ok) return failed(reply?.error ?? 'face detector returned nothing');
+    if (!reply?.ok) return failed(reply?.error ?? 'face detector returned nothing', true);
     return {
       faces: [...reply.faces, ...reusedDetections],
       note: `${reply.faces.length} new + ${reusedFaces.length} reused face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
       report,
       state: advance(prev, plan, reply.faces.map(toFaceBox)),
+      screenshotWithheld: false,
     };
   } catch (err) {
-    return failed(err instanceof Error ? err.message : String(err));
+    return failed(err instanceof Error ? err.message : String(err), true);
   }
 }
 
@@ -300,12 +313,18 @@ async function buildPayload(
 ): Promise<PayloadPreview> {
   const started = performance.now();
   try {
-    const { faces, note, report, state } = await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
+    const { faces, note, report, state, screenshotWithheld } =
+      await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
     if (state) stepStates.set(registry.session_id, state);
     else stepStates.delete(registry.session_id);
+    // A detector that actually failed (not merely "no screenshot to begin
+    // with") withholds the screenshot for this step: an unscanned image can
+    // hide an unblurred face, so unproven pixels do not leave the device.
+    const screenshotDataUrl = screenshotWithheld ? null : capture.screenshot_data_url;
+    const perceptionNote = screenshotWithheld ? 'face scan failed — screenshot withheld' : note;
     const { request, detections, firewall } = await buildAgentRequest({
       snapshot: capture.snapshot,
-      screenshotDataUrl: capture.screenshot_data_url,
+      screenshotDataUrl,
       taskInstruction,
       tokens: registry,
       threshold,
@@ -324,7 +343,7 @@ async function buildPayload(
       detections,
       firewall,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
-      perception_note: note,
+      perception_note: perceptionNote,
       delta: report,
       error: null,
     };

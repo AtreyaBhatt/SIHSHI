@@ -394,11 +394,6 @@ function srcFile(el: Element): string | null {
 }
 
 /**
- * FNV-1a of the resolved `currentSrc` — never the URL. `currentSrc` (img,
- * video) reflects what actually loaded (post-srcset, post-redirect); a bare
- * `src` attribute is the fallback for media that doesn't have it (canvas, svg).
- */
-/**
  * A digest of the image URL, not of its bytes: a same-URL image whose bytes
  * changed (server-side swap, cache-busted by headers only) is NOT detected as
  * changed, so DeltaVision will reuse its old face boxes; the full-frame face
@@ -409,6 +404,19 @@ function srcHash(el: Element): string | null {
   const current = (el as { currentSrc?: string }).currentSrc || el.getAttribute('src');
   if (!current) return null;
   return fnv1a(current.length > 2048 ? `${current.slice(0, 2048)}|${current.length}` : current);
+}
+
+/**
+ * `<img>` load state — `'1'` once the image has actually finished decoding
+ * with real pixels, `'0'` otherwise (still loading, or errored to a 0x0
+ * natural size). Every other media tag has no comparable "loaded" concept, so
+ * it stays null. An image that finishes loading between two capture steps
+ * must be seen as changed even though its src/box/alt never moved.
+ */
+function loadedState(el: Element, tag: string): string | null {
+  if (tag !== 'img') return null;
+  const img = el as HTMLImageElement;
+  return img.complete && img.naturalWidth > 0 ? '1' : '0';
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +527,7 @@ export function captureDomSnapshot(): RawSnapshot {
               class: el.getAttribute('class')?.slice(0, 80) ?? null,
               src_file: media ? srcFile(el) : null,
               src_hash: media ? srcHash(el) : null,
+              loaded: loadedState(el, tag),
             },
             bbox: toBBox(rect),
             interactive,

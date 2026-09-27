@@ -72,12 +72,12 @@ console.log('\n(b) identical second step:');
 
 console.log('\n(c) one text node changes, media untouched:');
 {
-  const before = [node('p#a', { text: 'hi' }), img('img#one')];
+  const before = [node('p#a', { text: 'hi', bbox: [200, 200, 250, 220] }), img('img#one')];
   const state1 = (() => {
     const p = planDelta(null, before);
     return nextState(p.hashes, [before[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], []);
   })();
-  const after = [node('p#a', { text: 'bye' }), img('img#one')];
+  const after = [node('p#a', { text: 'bye', bbox: [200, 200, 250, 220] }), img('img#one')];
   const step2 = planDelta(state1, after);
   check(step2.report.nodes_changed === 1, `exactly 1 node changed (got ${step2.report.nodes_changed})`);
   check(step2.changedMedia.length === 0, 'no media reprocessed');
@@ -225,6 +225,38 @@ console.log('\nfnv1a:');
 check(typeof fnv1a === 'function', 'fnv1a is exported');
 check(/^[0-9a-f]{8}$/.test(fnv1a('https://example.com/photo.jpg')), 'fnv1a returns 8 lowercase hex chars');
 check(fnv1a('a') !== fnv1a('b'), 'different inputs hash differently');
+
+console.log('\n(F2) a removed node forces every media node to re-process:');
+{
+  const modal = node('div#modal', { text: 'confirm', bbox: [10, 10, 90, 90] });
+  const before = [modal, img('img#one', { bbox: [0, 0, 100, 100] })];
+  const p1 = planDelta(null, before);
+  const state1 = nextState(p1.hashes, [before[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], []);
+  const after = [img('img#one', { bbox: [0, 0, 100, 100] })]; // modal removed
+  const step2 = planDelta(state1, after);
+  check(step2.changedMedia.some((n) => n.path === 'img#one'), 'the image is in changedMedia after an overlapping node disappears');
+}
+
+console.log('\n(F2) an unrelated far-away text change leaves the image reused:');
+{
+  const before = [node('p#far', { text: 'hi', bbox: [500, 500, 520, 520] }), img('img#one', { bbox: [0, 0, 100, 100] })];
+  const p1 = planDelta(null, before);
+  const state1 = nextState(p1.hashes, [before[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], []);
+  const after = [node('p#far', { text: 'bye', bbox: [500, 500, 520, 520] }), img('img#one', { bbox: [0, 0, 100, 100] })];
+  const step2 = planDelta(state1, after);
+  check(step2.changedMedia.length === 0, 'the image is not reprocessed');
+  check(step2.reusedFaces.length === 1, "the image's face is reused");
+}
+
+console.log('\n(F2) a new node overlapping the image forces it to re-process:');
+{
+  const before = [img('img#one', { bbox: [0, 0, 100, 100] })];
+  const p1 = planDelta(null, before);
+  const state1 = nextState(p1.hashes, [before[0]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], []);
+  const after = [img('img#one', { bbox: [0, 0, 100, 100] }), node('div#overlay', { text: 'new', bbox: [20, 20, 60, 60] })];
+  const step2 = planDelta(state1, after);
+  check(step2.changedMedia.some((n) => n.path === 'img#one'), 'the image is re-processed when a new node overlaps it');
+}
 
 console.log('\nhashNode differs on tag/text/value/bbox/alt/media/src_hash:');
 {
