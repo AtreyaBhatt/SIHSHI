@@ -273,22 +273,38 @@ function isDigitBox(el: Element): boolean {
  * Groups 3-8 same-tag digit boxes under one parent (`group_id` = the parent's
  * path). Single-character groups of 4+ are OTP-shaped: they borrow the
  * parent's own text and the nearest preceding heading/label as context.
+ *
+ * The result depends only on `parent` (and the members' shared tag), not on
+ * which member `el` is — every sibling in the group gets the same id and
+ * context. `cache` (one `WeakMap` per capture) makes that explicit: a parent
+ * with thousands of children is scanned once instead of once per child.
  */
-function digitGroup(el: Element, root: Root): { id: string; context: string | null } | null {
+function digitGroup(
+  el: Element,
+  root: Root,
+  cache: WeakMap<Element, string | null>,
+): { id: string; context: string | null } | null {
   const parent = el.parentElement;
   if (!parent || (el.tagName !== 'INPUT' && el.tagName !== 'SPAN')) return null;
+  const cached = cache.get(parent);
+  if (cached !== undefined) return cached === null ? null : (JSON.parse(cached) as { id: string; context: string | null });
+
   const members = Array.from(parent.children).filter((c) => c.tagName === el.tagName);
-  if (members.length < 3 || members.length > 8 || !members.every(isDigitBox)) return null;
-  let context: string | null = null;
-  if (members.length >= 4 && members.every((m) => m.getAttribute('maxlength') === '1')) {
-    let heading: Element | null = parent.previousElementSibling;
-    for (let hops = 0; heading && hops < 3 && !/^(H[1-6]|LABEL|LEGEND)$/.test(heading.tagName); hops++) {
-      heading = heading.previousElementSibling;
+  let result: { id: string; context: string | null } | null = null;
+  if (members.length >= 3 && members.length <= 8 && members.every(isDigitBox)) {
+    let context: string | null = null;
+    if (members.length >= 4 && members.every((m) => m.getAttribute('maxlength') === '1')) {
+      let heading: Element | null = parent.previousElementSibling;
+      for (let hops = 0; heading && hops < 3 && !/^(H[1-6]|LABEL|LEGEND)$/.test(heading.tagName); hops++) {
+        heading = heading.previousElementSibling;
+      }
+      const near = heading && /^(H[1-6]|LABEL|LEGEND)$/.test(heading.tagName) ? heading.textContent ?? '' : '';
+      context = clip(`${directText(parent)} ${near}`) || null;
     }
-    const near = heading && /^(H[1-6]|LABEL|LEGEND)$/.test(heading.tagName) ? heading.textContent ?? '' : '';
-    context = clip(`${directText(parent)} ${near}`) || null;
+    result = { id: cssPath(parent, root), context };
   }
-  return { id: cssPath(parent, root), context };
+  cache.set(parent, result === null ? null : JSON.stringify(result));
+  return result;
 }
 
 function srcFile(el: Element): string | null {
@@ -345,6 +361,7 @@ export function captureDomSnapshot(): RawSnapshot {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   let truncated = false;
+  const digitGroupCache = new WeakMap<Element, string | null>();
 
   const visit = (el: Element, root: Root): void => {
     const tag = el.tagName.toLowerCase();
@@ -372,7 +389,7 @@ export function captureDomSnapshot(): RawSnapshot {
         if (shown) {
           const inputType = tag === 'input' ? ((el as HTMLInputElement).type?.toLowerCase() ?? 'text') : null;
           const { value, omitted } = readValue(el, tag, inputType);
-          const group = digitGroup(el, root);
+          const group = digitGroup(el, root, digitGroupCache);
 
           nodes.push({
             path: cssPath(el, root),

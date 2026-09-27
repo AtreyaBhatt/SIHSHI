@@ -176,7 +176,10 @@ export const MEDIA_RULES: DomRule[] = [
     confidence: 0.85,
     test: (n) =>
       [n.attrs.alt, n.attrs.title, n.attrs.id, n.attrs.class, n.attrs.src_file].some(
-        (a) => !!a && /(^|[^a-z])qr([^a-z]|$)|upi[-_ ]?qr|scan[-_ ]?to[-_ ]?pay/i.test(a),
+        // "qr" alone (word-bounded) or "qrcode"/"qr-code"/"qr_code" as a whole
+        // token — a qrcode.js canvas commonly uses that as its id/class. Bare
+        // "square", "inquiry", "sqrt" must not match either alternative.
+        (a) => !!a && /(^|[^a-z])qr([^a-z]|$)|\bqr[-_]?code\b|upi[-_ ]?qr|scan[-_ ]?to[-_ ]?pay/i.test(a),
       ),
   },
 ];

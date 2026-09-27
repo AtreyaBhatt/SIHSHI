@@ -75,9 +75,11 @@ export const PATTERNS: PatternRule[] = [
   {
     type: 'bank_account',
     detector: 'regex:iban+mod97',
-    regex: /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?\b/g,
+    // Case-insensitive: an IBAN typed or rendered in lowercase is still an
+    // IBAN. The match is uppercased before the mod-97 check below.
+    regex: /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?\b/gi,
     confidence: 0.9,
-    validate: isIban,
+    validate: (m) => isIban(m.toUpperCase()),
   },
   {
     type: 'card_number',

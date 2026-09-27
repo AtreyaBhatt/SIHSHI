@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-capture.mjs",
     "test:capture": "node scripts/test-capture.mjs",
+    "test:dom-heuristics": "node scripts/test-dom-heuristics.mjs",
     "test:executor": "node scripts/test-executor.mjs",
     "test:redaction": "node scripts/test-redaction.mjs",
     "test:provider": "node scripts/test-provider.mjs",

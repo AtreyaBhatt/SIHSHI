@@ -128,6 +128,20 @@ Write the reasoning in `notes` rather than guessing silently. Recurring ones:
 - **A face in a decorative stock photo** — annotate as `face`. Tier 1 does not
   care whether the person is the user.
 
+## Known gaps
+
+- **Split PIN boxes are not detected.** The OTP rule's context match has no
+  `pin` term, because "PIN code" is the standard Indian term for a postal
+  code — adding it would turn every address field into a false OTP match.
+  A PIN entered across several single-digit boxes is missed unless its
+  context also names it as an OTP/verification code.
+- **Spans holding non-ASCII digits do not form digit groups.** `group_id`
+  assignment (`isDigitBox`, `dom-snapshot.ts`) reads each candidate span's
+  `textContent` as-is; non-ASCII decimal digits (Devanagari, etc.) are only
+  folded to ASCII later, inside `detectPii`, over a single node's already
+  assembled text — never at grouping time. A card/OTP/Aadhaar split across
+  sibling `<span>`s of non-ASCII digits is not grouped or detected.
+
 ## Scoring
 
 `eval/run_eval.py` (M5) reads every `screens/*.json`, replays the pipeline over
