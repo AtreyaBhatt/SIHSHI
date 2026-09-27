@@ -24,7 +24,9 @@ import { getProviderStatus, requestPlan } from './agent-client';
 import { resolveValueRef } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
-import { approve, drive, newRun, stop, type Run } from './agent/loop';
+import {
+  approve, drive, newRun, stop, type Run, type RunStatus,
+} from './agent/loop';
 import { DEFAULT_THRESHOLD } from '../pii-detection/detect';
 
 /**
@@ -153,7 +155,13 @@ async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetecti
   }
 }
 
-async function buildPayload(capture: CaptureResult, threshold: number, taskInstruction: string): Promise<PayloadPreview> {
+async function buildPayload(
+  capture: CaptureResult,
+  threshold: number,
+  taskInstruction: string,
+  registry: TokenRegistry,
+  history: PriorAction[],
+): Promise<PayloadPreview> {
   const started = performance.now();
   try {
     const { faces, note } = await detectFaces(capture);
@@ -161,13 +169,13 @@ async function buildPayload(capture: CaptureResult, threshold: number, taskInstr
       snapshot: capture.snapshot,
       screenshotDataUrl: capture.screenshot_data_url,
       taskInstruction,
-      tokens,
+      tokens: registry,
       threshold,
-      priorActions,
+      priorActions: history,
       faces,
     });
     return {
-      session_id: tokens.session_id,
+      session_id: registry.session_id,
       request,
       detections,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
@@ -178,7 +186,7 @@ async function buildPayload(capture: CaptureResult, threshold: number, taskInstr
     // Fail closed: no payload leaves this function when redaction could not be
     // verified, and the viewer surfaces why.
     return {
-      session_id: tokens.session_id,
+      session_id: registry.session_id,
       request: null,
       detections: [],
       build_ms: Math.round((performance.now() - started) * 100) / 100,
@@ -277,7 +285,7 @@ async function getLastCapture(): Promise<CaptureResult | null> {
 async function requestPlanFlow(threshold: number, taskInstruction: string): Promise<PlanPreview> {
   const capture = await getLastCapture();
   if (!capture) throw new Error('Nothing captured yet.');
-  const preview = await buildPayload(capture, threshold, taskInstruction);
+  const preview = await buildPayload(capture, threshold, taskInstruction, tokens, priorActions);
   if (!preview.request) {
     return { preview, response: null, network_ms: 0, error: preview.error ?? 'No payload was built.' };
   }
@@ -410,6 +418,41 @@ async function health(): Promise<HealthReport> {
 const RUN_KEY = 'athena:run';
 const MAX_STEPS_KEY = 'athena:max-steps';
 const stopRequested = new Set<string>();
+/** run_ids currently inside a drive()/approve() call — guards against a second concurrent drive. */
+const driving = new Set<string>();
+const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped']);
+const RUN_IN_PROGRESS_STATUSES: ReadonlySet<RunStatus> = new Set([
+  'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission',
+]);
+
+/**
+ * The run's token registry. Recreated whenever the run id changes, and — since
+ * this is worker memory, not storage — also recreated from scratch after a
+ * worker restart mid-run: token numbering restarts at that point. This is a
+ * documented ceiling (a mid-run token could in principle repeat a number
+ * already shown to the model), to be closed by moving the registry to
+ * storage.session alongside the vault work.
+ */
+let runTokens: TokenRegistry | null = null;
+
+/** Runs `fn` with `runId` marked as driving; clears it, and any stale stop request, when done. */
+async function runDrive(runId: string, fn: () => Promise<Run>): Promise<Run> {
+  driving.add(runId);
+  try {
+    const result = await fn();
+    if (TERMINAL_STATUSES.has(result.status)) stopRequested.delete(runId);
+    return result;
+  } finally {
+    driving.delete(runId);
+  }
+}
+
+async function assertNoRunInProgress(): Promise<void> {
+  const run = await loadRun();
+  if (run && RUN_IN_PROGRESS_STATUSES.has(run.status)) {
+    throw new Error('An agent run is in progress. Stop it first.');
+  }
+}
 
 async function loadRun(): Promise<Run | null> {
   try { return ((await api.storage.session.get(RUN_KEY))?.[RUN_KEY] as Run | undefined) ?? null; } catch { return null; }
@@ -433,12 +476,14 @@ async function waitForTabComplete(tabId: number): Promise<chrome.tabs.Tab> {
 const loopDeps = {
   capture: (tabId: number) => runCapture(tabId),
   plan: async (capture: CaptureResult, goal: string, history: PriorAction[], runId: string) => {
-    if (tokens.session_id !== runId) tokens = new TokenRegistry(runId);
-    priorActions = history;
-    const preview = await buildPayload(capture, DEFAULT_THRESHOLD, goal);
+    // The loop owns its own registry and history — never the module-level
+    // `tokens`/`priorActions` (those belong to the single-step flows only) and
+    // never LAST_PLAN_KEY (a run's pending plan is not the single-step
+    // "last plan"; execute-plan must not be able to run it without approval).
+    if (!runTokens || runTokens.session_id !== runId) runTokens = new TokenRegistry(runId);
+    const preview = await buildPayload(capture, DEFAULT_THRESHOLD, goal, runTokens, history);
     if (!preview.request) throw new Error(preview.error ?? 'No payload was built.');
     const response = await requestPlan(preview.request);
-    await setLastPlan({ request: preview.request, response, tab_id: capture.tab_id, page_url: capture.snapshot.page_url });
     return { preview, response };
   },
   execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string) => {
@@ -456,7 +501,10 @@ const loopDeps = {
       try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
       catch { return { url, granted: false }; }
     } else {
-      await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] });
+      // Same injection, granted path — an error page or a tab that closed mid-navigation
+      // fails the same way; treat it as not granted rather than failing the whole run.
+      try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
+      catch { return { url, granted: false }; }
     }
     try { await api.tabs.sendMessage(tabId, { type: 'athena:settle' }); } catch { /* page navigated again; the next capture will tell */ }
     return { url, granted: true };
@@ -487,22 +535,25 @@ api.runtime.onMessage.addListener(
       getLastCapture()
         .then((capture) => {
           if (!capture) throw new Error('Nothing captured yet.');
-          return buildPayload(capture, message.threshold, message.task_instruction);
+          return buildPayload(capture, message.threshold, message.task_instruction, tokens, priorActions);
         })
         .then(ok)
         .catch(fail);
       return true;
     }
     if (message?.type === 'athena:reset-session') {
-      ok({ session_id: resetSession() });
-      return false;
+      assertNoRunInProgress().then(() => ({ session_id: resetSession() })).then(ok).catch(fail);
+      return true;
     }
     if (message?.type === 'athena:request-plan') {
-      requestPlanFlow(message.threshold, message.task_instruction).then(ok).catch(fail);
+      assertNoRunInProgress()
+        .then(() => requestPlanFlow(message.threshold, message.task_instruction))
+        .then(ok)
+        .catch(fail);
       return true;
     }
     if (message?.type === 'athena:execute-plan') {
-      executePlanFlow(message.tab_id).then(ok).catch(fail);
+      assertNoRunInProgress().then(() => executePlanFlow(message.tab_id)).then(ok).catch(fail);
       return true;
     }
     if (message?.type === 'athena:check-health') {
@@ -511,16 +562,27 @@ api.runtime.onMessage.addListener(
     }
     if (message?.type === 'athena:run-start') {
       (async () => {
+        if (driving.size > 0) throw new Error('Stop the current run before starting another.');
+        const existing = await loadRun();
+        if (existing && !TERMINAL_STATUSES.has(existing.status)) {
+          // Not driving (checked above), so this is a run left dangling by a
+          // worker restart or a closed panel — retire it before starting fresh.
+          await loopDeps.save(stop(existing));
+        }
         const tab = await targetTab(message.tab_id);
         if (!tab?.id) throw new Error('No active tab.');
         const run = newRun(message.goal, tab.id, message.mode, await maxSteps());
         await loopDeps.save(run);
-        return drive(run, loopDeps);
+        return runDrive(run.run_id, () => drive(run, loopDeps));
       })().then(ok).catch(fail);
       return true;
     }
     if (message?.type === 'athena:run-approve') {
-      loadRun().then((run) => { if (!run) throw new Error('No run in progress.'); return approve(run, loopDeps); }).then(ok).catch(fail);
+      loadRun().then((run) => {
+        if (!run) throw new Error('No run in progress.');
+        if (driving.has(run.run_id)) throw new Error('This run is already executing.');
+        return runDrive(run.run_id, () => approve(run, loopDeps));
+      }).then(ok).catch(fail);
       return true;
     }
     if (message?.type === 'athena:run-stop') {
@@ -539,14 +601,23 @@ api.runtime.onMessage.addListener(
     }
     if (message?.type === 'athena:run-grant-and-resume') {
       loadRun().then(async (run) => {
-        if (!run || run.status !== 'needs_permission' || !run.needs_origin) throw new Error('Nothing is waiting for permission.');
+        if (!run || run.status !== 'needs_permission') throw new Error('Nothing is waiting for permission.');
+        if (driving.has(run.run_id)) throw new Error('This run is already executing.');
+        if (!run.needs_origin) {
+          // No origin to request — this run can never be resumed. Stop it
+          // cleanly instead of throwing so the panel can show a Stopped state
+          // with a clear reason.
+          const stopped = { ...stop(run), error: 'needs access to a page it cannot inject into' };
+          await loopDeps.save(stopped);
+          return stopped;
+        }
         // Panel-first: the panel calls api.permissions.request itself (needs a
         // user gesture) before sending this message; the worker only checks
         // whether the grant landed.
         const granted = await api.permissions.contains({ origins: [`${run.needs_origin}/*`] });
         if (!granted) return run;
         const { needs_origin: _drop, ...rest } = run;
-        return drive({ ...rest, status: 'capturing' }, loopDeps);
+        return runDrive(run.run_id, () => drive({ ...rest, status: 'capturing' }, loopDeps));
       }).then(ok).catch(fail);
       return true;
     }

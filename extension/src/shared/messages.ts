@@ -73,6 +73,6 @@ export type ResponseFor<M extends PanelToWorker> =
   : M extends { type: 'athena:run-start' } ? Run
   : M extends { type: 'athena:run-approve' } ? Run
   : M extends { type: 'athena:run-stop' } ? Run
-  : M extends { type: 'athena:run-get' } ? Run
+  : M extends { type: 'athena:run-get' } ? Run | null
   : M extends { type: 'athena:run-grant-and-resume' } ? Run
   : never;

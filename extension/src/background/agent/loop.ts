@@ -64,7 +64,16 @@ export function stop(run: Run): Run {
 }
 
 async function transition(run: Run, patch: Partial<Run>, deps: LoopDeps): Promise<Run> {
-  const next = { ...run, ...patch };
+  // A stop always wins: if one landed while we were off doing async work (a
+  // plan call, an execute call, a settle call) for this run, override
+  // whatever the caller wanted to transition to — unless it was already
+  // heading to 'stopped'. Every exit path in drive()/executePending() goes
+  // through here, so this covers stop arriving during deps.plan, deps.execute,
+  // deps.settle, and the done/needs_permission exits, not just the top of the
+  // drive loop.
+  const next = deps.stopped(run.run_id) && patch.status !== 'stopped'
+    ? { ...run, status: 'stopped' as const, pending: null }
+    : { ...run, ...patch };
   await deps.save(next);
   return next;
 }
@@ -75,7 +84,8 @@ function originOf(url: string | undefined): string | null {
 
 /** Execute the pending plan, settle, and hand back to drive(). */
 async function executePending(run: Run, deps: LoopDeps): Promise<Run> {
-  const response = run.pending!;
+  if (!run.pending) return transition(run, { status: 'failed', error: 'interrupted mid-execution; start again', pending: null }, deps);
+  const response = run.pending;
   run = await transition(run, { status: 'executing', pending: null }, deps);
   const executed = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '');
   run = await transition(run, { history: [...run.history, ...executed], status: 'settling' }, deps);
