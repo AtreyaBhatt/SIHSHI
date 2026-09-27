@@ -528,6 +528,8 @@ const loopDeps = {
     return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId));
   },
   settle: async (tabId: number) => {
+    // A click-driven navigation may not have flipped the tab to 'loading' yet.
+    await new Promise((r) => setTimeout(r, 150));
     const tab = await waitForTabComplete(tabId);
     const url = tab.url;
     const origin = url ? originOf(url) : undefined;
@@ -542,7 +544,9 @@ const loopDeps = {
     // tab that closed mid-navigation fails the same way. A failure is not granted.
     try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
     catch { return { url, granted: false }; }
-    try { await api.tabs.sendMessage(tabId, { type: 'athena:settle' }); } catch { /* page navigated again; the next capture will tell */ }
+    try { await api.tabs.sendMessage(tabId, { type: 'athena:settle' }); } catch { /* page navigated again */ }
+    // The quiet period can end in a navigation; let that load finish before capturing.
+    await waitForTabComplete(tabId);
     return { url, granted: true };
   },
   save: async (run: Run) => {
