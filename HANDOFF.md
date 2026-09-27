@@ -15,7 +15,7 @@ Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preservin
 | Milestones | PRD §12 M1–M6 complete |
 | Demo scenarios | A (credentials), B (faces), C (structured PII) — all working end to end |
 | Code | 4,361 lines of source (extension + server) · 2,547 lines of test/eval harness · 1,261 of fixtures and docs |
-| Tests | 31 server (pytest) + 6 browser-driving extension suites — **all green** |
+| Tests | 49 server (pytest) + 14 extension harness commands (10 drive headless Chrome, 4 are Node-only) — **all green** as of the phase 5a final fix wave |
 | Eval | All three PRD §8 accuracy targets met, on a corpus of 4 self-authored screens |
 | Latency | 66 ms local p50 against a 300 ms budget |
 | Package | ~15 MB against a 20 MB budget |
@@ -202,7 +202,7 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 | 9 | **Synthetic events are `isTrusted: false`** | The executor dispatches `MouseEvent`/`KeyboardEvent`/etc. via `dispatchEvent`; a site that gates on `event.isTrusted` (rare, but real) will not respond to them. |
 | 10 | **No per-element fingerprint yet** | The executor re-checks a selector against the client's own snapshot, but nothing pins the action to the *specific element instance* the plan was built against — a page that reorders same-selector elements between plan and execute is not detected. |
 | 11 | **Step cap only in `storage.local`, no UI control** | `athena:max-steps` (default 25) is set by writing to extension storage directly; the panel control lands with the Settings redesign in Phase 5. |
-| 12 | **Token registry mirror lives in `chrome.storage.session`** | Resolved differently than originally planned: the registry is now mirrored to `chrome.storage.session` (keyed by session id) so a worker restart mid-run can reattach to the same token ids, instead of starting fresh. Still session-scoped and memory-backed — cleared on browser exit, never in `storage.local` (CLAUDE.md's never-persist-across-sessions rule still holds). |
+| 12 | **Token registry mirror lives in `chrome.storage.session`** | Resolved differently than originally planned: the registry is now mirrored to `chrome.storage.session` (keyed by session id) so a worker restart mid-run can reattach to the same token ids, instead of starting fresh. Dropped when its run ends or Reset Session replaces it, and swept on worker start. Still session-scoped and memory-backed — cleared on browser exit, never in `storage.local` (CLAUDE.md's never-persist-across-sessions rule still holds). |
 | 13 | **`go_back` is not gated in approve-sensitive mode** | Only `navigate` is always sensitive; `go_back` runs as routine even though it changes the page under approve-sensitive, same as `scroll`/`hover`/etc. |
 | 14 | **Typed-secret protection is worker-memory only** | Forced masking of fields the agent typed a credential into, and the credential egress check, are held in worker memory; after a service-worker restart (routine while a run waits for approval) a credential typed into a field no detector flags can be re-captured as plain text. Not addressed by the phase 5a vault work — still open. |
 | 15 | **Vault key does not survive a browser restart** | The idle relock (15 min) and the `chrome.storage.session` mirror only cover worker suspension. `storage.session` itself is memory-backed and is cleared on browser exit, extension reload, or an explicit Lock — the user re-enters the passphrase in any of those cases. |
@@ -265,12 +265,15 @@ Range `a00a1b8..HEAD`. Done.
   `needs_unlock` rather than failing it. Unlock survives MV3 worker
   suspension by mirroring the raw derived key into `chrome.storage.session`
   with a last-used time — this **supersedes** the original "key in worker
-  memory only" design. 15-minute idle relock is enforced on every access
-  (not just a timer), and Lock always wins over an access already in flight.
+  memory only" design. The 15-minute idle limit is checked on the next vault
+  access (no timer, no `alarms` permission); until then the key stays in the
+  browser's session storage. Lock always wins over an access already in
+  flight, and an unlock it overtakes fails with "Locked while unlocking".
   The old plaintext v1 vault, and the API-key cookie where Chrome still has
-  the old `cookies` permission cached, are migrated in and deleted only after
-  the encrypted copy is durably persisted. Vault messages are accepted only
-  from extension pages, never content scripts. `npm run test:vault`.
+  the old `cookies` permission cached, are migrated in when the vault is
+  created and deleted only after the encrypted copy is durably persisted.
+  Every `athena:*` runtime message, vault included, is accepted only from
+  extension pages, never content scripts (which send none). `npm run test:vault`.
 - **Privacy firewall.** An independent second scan (`redaction/firewall.ts`,
   imports nothing from `pii-detection/`) runs on the finished request payload.
   Every hit it finds — Tier 1 included — is masked as a numbered token with
@@ -291,7 +294,25 @@ Range `a00a1b8..HEAD`. Done.
   extension reload, or Lock — `chrome.storage.session` is memory-backed and
   clears then; the user re-enters the passphrase.
 - The token registry mirror lives in `chrome.storage.session`, keyed by
-  session id — memory-backed, never in `storage.local`.
+  session id — memory-backed, never in `storage.local`. A run's mirror is
+  dropped when the run ends (terminal status, Stop, retirement by a new run,
+  marked interrupted); the single-step mirror when Reset Session replaces the
+  session id (kept under `athena:session-id` so a plan survives a worker
+  restart); worker start sweeps any other mirror. The lifecycle helpers live
+  in the service worker and have no Node test — they are covered by
+  typecheck and review only; a worker-level e2e is the next work (below).
+- The design spec's §C rule "a bare 12–19 digit run" was replaced during
+  review (H2) by shaped windows: a card window inside a longer run needs a
+  card-network prefix and card-like grouping, Aadhaar only matches a whole
+  12-digit run. The demo switch only accepts detectors for types the firewall
+  covers (email, card, Aadhaar, PAN, IFSC, SSN, phone, account_id).
+- Deferred from the final review: a worker-level BlindFill e2e that
+  suspends the worker at approval (`ServiceWorker.stopAllWorkers`); removing
+  the redundant `value`/`value_ref` type guard clause that the
+  `value_token` one subsumes; attributing a `toExecutable` throw to the
+  action that caused it rather than the first page action; RuPay/Maestro
+  card prefixes; scanning DOM paths; lowercase IBANs; a bare "Name" label
+  is not detected as a name field (phase 5b).
 - The firewall's card-network prefixes don't cover RuPay or Maestro; the
   cascade detectors remain the primary line for those.
 - Measured false-mask rates on random grouped numbers (the stated

@@ -177,7 +177,9 @@ placeholder.
   token itself: `{"action":"type","selector":"input#aadhaar","value_token":"[AADHAAR_1]"}`.
   The worker resolves `value_token` locally against the run's `TokenRegistry`
   for that one approved step and types the real value; the model only ever
-  saw and echoed the token text.
+  saw and echoed the token text. The guardrails accept a `value_token` only when the target
+  field itself carries a manifest entry of the token's type (an empty Aadhaar
+  box for an Aadhaar token), and never for a token the firewall minted.
 - **Stored profile/credential values → `value_ref`.** For values that never
   appeared on the page at all (a saved name, the vault's `username`/`password`
   slots), the model names a slot with `value_ref` (e.g. `user_saved:name`).
@@ -217,15 +219,16 @@ model is resolved on-device and never crosses the network.
   protects against disk access and other extensions reading `storage.local`,
   not against a compromised extension page. It is not a cryptographic vault
   and not a password manager.
-- **15-minute idle relock**, enforced on every access, not just a timer: no
-  `value_ref` resolve, API-key read, or vault write in the last 15 minutes
-  locks it again and clears the session-stored key. **Lock** in the panel or
-  options page also locks it immediately and always wins over an access that
-  was already in flight.
+- **15-minute idle relock**, checked on the next vault access (there is no
+  timer and no `alarms` permission): if there was no `value_ref` resolve,
+  API-key read, or vault write in the last 15 minutes, that access locks the
+  vault and clears the session-stored key; until then the key stays in the
+  browser's session storage. **Lock** in the panel or options page locks it
+  immediately and always wins over an access that was already in flight.
 - **What's inside:** the named credential slots you add (e.g. `username`,
   `password`) and, optionally, the provider API key — never a page value, a
   redaction token, or a passphrase.
-- **Migration note:** on first unlock after an upgrade, the old plaintext v1
+- **Migration note:** when you create the vault after an upgrade, the old plaintext v1
   vault (and, where Chrome still has the old `cookies` permission cached, the
   API key that used to live in a cookie) is imported and then deleted — but
   only after the encrypted copy is safely persisted. If Chrome has already
@@ -241,15 +244,22 @@ the normal PII cascade and redaction — not instead of it. It is written
 without importing anything from `pii-detection/`, on purpose, so a bug in one
 does not defeat the other.
 
-- **Independent rules.** Its own email/card/Aadhaar/PAN/IFSC/SSN/UPI/phone
-  patterns (Luhn- and Verhoeff-checked, windowed against longer digit runs)
-  scan every outbound text field, regardless of what the cascade already
-  found or missed.
+- **Independent rules.** Its own email/card/Aadhaar/PAN/IFSC/SSN/UPI/phone/IBAN
+  patterns (Luhn-, Verhoeff- and mod-97-checked; a card window inside a longer
+  digit run must have a card-like shape, and Aadhaar matches only a whole
+  12-digit run) scan exactly these
+  outbound fields, regardless of what the cascade already found or missed:
+  `task_instruction`, every `dom_summary[].label` and `dom_summary[].value`,
+  and every `prior_actions[].value`.
 - **Every hit is masked, including Tier 1.** A firewall hit — Tier 1 or
-  Tier 2 — is replaced with a numbered opaque token and given a manifest
-  entry (`detector: firewall:<rule>`), the same as any other redaction. It
-  does **not** fail the request; masking keeps the agent usable while still
-  keeping the raw value off the network.
+  Tier 2 — is replaced with a numbered opaque token. A hit inside a page node
+  (`dom_summary` label/value) also gets a manifest entry
+  (`detector: firewall:<rule>`) with that node's box, so its pixels are
+  blacked out too; a hit in the task instruction or in `prior_actions` is
+  tokenised without a manifest entry (it has no pixels). It does **not** fail
+  the request; masking keeps the agent usable while still keeping the raw
+  value off the network. A firewall-minted token can never be typed back via
+  `value_token` — only tokens the cascade declared can.
 - **Fail-closed rescan blocks only on a residual match.** After masking (up
   to three passes, since masking one hit can reveal another lurking behind
   it), the firewall rescans its own output. Only if a match still survives

@@ -24,8 +24,9 @@ late, or yourself the night before. Everything here is true of the code on
 If you only get one sentence: **the trust boundary is the network call, not
 the browser.**
 
-The wedge: **the server can understand and act on private workflows without
-ever receiving the user's identity or secrets.**
+The wedge: **the server can understand and act on private workflows, and it
+is designed so the server never needs the user's identity or secrets;
+redaction is heuristic and its measured gaps are listed** (§6 and §8).
 
 ## 2. The problem, in the judges' terms
 
