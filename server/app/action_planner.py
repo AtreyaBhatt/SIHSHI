@@ -30,9 +30,17 @@ from __future__ import annotations
 import re
 
 from .patterns import CONTAINS_MARKER
-from .schemas import AgentAction, AgentRequest, PlanOutput
+from .schemas import AgentAction, AgentRequest, PiiType, PlanOutput, RedactionManifestEntry
 
 VALUE_REF = re.compile(r"^user_saved:[A-Za-z0-9_.\-]{1,64}$")
+TOKEN = re.compile(r"^\[[A-Z][A-Z0-9_]*_\d+\]$")
+
+# Mirrors extension/src/shared/schema.ts RESOLVABLE_TIER1. Tier-1 types whose
+# value the user may need to reference again get a numbered token instead of
+# the fixed [REDACTED:TYPE] marker.
+RESOLVABLE_TIER1: frozenset[PiiType] = frozenset({
+    "aadhaar", "pan", "card_number", "card_expiry", "ssn", "passport", "bank_account", "ifsc",
+})
 
 NEEDS_SELECTOR = frozenset({"click", "type", "select", "hover"})
 HTTP_URL = re.compile(r"^https?://\S+$")
@@ -52,6 +60,8 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
     tier1 = _tier1_paths(request)
     roles = {node.path: node.role for node in request.dom_summary}
     redacted = {e.dom_path for e in request.redaction_manifest if e.dom_path}
+    token_entries: dict[str, RedactionManifestEntry] = {e.id: e for e in request.redaction_manifest}
+    available_refs = set(request.available_refs)
 
     kept: list[AgentAction] = []
     rejected: list[str] = []
@@ -87,15 +97,36 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
             rejected.append(f"{label}: value_ref {action.value_ref!r} is not a user_saved reference")
             continue
 
-        if action.action == "type":
-            has_value = action.value is not None
-            has_ref = action.value_ref is not None
-            if has_value == has_ref:
-                rejected.append(f"{label}: needs exactly one of value / value_ref")
+        if action.action != "type" and (
+            action.value is not None or action.value_ref is not None or action.value_token is not None
+        ):
+            rejected.append(f"{label}: value / value_ref / value_token only apply to type")
+            continue
+
+        if action.value_token is not None:
+            if not TOKEN.match(action.value_token):
+                rejected.append(f"{label}: value_token must look like [TYPE_N]")
                 continue
-            if has_value and action.selector in tier1:
+            token_id = action.value_token[1:-1]
+            entry = token_entries.get(token_id)
+            if entry is None or not (entry.type in RESOLVABLE_TIER1 or entry.tier == 2):
+                rejected.append(f"{label}: value_token is not a token from this request")
+                continue
+
+        if action.value_ref is not None and available_refs and action.value_ref not in available_refs:
+            rejected.append(f"{label}: value_ref names a slot the user has not stored")
+            continue
+
+        if action.action == "type":
+            sources = sum(
+                1 for v in (action.value, action.value_ref, action.value_token) if v is not None
+            )
+            if sources != 1:
+                rejected.append(f"{label}: needs exactly one of value / value_ref / value_token")
+                continue
+            if action.value is not None and action.selector in tier1:
                 rejected.append(
-                    f"{label}: {action.selector} is a tier 1 field and must use value_ref, not a literal"
+                    f"{label}: {action.selector} is a tier 1 field and must use value_ref or value_token"
                 )
                 continue
 
@@ -105,6 +136,8 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
             or (action.action == "key" and action.key == "Enter")
             or (action.action == "click" and roles.get(action.selector) in ("button", "link"))
             or (action.action == "type" and action.selector in redacted)
+            or action.value_ref is not None
+            or action.value_token is not None
         ):
             action = action.model_copy(update={"risk": "sensitive"})
         kept.append(action)
@@ -114,4 +147,4 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
 
 def requires_client_secret(actions: list[AgentAction]) -> bool:
     """Derived from the plan itself rather than trusted from the model."""
-    return any(action.value_ref for action in actions)
+    return any(action.value_ref or action.value_token for action in actions)

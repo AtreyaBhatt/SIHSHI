@@ -187,3 +187,66 @@ def test_risk_floor_leaves_routine_alone(bank_login_payload):
         AgentAction(action="type", selector="input#customer-id", value="x"),
     ), request)
     assert [a.risk for a in kept] == ["routine", "routine"]
+
+
+def test_value_token_for_a_resolvable_tier1_type_is_allowed(bank_login_payload):
+    """PAN_1 is Tier 1 but a resolvable type — the model may reference it by
+    token, and doing so forces the action sensitive and marks the plan as
+    requiring a client-side resolution step."""
+    request = AgentRequest.model_validate(bank_login_payload)
+    kept, rejected = constrain(
+        _plan(AgentAction(action="type", selector="input#pan", value_token="[PAN_1]")), request
+    )
+
+    assert rejected == []
+    assert kept[0].value_token == "[PAN_1]"
+    assert kept[0].risk == "sensitive"
+    assert requires_client_secret(kept)
+
+
+def test_value_token_not_in_the_manifest_is_dropped(bank_login_payload):
+    """An id the request never declared, and a non-resolvable Tier 1 type
+    (password) both fail the same check."""
+    request = AgentRequest.model_validate(bank_login_payload)
+
+    unknown, rejected_unknown = constrain(
+        _plan(AgentAction(action="type", selector="input#pan", value_token="[AADHAAR_9]")), request
+    )
+    not_resolvable, rejected_not_resolvable = constrain(
+        _plan(AgentAction(action="type", selector="input#pan", value_token="[PASSWORD_1]")), request
+    )
+
+    assert unknown == [] and not_resolvable == []
+    assert "not a token from this request" in rejected_unknown[0]
+    assert "not a token from this request" in rejected_not_resolvable[0]
+
+
+def test_value_ref_outside_available_refs_is_dropped(bank_login_payload):
+    """available_refs, when non-empty, names every slot the vault actually
+    holds. A model may not reference a slot the user never stored — but an
+    empty list (a client that predates available_refs) does not gate value_ref
+    at all, for backwards compatibility."""
+    payload = {**bank_login_payload, "available_refs": ["user_saved:username"]}
+    request = AgentRequest.model_validate(payload)
+
+    kept, rejected = constrain(
+        _plan(AgentAction(action="type", selector="input#customer-id", value_ref="user_saved:nothing")),
+        request,
+    )
+    assert kept == []
+    assert "slot the user has not stored" in rejected[0]
+
+    ok, rejected_ok = constrain(
+        _plan(AgentAction(action="type", selector="input#customer-id", value_ref="user_saved:username")),
+        request,
+    )
+    assert rejected_ok == []
+    assert ok[0].value_ref == "user_saved:username"
+
+    no_refs_request = AgentRequest.model_validate(bank_login_payload)
+    backwards_compatible, rejected_backwards = constrain(
+        _plan(AgentAction(action="type", selector="input#customer-id", value_ref="user_saved:anything")),
+        no_refs_request,
+    )
+    assert rejected_backwards == []
+    assert backwards_compatible[0].value_ref == "user_saved:anything"

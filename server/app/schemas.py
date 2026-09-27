@@ -57,6 +57,9 @@ class AgentAction(Strict):
     #: PRD §7.2 indirection. Names a locally-stored credential; the server never
     #: sees or supplies the secret itself.
     value_ref: str | None = None
+    #: A token from this request's redaction_manifest, e.g. "[AADHAAR_1]";
+    #: resolved locally by the extension. Mutually exclusive with value/value_ref.
+    value_token: str | None = None
     #: select: visible option label (case-insensitive) or option value.
     option: str | None = None
     #: key.
@@ -88,6 +91,8 @@ class AgentRequest(Strict):
     redaction_manifest: list[RedactionManifestEntry] = Field(default_factory=list)
     prior_actions: list[PriorAction] = Field(default_factory=list)
     truncated: bool = False
+    #: 'user_saved:<slot>' names of credentials the vault holds — names only, never values.
+    available_refs: list[str] = Field(default_factory=list)
 
 
 class AgentResponse(Strict):

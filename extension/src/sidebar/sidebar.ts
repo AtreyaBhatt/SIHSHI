@@ -80,14 +80,20 @@ function setMode(next: RunMode): void {
 
 const ACTIVE: ReadonlySet<Run['status']> = new Set(['idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission']);
 
-function describe(action: { action: string; selector?: string; option?: string; key?: string; url?: string; direction?: string; value?: string; value_ref?: string }): string {
+function describe(action: { action: string; selector?: string; option?: string; key?: string; url?: string; direction?: string; value?: string; value_ref?: string; value_token?: string }): string {
   const target = action.selector ? ` <code>${esc(action.selector)}</code>` : '';
   switch (action.action) {
     case 'select': return `select${target} → ${esc(action.option ?? '')}`;
     case 'key': return `press ${esc(action.key ?? '')}${target}`;
     case 'navigate': return `navigate to <code>${esc(action.url ?? '')}</code>`;
     case 'scroll': return `scroll ${esc(action.direction ?? 'down')}${target}`;
-    case 'type': return `type${target}${action.value_ref ? ` <span class="sub">Resolves <code>${esc(action.value_ref)}</code> on this device, never sent</span>` : ` <span class="sub">Types <code>${esc(action.value ?? '')}</code></span>`}`;
+    case 'type': return `type${target}${
+      action.value_token
+        ? ` <span class="sub">fills <code>${esc(action.value_token)}</code> from this page, resolved on this device, never sent</span>`
+        : action.value_ref
+          ? ` <span class="sub">Resolves <code>${esc(action.value_ref)}</code> on this device, never sent</span>`
+          : ` <span class="sub">Types <code>${esc(action.value ?? '')}</code></span>`
+    }`;
     default: return `${esc(action.action)}${target}`;
   }
 }

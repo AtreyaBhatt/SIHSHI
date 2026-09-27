@@ -31,7 +31,7 @@ const request = {
     { id: 'PASSWORD_1', type: 'password', tier: 1, bbox: null, dom_path: 'input#password', masking: 'blackbox', detector: 't', confidence: 1 },
     { id: 'EMAIL_1', type: 'email', tier: 2, bbox: null, dom_path: 'input#email', masking: 'token', detector: 't', confidence: 1 },
   ],
-  prior_actions: [], truncated: false,
+  prior_actions: [], truncated: false, available_refs: [],
 };
 const openai = (plan) => ({ choices: [{ message: { content: JSON.stringify(plan) } }] });
 const run = (plan) => normalizeProviderResponse(openai(plan), false, request);
@@ -126,6 +126,37 @@ console.log('value / value_ref only on type');
     { action: 'select', selector: 'select#country', option: 'India', value_ref: 'user_saved:password' },
   ] });
   check(r.actions.length === 0 && r.guardrail_rejections.every((m) => /only apply to type/.test(m)), 'value on click and value_ref on select are rejected');
+}
+
+console.log('value_token');
+{
+  const req2 = { ...request, available_refs: ['user_saved:username', 'user_saved:aadhaar'], redaction_manifest: [
+    ...request.redaction_manifest,
+    { id: 'AADHAAR_1', type: 'aadhaar', tier: 1, bbox: null, dom_path: 'td#alt', masking: 'token', detector: 't', confidence: 1 },
+    { id: 'PHONE_1', type: 'phone', tier: 2, bbox: null, dom_path: 'td#ph', masking: 'token', detector: 't', confidence: 1 },
+  ], dom_summary: [...request.dom_summary, { path: 'input#aadhaar', role: 'textbox', label: 'Aadhaar', value: null }] };
+  const run2 = (plan) => normalizeProviderResponse(openai(plan), false, req2);
+  const ok = run2({ ...base, actions: [
+    { action: 'type', selector: 'input#aadhaar', value_token: '[AADHAAR_1]' },
+    { action: 'type', selector: 'input#user', value_token: '[PHONE_1]', risk: 'routine' },
+    { action: 'type', selector: 'input#user', value_ref: 'user_saved:username', risk: 'routine' },
+  ] });
+  check(ok.actions.length === 3, `three valid token/ref types survive (${ok.guardrail_rejections?.join('; ')})`);
+  check(ok.actions.every((a) => a.risk === 'sensitive'), 'value_token and value_ref are forced sensitive');
+  check(ok.requires_client_secret === true, 'requires_client_secret covers tokens too');
+  const bad = run2({ ...base, actions: [
+    { action: 'type', selector: 'input#aadhaar', value_token: '[AADHAAR_9]' },
+    { action: 'type', selector: 'input#aadhaar', value_token: '[PASSWORD_1]' },
+    { action: 'type', selector: 'input#aadhaar', value_token: 'AADHAAR_1' },
+    { action: 'type', selector: 'input#aadhaar', value_token: '[AADHAAR_1]', value: 'x' },
+    { action: 'type', selector: 'input#user', value_ref: 'user_saved:nothing' },
+    { action: 'click', selector: 'button#go', value_token: '[AADHAAR_1]' },
+  ] });
+  check(bad.actions.length === 0 && bad.guardrail_rejections.length === 6, `all six invalid token uses rejected (${bad.guardrail_rejections?.length})`);
+  check(bad.guardrail_rejections.some((m) => /not a token from this request/.test(m)), 'unknown id names the rule');
+  check(bad.guardrail_rejections.some((m) => /slot the user has not stored/.test(m)), 'value_ref outside available_refs names the rule');
+  const noRefs = normalizeProviderResponse(openai({ ...base, actions: [{ action: 'type', selector: 'input#user', value_ref: 'user_saved:anything' }] }), false, { ...req2, available_refs: [] });
+  check(noRefs.actions.length === 1, 'empty available_refs does not gate value_ref (backwards compatible)');
 }
 
 console.log('typed secrets (build-request)');

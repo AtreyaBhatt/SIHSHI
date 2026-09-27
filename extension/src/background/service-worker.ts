@@ -401,7 +401,7 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
 
 const NOT_EXECUTED = 'not executed: page changed';
 
-async function toExecutable(actions: AgentAction[], secretKey: string): Promise<ExecutableAction[]> {
+async function toExecutable(actions: AgentAction[], secretKey: string, registry: TokenRegistry | null): Promise<ExecutableAction[]> {
   const out: ExecutableAction[] = [];
   for (const action of actions) {
     const executable: ExecutableAction = { action: action.action as ExecutableVerb };
@@ -413,6 +413,12 @@ async function toExecutable(actions: AgentAction[], secretKey: string): Promise<
       executable.value = await resolveValueRef(action.value_ref);
       executable.value_ref = action.value_ref;
       rememberTypedSecret(secretKey, action.selector, executable.value);
+    } else if (action.value_token) {
+      const value = registry?.valueOf(action.value_token.slice(1, -1));
+      if (value === undefined) throw new Error(`${action.value_token} is not resolvable in this run`); // opaque token text only
+      executable.value = value;
+      executable.value_ref = action.value_token; // display label for the audit trail, never the value
+      rememberTypedSecret(secretKey, action.selector, value);
     } else if (typeof action.value === 'string') {
       // JSON round-trips absence as null, not undefined.
       executable.value = action.value;
@@ -438,18 +444,27 @@ async function runTabVerb(tabId: number, action: AgentAction): Promise<ActionOut
  * to the first tab verb; the tab verb runs here; the remainder is recorded as
  * not executed. Returns one outcome per planned action, in order.
  */
-async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelectors: string[], pageUrl: string, secretKey: string): Promise<ActionOutcome[]> {
+async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelectors: string[], pageUrl: string, secretKey: string, registry: TokenRegistry | null): Promise<ActionOutcome[]> {
   const { page, tab, dropped } = splitAtTabVerb(actions);
   const outcomes: ActionOutcome[] = [];
 
   if (page.length > 0) {
-    const executable = await toExecutable(page, secretKey);
-    await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] });
-    const reply = (await api.tabs.sendMessage(tabId, {
-      type: 'athena:execute', actions: executable, allowed_selectors: allowedSelectors, expected_origin: originOf(pageUrl),
-    })) as ContentToWorker;
-    if (!reply?.ok || !('outcomes' in reply)) throw new Error(reply && 'error' in reply ? reply.error : 'Executor returned nothing.');
-    outcomes.push(...reply.outcomes);
+    let executable: ExecutableAction[] | null = null;
+    try {
+      executable = await toExecutable(page, secretKey, registry);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      outcomes.push({ action: page[0]!.action, selector: page[0]!.selector ?? null, ok: false, error: message, duration_ms: 0 });
+      for (const action of page.slice(1)) outcomes.push({ action: action.action, selector: action.selector ?? null, ok: false, error: NOT_EXECUTED, duration_ms: 0 });
+    }
+    if (executable) {
+      await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] });
+      const reply = (await api.tabs.sendMessage(tabId, {
+        type: 'athena:execute', actions: executable, allowed_selectors: allowedSelectors, expected_origin: originOf(pageUrl),
+      })) as ContentToWorker;
+      if (!reply?.ok || !('outcomes' in reply)) throw new Error(reply && 'error' in reply ? reply.error : 'Executor returned nothing.');
+      outcomes.push(...reply.outcomes);
+    }
   }
   const pageShort = page.slice(outcomes.length); // page actions the content script never reached
   const pageFailed = outcomes.some((o) => !o.ok) || pageShort.length > 0;
@@ -487,7 +502,7 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
   }
 
   const started = performance.now();
-  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url, tokens.session_id);
+  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url, tokens.session_id, tokens);
   priorActions = [...priorActions, ...toHistory(plan.response.actions, outcomes)];
   return { outcomes, execute_ms: Math.round((performance.now() - started) * 100) / 100 };
 }
@@ -584,7 +599,7 @@ const loopDeps = {
   execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string) => {
     const tab = await api.tabs.get(tabId);
     if (!tab.url || originOf(tab.url) !== originOf(pageUrl)) throw new Error('The page changed since it was captured.');
-    return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId));
+    return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId, runTokens));
   },
   settle: async (tabId: number) => {
     // A click-driven navigation may not have flipped the tab to 'loading' yet.
