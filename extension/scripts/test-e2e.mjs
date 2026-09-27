@@ -71,7 +71,7 @@ const provider = createServer(async (req, res) => {
   received.push({ path: req.url, headers: req.headers, body });
   const user = body.messages?.find((message) => message.role === 'user');
   const text = user?.content?.find((part) => part.type === 'text')?.text ?? '';
-  const match = text.match(/## dom_summary\n([\s\S]*?)\n\n(?:## |Plan)/);
+  const match = text.match(/## dom_summary\n([\s\S]*?)\n\n(?:## |<\/page_data>|Plan)/);
   const nodes = match ? JSON.parse(match[1]) : [];
   const customerPath = nodes.find((node) => node.path.includes('customer-id'))?.path;
   const passwordPath = nodes.find((node) => node.path.includes('password'))?.path;
