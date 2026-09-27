@@ -128,6 +128,34 @@ console.log('stop and permission');
   check(run.status === 'needs_permission' && run.needs_origin === 'https://other.example', `navigation to an ungranted origin pauses (${run.status})`);
 }
 
+console.log('stop lands during execute (transition keeps the patch)');
+{
+  const deps = fakeDeps([plan(login)]);
+  let run = await drive(newRun('g', 7, 'approve-all', 25), deps);
+  deps.execute = async (_t, actions) => {
+    deps.log.push(`execute(${actions.length})`);
+    deps.stoppedIds.add(run.run_id);
+    return actions.map((a) => ({ ...a, outcome: 'ok' }));
+  };
+  run = await approve(run, deps);
+  check(
+    run.status === 'stopped' && run.history.length === 2,
+    `stop during execute still records the executed history (${run.status}, history=${run.history.length})`,
+  );
+}
+
+console.log('settle on an unusable origin (about:blank) never sets needs_origin');
+{
+  const deps = fakeDeps([plan([{ action: 'navigate', url: 'https://other.example', risk: 'routine' }])]);
+  deps.settle = async () => { deps.log.push('settle'); return { url: 'about:blank', granted: false }; };
+  let run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
+  run = await approve(run, deps);
+  check(
+    run.status === 'needs_permission' && run.needs_origin === undefined,
+    `landing on an unusable origin pauses without a resumable origin (${run.status}, needs_origin=${run.needs_origin})`,
+  );
+}
+
 console.log('stop lands during plan');
 {
   const deps = fakeDeps([plan(login)]);

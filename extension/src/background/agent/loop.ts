@@ -72,14 +72,18 @@ async function transition(run: Run, patch: Partial<Run>, deps: LoopDeps): Promis
   // deps.settle, and the done/needs_permission exits, not just the top of the
   // drive loop.
   const next = deps.stopped(run.run_id) && patch.status !== 'stopped'
-    ? { ...run, status: 'stopped' as const, pending: null }
+    ? { ...run, ...patch, status: 'stopped' as const, pending: null }
     : { ...run, ...patch };
   await deps.save(next);
   return next;
 }
 
 function originOf(url: string | undefined): string | null {
-  try { return url ? new URL(url).origin : null; } catch { return null; }
+  try {
+    if (!url) return null;
+    const origin = new URL(url).origin;
+    return origin === 'null' ? null : origin;
+  } catch { return null; }
 }
 
 /** Execute the pending plan, settle, and hand back to drive(). */

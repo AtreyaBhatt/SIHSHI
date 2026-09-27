@@ -13,7 +13,7 @@ export type PanelToWorker =
   | { type: 'athena:execute-plan'; tab_id?: number }
   | { type: 'athena:check-health' }
   | { type: 'athena:run-start'; goal: string; mode: RunMode; tab_id?: number }
-  | { type: 'athena:run-approve' }
+  | { type: 'athena:run-approve'; step: number }
   | { type: 'athena:run-stop' }
   | { type: 'athena:run-get' }
   | { type: 'athena:run-grant-and-resume' };

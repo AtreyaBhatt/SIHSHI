@@ -418,12 +418,20 @@ async function health(): Promise<HealthReport> {
 const RUN_KEY = 'athena:run';
 const MAX_STEPS_KEY = 'athena:max-steps';
 const stopRequested = new Set<string>();
-/** run_ids currently inside a drive()/approve() call — guards against a second concurrent drive. */
-const driving = new Set<string>();
 const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped']);
 const RUN_IN_PROGRESS_STATUSES: ReadonlySet<RunStatus> = new Set([
-  'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission',
+  'idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission',
 ]);
+
+/**
+ * Single synchronous lock across every handler that may call drive()/approve().
+ * A Set keyed by run id (the previous `driving`) left a window between the
+ * check and the add — two handlers could both read "not driving" before
+ * either set it, because real awaits (loadRun, permissions.contains) sit in
+ * between. This flag is set and checked as the very first synchronous
+ * statement in each handler, before any await, so there is no window.
+ */
+let driveLock = false;
 
 /**
  * The run's token registry. Recreated whenever the run id changes, and — since
@@ -435,16 +443,11 @@ const RUN_IN_PROGRESS_STATUSES: ReadonlySet<RunStatus> = new Set([
  */
 let runTokens: TokenRegistry | null = null;
 
-/** Runs `fn` with `runId` marked as driving; clears it, and any stale stop request, when done. */
+/** Runs `fn` and clears any stale stop request once the run reaches a terminal status. */
 async function runDrive(runId: string, fn: () => Promise<Run>): Promise<Run> {
-  driving.add(runId);
-  try {
-    const result = await fn();
-    if (TERMINAL_STATUSES.has(result.status)) stopRequested.delete(runId);
-    return result;
-  } finally {
-    driving.delete(runId);
-  }
+  const result = await fn();
+  if (TERMINAL_STATUSES.has(result.status)) stopRequested.delete(runId);
+  return result;
 }
 
 async function assertNoRunInProgress(): Promise<void> {
@@ -494,7 +497,13 @@ const loopDeps = {
   settle: async (tabId: number) => {
     const tab = await waitForTabComplete(tabId);
     const url = tab.url;
-    if (!url || isRestrictedUrl(url)) return { url, granted: false };
+    const origin = url ? originOf(url) : undefined;
+    // Unusable: no URL, a browser-internal page, or an opaque ("null") origin.
+    // None of these can ever be granted host permission, so report no url —
+    // the loop's originOf(undefined) is undefined, and the existing
+    // `!run.needs_origin` branch in run-grant-and-resume stops the run instead
+    // of leaving it stuck in needs_permission forever.
+    if (!url || isRestrictedUrl(url) || !origin || origin === 'null') return { url: undefined, granted: false };
     const granted = await api.permissions.contains({ origins: [`${originOf(url)}/*`] }).catch(() => false);
     if (!granted) {
       // activeTab may still cover this tab (same tab, user gesture earlier); probe by injecting.
@@ -561,12 +570,16 @@ api.runtime.onMessage.addListener(
       return true;
     }
     if (message?.type === 'athena:run-start') {
+      if (driveLock) { fail(new Error('The agent is busy. Wait for the current step or stop the run.')); return true; }
+      driveLock = true;
       (async () => {
-        if (driving.size > 0) throw new Error('Stop the current run before starting another.');
         const existing = await loadRun();
         if (existing && !TERMINAL_STATUSES.has(existing.status)) {
-          // Not driving (checked above), so this is a run left dangling by a
-          // worker restart or a closed panel — retire it before starting fresh.
+          // The lock (checked above) rules out a concurrent drive, so this is a
+          // run left dangling by a worker restart or a closed panel — retire it
+          // before starting fresh, and mark it stopped so a drive that was
+          // actually still in flight for it does not keep going unnoticed.
+          stopRequested.add(existing.run_id);
           await loopDeps.save(stop(existing));
         }
         const tab = await targetTab(message.tab_id);
@@ -574,15 +587,22 @@ api.runtime.onMessage.addListener(
         const run = newRun(message.goal, tab.id, message.mode, await maxSteps());
         await loopDeps.save(run);
         return runDrive(run.run_id, () => drive(run, loopDeps));
-      })().then(ok).catch(fail);
+      })().then(ok).catch(fail).finally(() => { driveLock = false; });
       return true;
     }
     if (message?.type === 'athena:run-approve') {
+      // The panel sends the step number of the run it displayed when approval
+      // was requested; a stale click on a superseded step is refused rather
+      // than silently applied to whatever step the run is on now.
+      if (driveLock) { fail(new Error('The agent is busy. Wait for the current step or stop the run.')); return true; }
+      driveLock = true;
       loadRun().then((run) => {
         if (!run) throw new Error('No run in progress.');
-        if (driving.has(run.run_id)) throw new Error('This run is already executing.');
+        if (run.step !== message.step || run.status !== 'awaiting_approval') {
+          throw new Error('That step is no longer awaiting approval.');
+        }
         return runDrive(run.run_id, () => approve(run, loopDeps));
-      }).then(ok).catch(fail);
+      }).then(ok).catch(fail).finally(() => { driveLock = false; });
       return true;
     }
     if (message?.type === 'athena:run-stop') {
@@ -600,9 +620,10 @@ api.runtime.onMessage.addListener(
       return true;
     }
     if (message?.type === 'athena:run-grant-and-resume') {
+      if (driveLock) { fail(new Error('The agent is busy. Wait for the current step or stop the run.')); return true; }
+      driveLock = true;
       loadRun().then(async (run) => {
         if (!run || run.status !== 'needs_permission') throw new Error('Nothing is waiting for permission.');
-        if (driving.has(run.run_id)) throw new Error('This run is already executing.');
         if (!run.needs_origin) {
           // No origin to request — this run can never be resumed. Stop it
           // cleanly instead of throwing so the panel can show a Stopped state
@@ -618,7 +639,7 @@ api.runtime.onMessage.addListener(
         if (!granted) return run;
         const { needs_origin: _drop, ...rest } = run;
         return runDrive(run.run_id, () => drive({ ...rest, status: 'capturing' }, loopDeps));
-      }).then(ok).catch(fail);
+      }).then(ok).catch(fail).finally(() => { driveLock = false; });
       return true;
     }
     return false;
