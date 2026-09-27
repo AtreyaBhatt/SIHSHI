@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-capture.mjs",
     "test:capture": "node scripts/test-capture.mjs",
+    "test:executor": "node scripts/test-executor.mjs",
     "test:provider": "node scripts/test-provider.mjs",
     "test:reasoning": "node scripts/test-reasoning.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",

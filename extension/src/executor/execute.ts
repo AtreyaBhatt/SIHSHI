@@ -73,35 +73,103 @@ function setFieldValue(element: Element, value: string): void {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+const KEY_CODES: Record<KeyName, string> = {
+  Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown',
+  ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Backspace: 'Backspace', Space: 'Space',
+};
+
+function keyboardInit(key: KeyName): KeyboardEventInit {
+  return { key: key === 'Space' ? ' ' : key, code: KEY_CODES[key], bubbles: true, cancelable: true };
+}
+
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+function moveFocus(from: Element | null): void {
+  const all = Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE))
+    .filter((el) => !el.hasAttribute('disabled') && el.tabIndex >= 0 && el.getClientRects().length > 0);
+  const index = from ? all.indexOf(from as HTMLElement) : -1;
+  const next = all[(index + 1) % all.length];
+  next?.focus();
+}
+
+function pressKey(target: Element, key: KeyName): void {
+  const init = keyboardInit(key);
+  const down = target.dispatchEvent(new KeyboardEvent('keydown', init));
+  target.dispatchEvent(new KeyboardEvent('keypress', init));
+  target.dispatchEvent(new KeyboardEvent('keyup', init));
+  if (!down) return; // the page handled it
+  if (key === 'Enter') {
+    const form = (target as HTMLElement).closest('form');
+    if (form) form.requestSubmit();
+  } else if (key === 'Tab') {
+    moveFocus(target);
+  }
+}
+
+function selectOption(element: Element, option: string): void {
+  if (!(element instanceof HTMLSelectElement)) throw new Error(`${element.tagName.toLowerCase()} is not a select`);
+  const wanted = option.trim().toLowerCase();
+  const match = Array.from(element.options).find((o) => o.label.trim().toLowerCase() === wanted || o.text.trim().toLowerCase() === wanted)
+    ?? Array.from(element.options).find((o) => o.value.toLowerCase() === wanted);
+  if (!match) throw new Error(`No option matches "${option}" in ${element.options.length} options`);
+  element.value = match.value;
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function hover(element: Element): void {
+  for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']) {
+    element.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter' && type !== 'pointerenter', cancelable: true, view: window }));
+  }
+}
+
 async function runOne(action: ExecutableAction, allowed: Set<string>): Promise<void> {
-  if (NEEDS_SELECTOR.has(action.action)) {
-    if (!action.selector) throw new Error(`${action.action} requires a selector`);
-    if (allowed.size > 0 && !allowed.has(action.selector)) {
-      throw new Error(`Refusing ${action.selector} — it was not in the snapshot sent to the server`);
-    }
+  if (NEEDS_SELECTOR.has(action.action) && !action.selector) throw new Error(`${action.action} requires a selector`);
+  // Every selector, on every verb: the allowlist is the snapshot the client sent.
+  if (action.selector && allowed.size > 0 && !allowed.has(action.selector)) {
+    throw new Error(`Refusing ${action.selector} — it was not in the snapshot sent to the provider`);
   }
 
   switch (action.action) {
     case 'click': {
       const element = findOne(action.selector!);
       element.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+      // A real pointer click focuses the target via mousedown before the click
+      // event fires; el.click() alone does not, so a synthetic click restores
+      // that ordering explicitly (needed for text inputs — buttons focus either way).
+      (element as HTMLElement).focus?.();
       (element as HTMLElement).click();
       return;
     }
-    case 'select':
-    case 'key':
-    case 'hover':
-      throw new Error(`${action.action} is not implemented yet`);
     case 'type': {
       const element = findOne(action.selector!);
       (element as HTMLElement).focus();
       if (action.value === undefined) throw new Error('type action arrived without a resolved value');
+      setFieldValue(element, '');
       setFieldValue(element, action.value);
+      return;
+    }
+    case 'select': {
+      if (!action.option) throw new Error('select requires an option');
+      selectOption(findOne(action.selector!), action.option);
+      return;
+    }
+    case 'key': {
+      if (!action.key) throw new Error('key action arrived without a key');
+      const target = action.selector ? findOne(action.selector) : (document.activeElement ?? document.body);
+      if (action.selector) (target as HTMLElement).focus();
+      pressKey(target, action.key);
+      return;
+    }
+    case 'hover': {
+      const element = findOne(action.selector!);
+      element.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+      hover(element);
       return;
     }
     case 'scroll': {
       if (action.selector) findOne(action.selector).scrollIntoView({ block: 'center' });
-      else window.scrollBy({ top: window.innerHeight * 0.8 });
+      else window.scrollBy({ top: window.innerHeight * 0.8 * (action.direction === 'up' ? -1 : 1) });
       return;
     }
     case 'wait':
@@ -113,6 +181,7 @@ async function runOne(action: ExecutableAction, allowed: Set<string>): Promise<v
 export async function executeActions(
   actions: ExecutableAction[],
   allowedSelectors: string[],
+  expectedOrigin: string | null = null,
 ): Promise<ActionOutcome[]> {
   const allowed = new Set(allowedSelectors);
   const outcomes: ActionOutcome[] = [];
@@ -120,14 +189,13 @@ export async function executeActions(
   for (const action of actions) {
     const started = performance.now();
     try {
+      // Re-checked per action, not per batch: a click can navigate same-tab and
+      // the next action would otherwise run on whatever page arrived.
+      if (expectedOrigin && location.origin !== expectedOrigin) {
+        throw new Error(`Page origin changed to ${location.origin}; stopping before ${action.action}`);
+      }
       await runOne(action, allowed);
-      const outcome: ActionOutcome = {
-        action: action.action,
-        selector: action.selector ?? null,
-        ok: true,
-        duration_ms: Math.round((performance.now() - started) * 100) / 100,
-      };
-      outcomes.push(outcome);
+      outcomes.push({ action: action.action, selector: action.selector ?? null, ok: true, duration_ms: Math.round((performance.now() - started) * 100) / 100 });
     } catch (err) {
       outcomes.push({
         action: action.action,

@@ -14,7 +14,7 @@ export type PanelToWorker =
 
 export type WorkerToContent =
   | { type: 'athena:capture-dom' }
-  | { type: 'athena:execute'; actions: ExecutableAction[]; allowed_selectors: string[] };
+  | { type: 'athena:execute'; actions: ExecutableAction[]; allowed_selectors: string[]; expected_origin: string };
 
 export type ContentToWorker =
   | { ok: true; snapshot: RawSnapshot }

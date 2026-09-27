@@ -344,6 +344,7 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
     type: 'athena:execute',
     actions,
     allowed_selectors: plan.request.dom_summary.map((node) => node.path),
+    expected_origin: originOf(plan.page_url),
   })) as ContentToWorker;
 
   if (!reply?.ok || !('outcomes' in reply)) {

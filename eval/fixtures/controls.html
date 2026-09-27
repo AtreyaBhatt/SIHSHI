@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Controls fixture</title>
+<style>
+  body { font: 14px system-ui; margin: 24px; }
+  #sub { display: none; } #menu:hover #sub, #menu.open #sub { display: block; }
+  #spacer { height: 3000px; }
+</style></head>
+<body>
+  <h1>Controls</h1>
+  <form id="search" action="#" onsubmit="event.preventDefault(); document.getElementById('out').textContent = 'submitted:' + document.getElementById('q').value;">
+    <label for="q">Query</label>
+    <input type="text" id="q" name="q" value="old value">
+    <label for="country">Country</label>
+    <select id="country" name="country">
+      <option value="">Choose</option>
+      <option value="in">India</option>
+      <option value="gb">United Kingdom</option>
+    </select>
+    <input type="text" id="a" name="a" placeholder="a">
+    <input type="text" id="b" name="b" placeholder="b">
+    <button type="submit" id="go">Search</button>
+  </form>
+  <div id="menu" tabindex="0">Account <div id="sub"><button type="button" id="signout">Sign out</button></div></div>
+  <div id="spacer"></div>
+  <button type="button" id="bottom">Bottom</button>
+  <p id="out"></p>
+  <script>
+    document.getElementById('menu').addEventListener('mouseover', () => document.getElementById('menu').classList.add('open'));
+    document.getElementById('country').addEventListener('change', (e) => { document.getElementById('out').textContent = 'country:' + e.target.value; });
+    document.getElementById('q').addEventListener('keydown', (e) => { if (e.key === 'Escape') document.getElementById('out').textContent = 'escaped'; });
+  </script>
+</body>
+</html>

@@ -36,7 +36,7 @@ if (!window.__ATHENA_INSTALLED__) {
       if (message?.type === 'athena:execute') {
         // Values arrive already resolved from the local vault; they are used here
         // and never travel any further.
-        executeActions(message.actions, message.allowed_selectors)
+        executeActions(message.actions, message.allowed_selectors, message.expected_origin)
           .then((outcomes) => sendResponse({ ok: true, outcomes }))
           .catch(fail);
         return true; // async
