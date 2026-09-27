@@ -50,11 +50,31 @@ const LAST_PLAN_KEY = 'athena:last-plan';
 let lastCapture: CaptureResult | null = null;
 
 /**
- * Token registry and session id live here and only here. Never persisted:
- * a token that survived its session would become the stable pseudonym PRD §9.4
- * exists to prevent.
+ * The single-step token registry. Its session id and a mirror of it are kept in
+ * chrome.storage.session (memory-backed, gone when the browser session ends,
+ * never storage.local) so a plan shown before the worker was suspended can
+ * still resolve its tokens after a restart. Reset Session replaces the id and
+ * drops the old mirror: a token must not outlive its session and become the
+ * stable pseudonym PRD §9.4 exists to prevent. Loaded lazily through
+ * sessionTokens(); read `tokens` directly only after that has resolved.
  */
+const SESSION_ID_KEY = 'athena:session-id';
 let tokens = new TokenRegistry(newSessionId());
+let tokensLoaded: Promise<void> | null = null;
+
+async function sessionTokens(): Promise<TokenRegistry> {
+  tokensLoaded ??= (async () => {
+    try {
+      const stored = (await api.storage.session.get(SESSION_ID_KEY))?.[SESSION_ID_KEY];
+      if (typeof stored === 'string') tokens = (await loadRegistry(stored)) ?? new TokenRegistry(stored);
+      else await api.storage.session.set({ [SESSION_ID_KEY]: tokens.session_id });
+    } catch {
+      // Memory registry stands.
+    }
+  })();
+  await tokensLoaded;
+  return tokens;
+}
 
 /** Multi-turn history for PRD §7.1. Verbs and selectors only — never a result. */
 let priorActions: PriorAction[] = [];
@@ -128,6 +148,12 @@ function originOf(url: string): string {
  * storage.session is memory-backed and browser-session scoped — it is never
  * written to disk and is gone when the browser session ends, which is what
  * keeps this consistent with PRD §9.4. Never mirror to storage.local.
+ *
+ * Lifetime: a run's mirror is dropped when the run ends (any terminal status,
+ * Stop, retirement by a new run, or marked interrupted); the single-step
+ * mirror when Reset Session replaces it; and on worker start every mirror
+ * that is neither the live run's nor the current single-step session's is
+ * swept (sweepRegistries).
  */
 const REGISTRY_KEY = (id: string) => `athena:registry:${id}`;
 
@@ -157,12 +183,14 @@ async function dropRegistry(id: string): Promise<void> {
   }
 }
 
-function resetSession(): string {
-  forgetTypedSecrets(tokens.session_id);
-  void dropRegistry(tokens.session_id);
+async function resetSession(): Promise<string> {
+  const old = await sessionTokens();
+  forgetTypedSecrets(old.session_id);
+  await dropRegistry(old.session_id);
   tokens = new TokenRegistry(newSessionId());
+  try { await api.storage.session.set({ [SESSION_ID_KEY]: tokens.session_id }); } catch { /* memory copy stands */ }
   priorActions = [];
-  void setLastPlan(null);
+  await setLastPlan(null);
   return tokens.session_id;
 }
 
@@ -381,7 +409,7 @@ async function getLastCapture(): Promise<CaptureResult | null> {
 async function requestPlanFlow(threshold: number, taskInstruction: string): Promise<PlanPreview> {
   const capture = await getLastCapture();
   if (!capture) throw new Error('Nothing captured yet.');
-  const preview = await buildPayload(capture, threshold, taskInstruction, tokens, priorActions);
+  const preview = await buildPayload(capture, threshold, taskInstruction, await sessionTokens(), priorActions);
   if (!preview.request) {
     return { preview, response: null, network_ms: 0, error: preview.error ?? 'No payload was built.' };
   }
@@ -512,7 +540,8 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
   }
 
   const started = performance.now();
-  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url, tokens.session_id, tokens);
+  const registry = await sessionTokens();
+  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url, registry.session_id, registry);
   priorActions = [...priorActions, ...toHistory(plan.response.actions, outcomes)];
   return { outcomes, execute_ms: Math.round((performance.now() - started) * 100) / 100 };
 }
@@ -552,20 +581,48 @@ let driveLock = false;
  * worker restart mid-run (or a run id change) it is rebuilt from the
  * storage.session mirror `saveRegistry`/`loadRegistry` maintain, rather than
  * recreated from scratch — token numbering and the id→value map survive the
- * restart. Dropped from storage.session once the run reaches a terminal status.
+ * restart. Memory copy and mirror are both dropped by endRun() on every way a
+ * run ends; the startup sweep catches a mirror whose run ended while the
+ * worker was gone.
  */
 let runTokens: TokenRegistry | null = null;
+
+/** Forgets everything a finished run resolved or minted: typed secrets, its registry (memory and mirror). */
+async function endRun(runId: string): Promise<void> {
+  forgetTypedSecrets(runId);
+  if (runTokens?.session_id === runId) runTokens = null;
+  await dropRegistry(runId);
+}
 
 /** Runs `fn` and clears any stale stop request once the run reaches a terminal status. */
 async function runDrive(runId: string, fn: () => Promise<Run>): Promise<Run> {
   const result = await fn();
   if (TERMINAL_STATUSES.has(result.status)) {
     stopRequested.delete(runId);
-    forgetTypedSecrets(runId);
-    await dropRegistry(runId);
+    await endRun(runId);
   }
   return result;
 }
+
+/**
+ * Worker start: drops every registry mirror that belongs to neither the stored
+ * run (while it is still live) nor the current single-step session. Keys are
+ * listed before the run is read, so a run that starts meanwhile is already
+ * saved by the time its own mirror could appear in the listing.
+ */
+async function sweepRegistries(): Promise<void> {
+  try {
+    const keys = Object.keys((await api.storage.session.get(null)) ?? {}).filter((k) => k.startsWith(REGISTRY_KEY('')));
+    const keep = new Set([REGISTRY_KEY((await sessionTokens()).session_id)]);
+    const run = await loadRun();
+    if (run && !TERMINAL_STATUSES.has(run.status)) keep.add(REGISTRY_KEY(run.run_id));
+    const stale = keys.filter((k) => !keep.has(k));
+    if (stale.length > 0) await api.storage.session.remove(stale);
+  } catch {
+    // Best effort; the browser session's end clears storage.session anyway.
+  }
+}
+void sweepRegistries();
 
 async function assertNoRunInProgress(): Promise<void> {
   const run = await loadRun();
@@ -607,6 +664,8 @@ const loopDeps = {
     return { preview, response };
   },
   execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string) => {
+    // The worker may have been suspended while the user read the approval card.
+    if (!runTokens || runTokens.session_id !== runId) runTokens = (await loadRegistry(runId)) ?? runTokens;
     const tab = await api.tabs.get(tabId);
     if (!tab.url || originOf(tab.url) !== originOf(pageUrl)) throw new Error('The page changed since it was captured.');
     return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId, runTokens));
@@ -649,11 +708,13 @@ api.runtime.onMessage.addListener(
 
     const ok = (data: unknown) => sendResponse({ ok: true, data } as WorkerReply<never>);
 
-    // Content scripts run in page renderers; vault messages come only from our own
-    // extension pages (panel, options — the options page may sit in a tab, so no !sender.tab test).
-    if (typeof message?.type === 'string' && (message.type.startsWith('athena:vault-') || message.type === 'athena:debug-detectors')
+    // Content scripts run in page renderers; every athena:* message the worker
+    // handles comes from our own extension pages (panel, options, viewer — the
+    // options page may sit in a tab, so no !sender.tab test). The content script
+    // only answers the worker's tabs.sendMessage and never sends one itself.
+    if (typeof message?.type === 'string' && message.type.startsWith('athena:')
       && !(sender.id === api.runtime.id && typeof sender.url === 'string' && sender.url.startsWith(api.runtime.getURL('')))) {
-      fail(new Error('Refused: vault and debug messages are accepted from extension pages only.'));
+      fail(new Error('Refused: ATHENA messages are accepted from extension pages only.'));
       return true;
     }
 
@@ -669,14 +730,14 @@ api.runtime.onMessage.addListener(
       getLastCapture()
         .then((capture) => {
           if (!capture) throw new Error('Nothing captured yet.');
-          return buildPayload(capture, message.threshold, message.task_instruction, tokens, priorActions);
+          return sessionTokens().then((registry) => buildPayload(capture, message.threshold, message.task_instruction, registry, priorActions));
         })
         .then(ok)
         .catch(fail);
       return true;
     }
     if (message?.type === 'athena:reset-session') {
-      assertNoRunInProgress().then(() => ({ session_id: resetSession() })).then(ok).catch(fail);
+      assertNoRunInProgress().then(async () => ({ session_id: await resetSession() })).then(ok).catch(fail);
       return true;
     }
     if (message?.type === 'athena:request-plan') {
@@ -725,7 +786,7 @@ api.runtime.onMessage.addListener(
           stopRequested.add(existing.run_id);
           await loopDeps.save(stop(existing));
           stopRequested.delete(existing.run_id);
-          forgetTypedSecrets(existing.run_id);
+          await endRun(existing.run_id);
         }
         const tab = await targetTab(message.tab_id);
         if (!tab?.id) throw new Error('No active tab.');
@@ -760,7 +821,7 @@ api.runtime.onMessage.addListener(
         // awaiting_approval/needs_permission/idle) — runDrive's own cleanup
         // never runs in that case, so it happens here instead.
         stopRequested.delete(run.run_id);
-        forgetTypedSecrets(run.run_id);
+        await endRun(run.run_id);
         return stopped;
       }).then(ok).catch(fail);
       return true;
@@ -771,6 +832,7 @@ api.runtime.onMessage.addListener(
         if (run && !driveLock && ['idle', 'capturing', 'planning', 'executing', 'settling'].includes(run.status)) {
           const failed: Run = { ...run, status: 'failed', pending: null, error: 'interrupted by a browser restart; start again' };
           await loopDeps.save(failed);
+          await endRun(run.run_id);
           return failed;
         }
         return run;
@@ -788,6 +850,7 @@ api.runtime.onMessage.addListener(
           // with a clear reason.
           const stopped = { ...stop(run), error: 'needs access to a page it cannot inject into' };
           await loopDeps.save(stopped);
+          await endRun(run.run_id);
           return stopped;
         }
         // Panel-first: the panel calls api.permissions.request itself (needs a

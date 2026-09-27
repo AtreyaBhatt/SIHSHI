@@ -36,6 +36,8 @@ export interface Run {
   allowed: string[];
   /** Tier-1 dom_paths of the last capture; the panel flags a value_ref aimed elsewhere. */
   tier1_paths: string[];
+  /** dom_summary labels (≤ 80 chars, already sanitized) of the pending plan's targets, keyed by path; shown on the approval card. */
+  labels: Record<string, string>;
 }
 
 export interface LoopDeps {
@@ -54,13 +56,13 @@ const TERMINAL: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped']);
 export function newRun(goal: string, tabId: number, mode: RunMode, maxSteps: number): Run {
   return {
     run_id: crypto.randomUUID(), tab_id: tabId, goal, mode, step: 0, max_steps: maxSteps, status: 'idle',
-    history: [], pending: null, last_preview: null, result: null, error: null, page_url: null, allowed: [], tier1_paths: [],
+    history: [], pending: null, last_preview: null, result: null, error: null, page_url: null, allowed: [], tier1_paths: [], labels: {},
   };
 }
 
 export function needsApproval(run: Run, response: AgentResponse): boolean {
   if (run.mode === 'approve-all') return true;
-  return response.actions.some((a) => a.value_ref !== undefined || a.risk === 'sensitive' || a.action === 'navigate');
+  return response.actions.some((a) => a.value_ref !== undefined || a.value_token !== undefined || a.risk === 'sensitive' || a.action === 'navigate');
 }
 
 export function stop(run: Run): Run {
@@ -153,7 +155,11 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
           const why = response.guardrail_rejections?.length ? response.guardrail_rejections.join('; ') : response.reasoning_summary;
           return transition(run, { status: 'failed', error: why }, deps);
         }
-        run = await transition(run, { pending: response, status: needsApproval(run, response) ? 'awaiting_approval' : 'executing' }, deps);
+        const targets = new Set(response.actions.map((a) => a.selector));
+        const labels = Object.fromEntries((preview.request?.dom_summary ?? [])
+          .filter((n) => targets.has(n.path) && n.label)
+          .map((n) => [n.path, n.label!.slice(0, 80)]));
+        run = await transition(run, { pending: response, labels, status: needsApproval(run, response) ? 'awaiting_approval' : 'executing' }, deps);
         continue;
       }
       if (run.status === 'executing') { run = await executePending(run, deps); continue; }

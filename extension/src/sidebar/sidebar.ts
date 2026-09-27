@@ -82,8 +82,8 @@ function setMode(next: RunMode): void {
 
 const ACTIVE: ReadonlySet<Run['status']> = new Set(['idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission', 'needs_unlock']);
 
-function describe(action: { action: string; selector?: string; option?: string; key?: string; url?: string; direction?: string; value?: string; value_ref?: string; value_token?: string }): string {
-  const target = action.selector ? ` <code>${esc(action.selector)}</code>` : '';
+function describe(action: { action: string; selector?: string; option?: string; key?: string; url?: string; direction?: string; value?: string; value_ref?: string; value_token?: string }, label?: string): string {
+  const target = action.selector ? ` <code>${esc(action.selector)}</code>${label ? ` <span class="t2">(${esc(label)})</span>` : ''}` : '';
   switch (action.action) {
     case 'select': return `select${target} → ${esc(action.option ?? '')}`;
     case 'key': return `press ${esc(action.key ?? '')}${target}`;
@@ -98,6 +98,16 @@ function describe(action: { action: string; selector?: string; option?: string; 
     }`;
     default: return `${esc(action.action)}${target}`;
   }
+}
+
+/**
+ * Flags a fill aimed at a field the capture did not declare: a value_ref outside
+ * the Tier-1 paths, or a value_token at a path with no manifest entry at all
+ * (the guardrails already require a same-type entry; this is the visible check).
+ */
+function notRedactedTag(a: { selector?: string; value_ref?: string; value_token?: string }, tier1: string[], manifestPaths: string[]): string {
+  const flagged = (a.value_ref && !tier1.includes(a.selector ?? '')) || (a.value_token && !manifestPaths.includes(a.selector ?? ''));
+  return flagged ? '<span class="tag risk">not a redacted field</span>' : '';
 }
 
 function renderRun(): void {
@@ -143,7 +153,7 @@ function renderRun(): void {
     planBadge.textContent = `Awaiting approval · step ${run.step}`; planBadge.className = 'tag';
     planSteps.innerHTML = `<p class="t2" style="margin:10px 0 4px;">${esc(run.pending.reasoning_summary)}</p>` +
       (run.pending.guardrail_rejections?.length ? `<div class="banner blocked"><strong>Guardrails dropped ${run.pending.guardrail_rejections.length} action(s):</strong> ${run.pending.guardrail_rejections.map(esc).join('<br />')}</div>` : '') +
-      run.pending.actions.map((a, i) => `<div class="step next"><span class="n">${i + 1}</span>${ICON_RING}<span>${describe(a)}<span class="tag ${a.risk === 'sensitive' ? 'risk' : 'routine'}">${esc(a.risk)}</span>${a.value_ref && !(run!.tier1_paths ?? []).includes(a.selector ?? '') ? '<span class="tag risk">not a redacted field</span>' : ''}</span></div>`).join('');
+      run.pending.actions.map((a, i) => `<div class="step next"><span class="n">${i + 1}</span>${ICON_RING}<span>${describe(a, run!.labels?.[a.selector ?? ''])}<span class="tag ${a.risk === 'sensitive' ? 'risk' : 'routine'}">${esc(a.risk)}</span>${notRedactedTag(a, run!.tier1_paths ?? [], (run!.last_preview?.request?.redaction_manifest ?? []).map((e) => e.dom_path ?? ''))}</span></div>`).join('');
     planActions.hidden = false;
     $<HTMLButtonElement>('approve').disabled = false;
   } else if (active) {
@@ -550,6 +560,11 @@ function renderPlan(): void {
 
   const response = plan.response;
   const outcomes = execution?.outcomes ?? [];
+  const sent = plan.preview.request;
+  const labels = new Map((sent?.dom_summary ?? []).map((n) => [n.path, (n.label ?? '').slice(0, 80)]));
+  const manifest = sent?.redaction_manifest ?? [];
+  const tier1 = manifest.filter((e) => e.tier === 1 && e.dom_path).map((e) => e.dom_path!);
+  const manifestPaths = manifest.map((e) => e.dom_path ?? '');
   const failed = outcomes.filter((o) => !o.ok).length;
 
   planBadge.textContent = execution ? (failed ? `${failed} failed` : 'Executed') : 'Awaiting approval';
@@ -560,17 +575,21 @@ function renderPlan(): void {
       const outcome = outcomes[index];
       const state = outcome ? (outcome.ok ? 'done' : 'failed') : execution ? '' : 'next';
       const icon = outcome ? (outcome.ok ? ICON_CHECK : ICON_RING) : ICON_RING;
-      // A value_ref is shown as the slot name, never resolved here: the panel is
-      // a page like any other and the resolved secret belongs only in the executor.
-      const detail = action.value_ref
-        ? `<span class="sub">Resolves <code>${esc(action.value_ref)}</code> on this device, never sent</span>`
-        : typeof action.value === 'string'
-          ? `<span class="sub">Types <code>${esc(action.value)}</code></span>`
-          : '';
+      // A value_ref / value_token is shown as the slot name or token, never resolved
+      // here: the panel is a page like any other and the resolved value belongs
+      // only in the executor.
+      const detail = action.value_token
+        ? `<span class="sub">fills <code>${esc(action.value_token)}</code> from this page, resolved on this device, never sent</span>`
+        : action.value_ref
+          ? `<span class="sub">Resolves <code>${esc(action.value_ref)}</code> on this device, never sent</span>`
+          : typeof action.value === 'string'
+            ? `<span class="sub">Types <code>${esc(action.value)}</code></span>`
+            : '';
+      const label = action.selector ? labels.get(action.selector) : '';
       const result = outcome ? `<span class="sub">${outcome.ok ? `ok in ${outcome.duration_ms} ms` : esc(outcome.error ?? 'failed')}</span>` : '';
       return `<div class="step ${state}">
           <span class="n">${index + 1}</span>${icon}
-          <span>${esc(action.action)} <code>${esc(action.selector ?? '—')}</code>${detail}${result}</span>
+          <span>${esc(action.action)} <code>${esc(action.selector ?? '—')}</code>${label ? ` <span class="t2">(${esc(label)})</span>` : ''}${notRedactedTag(action, tier1, manifestPaths)}${detail}${result}</span>
         </div>`;
     })
     .join('');

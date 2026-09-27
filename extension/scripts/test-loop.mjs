@@ -75,6 +75,7 @@ console.log('mode approve-sensitive');
   check(run.status === 'awaiting_approval', 'routine step ran unattended, sensitive step paused');
   check(run.history.length === 1 && run.history[0].action === 'scroll', 'routine action already in history');
   check(needsApproval(run, plan([{ action: 'type', selector: 'input#u', value_ref: 'user_saved:x', risk: 'routine' }])) === true, 'value_ref requires approval');
+  check(needsApproval(run, plan([{ action: 'type', selector: 'input#u', value_token: '[AADHAAR_1]', risk: 'routine' }])) === true, 'value_token requires approval');
   check(needsApproval(run, plan([{ action: 'navigate', url: 'https://a.example', risk: 'routine' }])) === true, 'navigate requires approval');
   check(needsApproval(run, plan([{ action: 'click', selector: 'button#go', risk: 'routine' }])) === false, 'routine click does not');
   run = await approve(run, deps);
@@ -190,6 +191,7 @@ console.log('tier1_paths');
   const run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
   check(run.status === 'awaiting_approval' && run.tier1_paths.includes('input#p') && !run.tier1_paths.includes(run.pending.actions[0].selector), `value_ref into a non-Tier-1 path: tier1_paths excludes it (${run.tier1_paths})`);
   check(run.last_preview.request.screenshot_redacted === null, 'stored preview drops the screenshot');
+  check(JSON.stringify(run.labels) === '{"input#u":"User"}', `labels hold the pending targets' dom_summary labels only (${JSON.stringify(run.labels)})`);
 }
 
 console.log('stop before approval executes nothing');
