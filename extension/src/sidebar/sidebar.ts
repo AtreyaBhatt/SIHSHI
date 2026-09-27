@@ -836,12 +836,14 @@ $('cancel-plan').addEventListener('click', async () => {
 $('run-unlock-continue').addEventListener('click', async () => {
   const input = $<HTMLInputElement>('run-passphrase'); const confirm = $<HTMLInputElement>('run-confirm');
   if (!run || run.status !== 'needs_unlock') return;
+  const creating = vault ? !vault.has_vault : false;
+  const pending = Boolean(run.pending);
   try {
-    renderVault(await send(vault && !vault.has_vault
+    renderVault(await send(creating
       ? { type: 'athena:vault-create', passphrase: input.value, confirm: confirm.value }
       : { type: 'athena:vault-unlock', passphrase: input.value }));
     input.value = ''; confirm.value = '';
-    note('Vault unlocked — resuming the approved step', 'ok');
+    note(`${creating ? 'Vault created' : 'Vault unlocked'} — ${pending ? 'resuming the approved step' : 'planning continues'}`, 'ok');
     run = await send({ type: 'athena:run-approve', step: run.step }); renderRun();
   } catch (err) {
     showToast(err instanceof Error ? err.message : String(err), true);
@@ -928,7 +930,10 @@ $('vault-create').addEventListener('click', async () => {
   try { renderVault(await send({ type: 'athena:vault-create', passphrase: input.value, confirm: confirm.value })); input.value = ''; confirm.value = ''; }
   catch (err) { $('vault-lock-state').textContent = err instanceof Error ? err.message : String(err); }
 });
-$('vault-lock').addEventListener('click', async () => { try { renderVault(await send({ type: 'athena:vault-lock' })); } catch { /* worker asleep: already locked */ } });
+$('vault-lock').addEventListener('click', async () => {
+  try { renderVault(await send({ type: 'athena:vault-lock' })); }
+  catch (err) { $('vault-lock-state').textContent = err instanceof Error ? err.message : String(err); }
+});
 
 let providerSettings: ProviderSettings | null = null;
 function renderProvider(settings: ProviderSettings): void {

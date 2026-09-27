@@ -52,6 +52,10 @@ let currentSalt: Uint8Array<ArrayBuffer> | null = null;
 let lastUsed = 0;
 let sessionLastUsed = 0;
 let migratedFromV1 = false;
+/** Bumped by lockVault(); touch()/load()/adopt() capture it before their first await and
+ *  refuse to assign key/cache or write the session entry if it changed underneath them —
+ *  a concurrent Lock always wins over an in-flight vault access. */
+let lockGen = 0;
 
 const b64 = (bytes: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -75,16 +79,21 @@ async function readSession(): Promise<SessionKey | null> {
 
 /** Restores the key from the session store after a worker restart; enforces the idle timeout. */
 async function load(): Promise<void> {
-  if (key && Date.now() - lastUsed > VAULT_IDLE_MS) await lockVault();
+  const gen = lockGen;
+  if (key && Date.now() - lastUsed > VAULT_IDLE_MS) { await lockVault(); return; }
   if (key) return;
   const session = await readSession();
+  if (gen !== lockGen) return; // a Lock ran while we were reading; it wins — no assignment
   if (!session) return;
   if (Date.now() - session.last_used > VAULT_IDLE_MS) { await lockVault(); return; }
   const stored = await readStored();
+  if (gen !== lockGen) return;
   if (!stored) { await lockVault(); return; }
   try {
     const restored = await importAes(unb64(session.raw));
+    if (gen !== lockGen) return;
     const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(stored.iv) }, restored, unb64(stored.ciphertext));
+    if (gen !== lockGen) return;
     key = restored; cache = JSON.parse(dec.decode(plain)) as VaultData; currentSalt = unb64(stored.salt);
     lastUsed = sessionLastUsed = session.last_used;
   } catch { await lockVault(); }
@@ -92,10 +101,12 @@ async function load(): Promise<void> {
 
 /** Counts as activity: refreshes last-used in memory, and in the session store at most every 30 s. */
 async function touch(): Promise<void> {
+  if (!key) return;
+  const gen = lockGen;
   lastUsed = Date.now();
   if (lastUsed - sessionLastUsed <= SESSION_WRITE_DEBOUNCE_MS) return;
   const session = await readSession();
-  if (!session) return;
+  if (gen !== lockGen || !session) return; // a Lock ran while we were reading; it wins — no session write
   sessionLastUsed = lastUsed;
   await api.storage.session.set({ [SESSION_KEY]: { raw: session.raw, last_used: lastUsed } satisfies SessionKey });
 }
@@ -103,8 +114,10 @@ async function touch(): Promise<void> {
 async function requireUnlocked(): Promise<VaultData> {
   await load();
   if (!key || !cache) throw new VaultLockedError();
+  const data = cache; const gen = lockGen;
   await touch();
-  return cache;
+  if (gen !== lockGen) throw new VaultLockedError(); // a Lock ran while we were touching; it wins
+  return data;
 }
 
 async function persist(salt: Uint8Array<ArrayBuffer>): Promise<void> {
@@ -113,7 +126,8 @@ async function persist(salt: Uint8Array<ArrayBuffer>): Promise<void> {
   await api.storage.local.set({ [V2_KEY]: { kdf: 'pbkdf2-sha256-600k', salt: b64(salt), iv: b64(iv), ciphertext: b64(ciphertext), api_key_present: Boolean(cache!.provider_api_key) } satisfies StoredVault });
 }
 
-async function adopt(derived: { raw: ArrayBuffer; key: CryptoKey }, salt: Uint8Array<ArrayBuffer>, data: VaultData): Promise<void> {
+async function adopt(gen: number, derived: { raw: ArrayBuffer; key: CryptoKey }, salt: Uint8Array<ArrayBuffer>, data: VaultData): Promise<void> {
+  if (gen !== lockGen) return; // a Lock ran while the caller was deriving/decrypting; it wins — no assignment, no session write
   key = derived.key; currentSalt = salt; cache = data; lastUsed = sessionLastUsed = Date.now();
   await api.storage.session.set({ [SESSION_KEY]: { raw: b64(derived.raw), last_used: lastUsed } satisfies SessionKey });
 }
@@ -144,26 +158,43 @@ async function readV1(): Promise<{ slots: Record<string, string>; apiKey: string
   return { slots: v1 ?? {}, apiKey, hadV1: v1 !== undefined, cookieUrl };
 }
 
+/** Serializes createVault(): a second call while one is still persisting is refused rather
+ *  than risking two concurrent writers both persisting a vault. */
+let createInFlight: Promise<VaultStatus> | null = null;
+
 /** Creates the vault (none may exist yet), importing the v1 vault and cookie key; the old copies are removed only after the new vault is persisted. */
 export async function createVault(passphrase: string, confirm: string): Promise<VaultStatus> {
-  if (passphrase !== confirm) throw new VaultError('The passphrases do not match.');
-  if (passphrase.length < 8) throw new VaultError('Use a passphrase of at least 8 characters.');
-  if (await readStored()) throw new VaultError('A vault already exists. Unlock it instead.');
-  const old = await readV1();
-  const data: VaultData = { slots: { ...old.slots } };
-  if (old.apiKey) data.provider_api_key = old.apiKey;
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const derived = await deriveKey(passphrase, salt);
-  key = derived.key; cache = data; currentSalt = salt;
-  try { await persist(salt); } catch (err) { key = null; cache = null; currentSalt = null; throw err; }
-  await adopt(derived, salt, data);
-  if (old.hadV1) await api.storage.local.remove(V1_KEY);
-  if (old.cookieUrl) { try { await api.cookies.remove({ url: old.cookieUrl, name: COOKIE_NAME }); } catch { /* see readV1 */ } }
-  migratedFromV1 = Object.keys(old.slots).length > 0 || Boolean(old.apiKey);
-  return vaultStatus();
+  if (createInFlight) throw new VaultError('A vault is already being created.');
+  const run = (async (): Promise<VaultStatus> => {
+    if (passphrase !== confirm) throw new VaultError('The passphrases do not match.');
+    if (passphrase.length < 8) throw new VaultError('Use a passphrase of at least 8 characters.');
+    const gen = lockGen;
+    if (await readStored()) throw new VaultError('A vault already exists. Unlock it instead.');
+    const old = await readV1();
+    const data: VaultData = { slots: { ...old.slots } };
+    if (old.apiKey) data.provider_api_key = old.apiKey;
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const derived = await deriveKey(passphrase, salt);
+    if (gen !== lockGen) throw new VaultError('Locked before the new vault finished saving. Try Create again.');
+    key = derived.key; cache = data; currentSalt = salt;
+    try { await persist(salt); } catch (err) { key = null; cache = null; currentSalt = null; throw err; }
+    // The v1 vault and cookie are removed once persist() has succeeded, independent of
+    // whether adopt()'s session-storage write (below) succeeds — losing that write only
+    // means the worker forgets the key on its next suspend, not that migration is undone.
+    try { await adopt(gen, derived, salt, data); }
+    finally {
+      if (old.hadV1) await api.storage.local.remove(V1_KEY);
+      if (old.cookieUrl) { try { await api.cookies.remove({ url: old.cookieUrl, name: COOKIE_NAME }); } catch { /* see readV1 */ } }
+    }
+    migratedFromV1 = Object.keys(old.slots).length > 0 || Boolean(old.apiKey);
+    return vaultStatus();
+  })();
+  createInFlight = run;
+  try { return await run; } finally { createInFlight = null; }
 }
 
 export async function unlockVault(passphrase: string): Promise<VaultStatus> {
+  const gen = lockGen;
   const stored = await readStored();
   if (!stored) throw new VaultError('No vault yet. Create one in Settings.');
   const salt = unb64(stored.salt);
@@ -171,12 +202,13 @@ export async function unlockVault(passphrase: string): Promise<VaultStatus> {
   let plain: ArrayBuffer;
   try { plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(stored.iv) }, derived.key, unb64(stored.ciphertext)); }
   catch { throw new VaultError('Wrong passphrase.'); }
-  await adopt(derived, salt, JSON.parse(dec.decode(plain)) as VaultData);
+  await adopt(gen, derived, salt, JSON.parse(dec.decode(plain)) as VaultData);
   migratedFromV1 = false;
   return vaultStatus();
 }
 
 export async function lockVault(): Promise<void> {
+  lockGen++;
   key = null; cache = null; currentSalt = null; migratedFromV1 = false;
   await api.storage.session.remove(SESSION_KEY);
 }

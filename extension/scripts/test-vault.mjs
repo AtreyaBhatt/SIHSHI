@@ -7,11 +7,13 @@ import { join } from 'node:path';
 const temp = await mkdtemp(join(tmpdir(), 'athena-vault-'));
 const local = {}; const session = {}; const cookies = new Map();
 const area = (store) => ({ get: async (k) => { const keys = Array.isArray(k) ? k : [k]; return Object.fromEntries(keys.filter((x) => x in store).map((x) => [x, store[x]])); }, set: async (v) => Object.assign(store, v), remove: async (k) => { for (const x of [].concat(k)) delete store[x]; } });
-let setAccessLevelCalls = 0; let failNextLocalSet = false;
+let setAccessLevelCalls = 0; let failNextLocalSet = false; let failNextSessionSet = false;
 const localArea = area(local); const realLocalSet = localArea.set;
 localArea.set = async (v) => { if (failNextLocalSet) { failNextLocalSet = false; throw new Error('quota'); } return realLocalSet(v); };
+const sessionArea = area(session); const realSessionSet = sessionArea.set;
+sessionArea.set = async (v) => { if (failNextSessionSet) { failNextSessionSet = false; throw new Error('session quota'); } return realSessionSet(v); };
 globalThis.chrome = {
-  storage: { local: localArea, session: { ...area(session), setAccessLevel: async () => { setAccessLevelCalls++; } } },
+  storage: { local: localArea, session: { ...sessionArea, setAccessLevel: async () => { setAccessLevelCalls++; } } },
   cookies: { get: async ({ url, name }) => cookies.get(`${new URL(url).origin}:${name}`) ?? null, remove: async ({ url, name }) => { cookies.delete(`${new URL(url).origin}:${name}`); } },
   permissions: { contains: async () => true },
 };
@@ -97,6 +99,55 @@ console.log('migration');
   local['athena:vault'] = {};
   const e = await v.createVault('another pass', 'another pass');
   check(local['athena:vault'] === undefined && !e.migrated_from_v1, 'an empty v1 object is deleted (nothing to report as migrated)');
+}
+
+console.log('R1: lock wins over an in-flight touch');
+{
+  // The vault is unlocked (from the migration block above) with passphrase 'another pass'.
+  await v.setSlot('race', 'value');
+  // Make the in-memory session bookkeeping look stale so the next touch() clears the 30 s
+  // debounce and actually reaches its own storage.session.get call (same trick as the idle
+  // tests above), then drop the in-memory key so resolveValueRef must go through load() first.
+  session['athena:vault-key'].last_used = Date.now() - 60_000;
+  v.__resetMemoryForTests();
+  let release; const parked = new Promise((res) => { release = res; });
+  let calls = 0;
+  const originalGet = chrome.storage.session.get;
+  chrome.storage.session.get = async (k) => { calls++; if (calls === 2) await parked; return originalGet(k); };
+  const resolving = v.resolveValueRef('user_saved:race');
+  await new Promise((r) => setTimeout(r, 20)); // let load() finish and touch() park on its own get
+  await v.lockVault();
+  release();
+  let raceErr = null; try { await resolving; } catch (e) { raceErr = e; }
+  chrome.storage.session.get = originalGet;
+  check(calls >= 2, 'the parked touch() actually reached its own storage.session.get call');
+  const status = await v.vaultStatus();
+  check(status.locked && session['athena:vault-key'] === undefined, 'lock wins: vaultStatus is locked and the session entry is absent after a parked touch');
+  check(raceErr?.name === 'VaultLockedError', 'lock wins: the parked resolve throws VaultLockedError instead of returning stale data');
+}
+
+console.log('R2: v1 cleanup does not depend on the session write succeeding');
+{
+  await v.lockVault();
+  for (const k of Object.keys(local)) delete local[k];
+  local['athena:vault'] = { legacy: 'yes' };
+  local['athena:provider-base-url'] = 'https://openrouter.ai/api/v1';
+  cookies.set('https://openrouter.ai:athena_api_key', { value: 'sk-r2' });
+  failNextSessionSet = true;
+  err = null; try { await v.createVault('r2 passphrase', 'r2 passphrase'); } catch (e) { err = e; }
+  check(Boolean(err) && local['athena:vault:v2'] !== undefined, 'the vault still persists even though the session write failed');
+  check(local['athena:vault'] === undefined && !cookies.has('https://openrouter.ai:athena_api_key'), 'v1 vault and cookie are removed even though adopt() failed');
+}
+
+console.log('R5: concurrent creates are serialized');
+{
+  await v.lockVault();
+  for (const k of Object.keys(local)) delete local[k];
+  const p1 = v.createVault('concurrent pass', 'concurrent pass');
+  let err2 = null; try { await v.createVault('other pass', 'other pass'); } catch (e) { err2 = e; }
+  check(/already being created/.test(err2?.message ?? ''), 'a second create while one is in flight is refused');
+  const s1 = await p1;
+  check(s1.has_vault && !s1.locked, 'the first create still completes normally');
 }
 
 await rm(temp, { recursive: true, force: true });
