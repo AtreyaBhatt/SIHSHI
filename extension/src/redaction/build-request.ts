@@ -23,7 +23,6 @@ import type {
 import { TIER_BY_TYPE } from "../shared/schema";
 import type { Detection, DetectionField } from "../pii-detection/types";
 import { DEFAULT_THRESHOLD, detectPii } from "../pii-detection/detect";
-import { PATTERNS } from "../pii-detection/patterns";
 import {
   applySpans,
   maskingFor,
@@ -31,8 +30,12 @@ import {
   type SpanReplacement,
 } from "./redact-text";
 import { redactScreenshot, type RedactionRegion } from "./redact-image";
+import { scanRequest, type FirewallReport } from "./firewall";
 import type { TokenRegistry } from "./tokens";
 import type { FaceDetection } from "../perception/face-detect";
+import { RawPiiLeakError } from "../shared/errors";
+
+export { RawPiiLeakError };
 
 export interface BuildOptions {
   snapshot: RawSnapshot;
@@ -40,6 +43,8 @@ export interface BuildOptions {
   taskInstruction: string;
   tokens: TokenRegistry;
   threshold?: number;
+  /** Demo-only: names of detectors (DomRule/PatternRule `detector`) to skip, so the firewall's catch is visible. Never affects the firewall itself. */
+  disabledDetectors?: Set<string>;
   priorActions?: PriorAction[];
   /**
    * Faces found by the local detector. They arrive separately from the text
@@ -72,15 +77,7 @@ const WHOLE_FIELD_MARKER = /^\[(?:REDACTED:[^\]]+|[A-Z][A-Z0-9]*_\d+)\]$/;
 export interface BuildResult {
   request: AgentRequest;
   detections: Detection[];
-}
-
-export class RawPiiLeakError extends Error {
-  constructor(readonly offenders: string[]) {
-    super(
-      `Refusing to build a payload: ${offenders.length} raw PII pattern(s) survived redaction — ${offenders.join("; ")}`,
-    );
-    this.name = "RawPiiLeakError";
-  }
+  firewall: FirewallReport;
 }
 
 /**
@@ -156,36 +153,6 @@ function sanitizeField(
   return applySpans(content, replacements);
 }
 
-/** Client-side mirror of the server ingress check (PRD §6.2.6). */
-function assertNoRawPii(request: AgentRequest): void {
-  const offenders: string[] = [];
-  const fields: Array<[string, string | null | undefined]> = [
-    ["task_instruction", request.task_instruction],
-  ];
-  for (const node of request.dom_summary)
-    fields.push(
-      [`${node.path}.label`, node.label],
-      [`${node.path}.value`, node.value],
-    );
-  for (const [i, action] of request.prior_actions.entries())
-    fields.push([`prior_actions[${i}].value`, action.value]);
-
-  for (const [where, text] of fields) {
-    if (!text) continue;
-    for (const pattern of PATTERNS) {
-      // Context-gated patterns are ambiguous by construction (a bare digit run
-      // is only an account number given a label), so they would fire on benign
-      // text here. Only the self-validating formats are assertable.
-      if (pattern.requires_context) continue;
-      for (const match of text.matchAll(pattern.regex)) {
-        if (pattern.validate && !pattern.validate(match[0])) continue;
-        offenders.push(`${where} matches ${pattern.detector}`);
-      }
-    }
-  }
-  if (offenders.length > 0) throw new RawPiiLeakError(offenders);
-}
-
 /**
  * Exact-match egress check for credentials this extension typed itself. The
  * screenshot is left out: pixels cannot carry the string, and a short secret
@@ -208,6 +175,7 @@ export async function buildAgentRequest(
   const { snapshot, screenshotDataUrl, taskInstruction, tokens } = options;
   const detections = detectPii(snapshot, {
     threshold: options.threshold ?? DEFAULT_THRESHOLD,
+    disabledDetectors: options.disabledDetectors,
   });
 
   const byNode = new Map<string, Detection[]>();
@@ -371,6 +339,26 @@ export async function buildAgentRequest(
     });
   }
 
+  const request: AgentRequest = {
+    session_id: tokens.session_id,
+    task_instruction: maskedTaskInstruction,
+    screenshot_redacted: null,
+    dom_summary: domSummary,
+    redaction_manifest: manifest,
+    prior_actions: options.priorActions ?? [],
+    truncated: snapshot.truncated,
+    available_refs: options.availableRefs ?? [],
+  };
+
+  // The firewall is the independent outbound scan that replaces the old
+  // context-free assertNoRawPii check (client-side mirror of the server
+  // ingress check, PRD §6.2.6) — but it also masks what it finds (Tier 2) and
+  // pushes manifest entries for it, rather than merely asserting. It must run
+  // before the screenshot is redacted below so a new manifest entry still gets
+  // its pixels blacked out.
+  const nodesByPath = new Map(snapshot.nodes.map((node) => [node.path, node]));
+  const firewall = scanRequest(request, tokens, nodesByPath);
+
   let screenshotRedacted: string | null = null;
   if (screenshotDataUrl) {
     const regions: RedactionRegion[] = manifest
@@ -382,19 +370,7 @@ export async function buildAgentRequest(
       snapshot.viewport.width,
     );
   }
-
-  const request: AgentRequest = {
-    session_id: tokens.session_id,
-    task_instruction: maskedTaskInstruction,
-    screenshot_redacted: screenshotRedacted,
-    dom_summary: domSummary,
-    redaction_manifest: manifest,
-    prior_actions: options.priorActions ?? [],
-    truncated: snapshot.truncated,
-    available_refs: options.availableRefs ?? [],
-  };
-
-  assertNoRawPii(request);
+  request.screenshot_redacted = screenshotRedacted;
 
   // Faces join the returned detections for the viewer's benefit only — they were
   // never part of the node-keyed grouping above.
@@ -427,5 +403,6 @@ export async function buildAgentRequest(
   return {
     request,
     detections: [...detections, ...faceDetections, ...frameDetections],
+    firewall,
   };
 }

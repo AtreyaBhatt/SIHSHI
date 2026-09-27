@@ -108,6 +108,7 @@ export const FIXTURES = [
       ['unlabelled name', 'Ada Lovelace'],
       ['unlabelled account', '50100247716839'],
       ['unlabelled street', '42 Nandidurga Road'],
+      ['prose email', 'support.desk@example.org'],
     ],
     // Headings and buttons that merely NAME a PII type are Tier 3 structure.
     mustAppear: [
@@ -116,7 +117,7 @@ export const FIXTURES = [
       ['button label', 'Resend OTP'],
       ['prose with a last-four', 'Your card ending 4242 is on file.'],
     ],
-    manifestTypes: ['person_name', 'bank_account', 'address', 'otp', 'cvv'],
+    manifestTypes: ['person_name', 'bank_account', 'address', 'otp', 'cvv', 'email'],
     redactedFields: [
       ['unlabelled name', 'input#unlabeled-name'],
       ['unlabelled account', 'input#unlabeled-acct'],
@@ -131,5 +132,11 @@ export const FIXTURES = [
       ['Aadhaar heading', 'h2#h-aadhaar'],
       ['resend button', 'button#resend'],
     ],
+    // The prose email above has no <label>, autocomplete or "email" context
+    // word, so only the pattern matcher (regex:email) catches it — nothing in
+    // dom-heuristics.ts fires on a plain, unlabelled <p>. Disabling that one
+    // detector (the demo switch, `athena:debug-disabled-detectors`) should
+    // make the independent firewall (redaction/firewall.ts) the sole catcher.
+    firewallCatches: ['prose email caught only by regex:email', 'p#contact', 'support.desk@example.org'],
   },
 ];

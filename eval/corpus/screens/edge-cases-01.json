@@ -17,9 +17,9 @@
       "modality": "text",
       "bbox": [
         32,
-        207.11,
+        244.61,
         374,
-        247.61
+        285.11
       ],
       "dom_path": "input#unlabeled-name",
       "value_present": true,
@@ -32,9 +32,9 @@
       "modality": "text",
       "bbox": [
         32,
-        261.61,
+        299.11,
         374,
-        302.11
+        339.61
       ],
       "dom_path": "input#unlabeled-acct",
       "value_present": true
@@ -46,9 +46,9 @@
       "modality": "text",
       "bbox": [
         32,
-        316.11,
+        353.61,
         374,
-        356.61
+        394.11
       ],
       "dom_path": "input#unlabeled-street",
       "value_present": true
@@ -60,9 +60,9 @@
       "modality": "text",
       "bbox": [
         32,
-        370.61,
+        408.11,
         374,
-        411.11
+        448.61
       ],
       "dom_path": "input#otp-empty",
       "value_present": false,
@@ -75,13 +75,28 @@
       "modality": "text",
       "bbox": [
         32,
-        425.11,
+        462.61,
         374,
-        465.61
+        503.11
       ],
       "dom_path": "input#cvv",
       "value_present": true,
       "notes": "Three digits have no surface form; the name attribute is the only signal."
+    },
+    {
+      "id": "e6",
+      "type": "email",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        173.88,
+        208.11,
+        368.33,
+        228.11
+      ],
+      "dom_path": "p#contact",
+      "value_present": true,
+      "notes": "Free, unlabelled prose — no DOM heuristic context, only the pattern matcher catches it. Also the fixture the privacy-firewall demo switch (disable regex:email) targets. Measured as a text range inside p#contact."
     }
   ]
 }

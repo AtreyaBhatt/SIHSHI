@@ -34,6 +34,14 @@ export const DEFAULT_THRESHOLD = 0.5;
 
 export interface DetectOptions {
   threshold?: number;
+  /**
+   * Detector names (the `detector` field of a `DomRule`/`PatternRule`) to skip
+   * this pass — a demo-only switch (`athena:debug-disabled-detectors`) that
+   * proves the firewall (`redaction/firewall.ts`) catches what the cascade
+   * misses. The firewall has no equivalent switch: this option affects
+   * `detectPii` alone.
+   */
+  disabledDetectors?: Set<string>;
 }
 
 /**
@@ -85,6 +93,7 @@ function resolveOverlaps(detections: Detection[]): Detection[] {
 
 export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): Detection[] {
   const threshold = options.threshold ?? DEFAULT_THRESHOLD;
+  const disabled = options.disabledDetectors;
   const out: Detection[] = [];
 
   for (const node of snapshot.nodes) {
@@ -101,6 +110,7 @@ export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): D
     // and flagging it paints a black box over "Resend OTP".
     const structural = dataField === 'text' && (STRUCTURAL_TAGS.has(node.tag) || !node.text);
     for (const rule of structural ? [] : DOM_RULES) {
+      if (disabled?.has(rule.detector)) continue;
       if (rule.confidence < threshold) continue;
       if (!rule.test(node, context)) continue;
       const hit: Detection = {
@@ -132,6 +142,7 @@ export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): D
       const found: Detection[] = [];
 
       for (const pattern of PATTERNS) {
+        if (disabled?.has(pattern.detector)) continue;
         if (pattern.confidence < threshold) continue;
         if (pattern.requires_context && !pattern.requires_context.test(context)) continue;
 

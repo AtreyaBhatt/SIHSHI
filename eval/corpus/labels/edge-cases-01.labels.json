@@ -12,6 +12,8 @@
     { "id": "e4", "selector": "input#otp-empty", "type": "otp", "tier": 1, "modality": "text", "value_present": false,
       "notes": "Empty but Tier 1; autocomplete=one-time-code is the only signal." },
     { "id": "e5", "selector": "input#cvv", "type": "cvv", "tier": 1, "modality": "text", "value_present": true,
-      "notes": "Three digits have no surface form; the name attribute is the only signal." }
+      "notes": "Three digits have no surface form; the name attribute is the only signal." },
+    { "id": "e6", "selector": "p#contact", "text": "support.desk@example.org", "type": "email", "tier": 2, "modality": "text", "value_present": true,
+      "notes": "Free, unlabelled prose — no DOM heuristic context, only the pattern matcher catches it. Also the fixture the privacy-firewall demo switch (disable regex:email) targets." }
   ]
 }

@@ -249,6 +249,42 @@ console.log('registry values and tier-1 tokens');
   check(replacementFor('phone', 2, 'PHONE_1', '9845012345') === '[PHONE_1]', 'tier-2 unchanged');
 }
 
+console.log('firewall');
+{
+  await build({ entryPoints: ['src/redaction/firewall.ts'], outfile: join(temp, 'firewall.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error' });
+  const { scanRequest, FIREWALL_RULES } = await import(`file://${join(temp, 'firewall.mjs')}`);
+  const { TokenRegistry } = await import(`file://${join(temp, 'tokens.mjs')}`);
+  const mk = (nodes, task = 'go') => ({ session_id: 's', task_instruction: task, screenshot_redacted: null, dom_summary: nodes, redaction_manifest: [], prior_actions: [], truncated: false, available_refs: ['user_saved:aadhaar'] });
+  const nodesByPath = (nodes) => new Map(nodes.map((n) => [n.path, { path: n.path, bbox: [0, 0, 10, 10] }]));
+
+  let req = mk([{ path: 'p#a', role: null, label: null, value: 'Mail us at abcd@gmail.com or call +91 98450 12345' }]);
+  let rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
+  check(rep.masked === 2 && rep.blocked === 0, `tier-2 email and phone are masked, not blocked (${rep.masked}/${rep.blocked})`);
+  check(/\[EMAIL_1\].*\[PHONE_1\]/.test(req.dom_summary[0].value), `values replaced with tokens: ${req.dom_summary[0].value}`);
+  check(req.redaction_manifest.length === 2 && req.redaction_manifest.every((e) => e.detector.startsWith('firewall:')), 'one manifest entry per masked hit, detector firewall:*');
+
+  req = mk([{ path: 'p#u', role: null, label: null, value: 'pay priya@okaxis now' }]);
+  rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
+  check(rep.masked === 1 && rep.hits[0].type === 'account_id' && rep.hits[0].rule === 'upi', 'UPI id masked as account_id');
+
+  req = mk([{ path: 'p#c', role: null, label: null, value: 'card 4539 1488 0343 6467' }]);
+  let threw = null; try { scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary)); } catch (e) { threw = e; }
+  check(threw?.name === 'RawPiiLeakError' && !String(threw.message).includes('4539'), 'tier-1 card blocks without quoting the value');
+
+  req = mk([{ path: 'p#z', role: null, label: null, value: 'ref ４５３９１４８８０３４３６４６７' }]);
+  threw = null; try { scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary)); } catch (e) { threw = e; }
+  check(threw?.name === 'RawPiiLeakError', 'full-width digits are folded before matching');
+
+  req = mk([{ path: 'p#i', role: null, label: null, value: 'GB29 NWBK 6016 1331 9268 19' }]);
+  threw = null; try { scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary)); } catch (e) { threw = e; }
+  check(threw?.name === 'RawPiiLeakError', 'IBAN with valid mod-97 blocks');
+
+  req = mk([{ path: 'p#ok', role: null, label: null, value: 'Order 12345 shipped, [EMAIL_1] notified, GB00 not an iban' }], 'help user_saved:aadhaar');
+  rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
+  check(rep.masked === 0 && rep.blocked === 0, 'short numbers, existing tokens and slot names do not fire');
+  check(FIREWALL_RULES.every((r) => typeof r.name === 'string' && r.regex instanceof RegExp), 'rules table is data');
+}
+
 await rm(temp, { recursive: true, force: true });
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} problem(s)`);
 process.exit(failures === 0 ? 0 : 1);

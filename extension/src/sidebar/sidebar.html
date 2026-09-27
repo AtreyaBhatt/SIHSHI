@@ -85,6 +85,10 @@
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="6.6" r="2"/><path d="M4.2 12.4c.9-1.5 2.2-2.2 3.8-2.2s2.9.7 3.8 2.2"/></svg>
                 <span id="chip-faces-text">0 faces blurred</span>
               </span>
+              <span class="chip" id="chip-firewall" hidden>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 13 3.6v4.1c0 3.1-2.1 5.3-5 6.5-2.9-1.2-5-3.4-5-6.5V3.6z"/></svg>
+                <span id="chip-firewall-text">firewall masked 0 · blocked 0</span>
+              </span>
             </div>
           </div>
         </div>
@@ -223,6 +227,13 @@
             <button id="add-slot" class="btn pri sm" type="button">Add</button>
           </div>
           <div class="t3 status-line settings" id="vault-status"></div>
+        </div>
+
+        <div class="card">
+          <span class="lbl">Demo: disable a detector</span>
+          <div class="callout"><strong>Demo only: the named detectors are switched off so the firewall's catch is visible. Clear this before real use.</strong></div>
+          <div class="field-row"><input type="text" id="debug-detectors" class="text" placeholder="e.g. regex:email, dom:email" aria-label="Detectors to disable" autocomplete="off" /></div>
+          <div class="t3" style="margin-top:6px;">Comma-separated detector names (the same names shown against each finding below). This never affects the independent outbound firewall — it cannot be disabled.</div>
         </div>
 
         <div class="card">

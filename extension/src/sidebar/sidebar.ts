@@ -405,6 +405,11 @@ function renderPrivacy(): void {
   paint('chip-masked', 'chip-masked-text', masked, 'identifier', 'masked');
   paint('chip-faces', 'chip-faces-text', faces, 'face', 'blurred');
 
+  const firewall = preview?.firewall ?? null;
+  const firewallChip = $<HTMLSpanElement>('chip-firewall');
+  firewallChip.hidden = !firewall || (firewall.masked === 0 && firewall.blocked === 0);
+  if (firewall) $('chip-firewall-text').textContent = `firewall masked ${firewall.masked} · blocked ${firewall.blocked}`;
+
   const sub = $('privacy-sub');
   if (!preview) sub.textContent = 'Sensitive data stays on this device.';
   else if (detections.length === 0) sub.textContent = 'Nothing sensitive found above the confidence threshold.';
@@ -964,6 +969,26 @@ $('open-options').addEventListener('click', () => {
   void api.runtime.openOptionsPage();
 });
 
+// --- demo: disable a detector ------------------------------------------------
+
+/** Mirrors service-worker.ts's DEBUG_DISABLED_DETECTORS_KEY. Read by detectPii only — never by the firewall. */
+const DEBUG_DISABLED_DETECTORS_KEY = 'athena:debug-disabled-detectors';
+const debugDetectorsInput = $<HTMLInputElement>('debug-detectors');
+async function loadDebugDetectors(): Promise<void> {
+  try {
+    const stored = (await api.storage.local.get(DEBUG_DISABLED_DETECTORS_KEY))?.[
+      DEBUG_DISABLED_DETECTORS_KEY
+    ] as string[] | undefined;
+    debugDetectorsInput.value = (stored ?? []).join(', ');
+  } catch {
+    // Leave the field blank; the worker treats a missing key as "nothing disabled".
+  }
+}
+debugDetectorsInput.addEventListener('change', () => {
+  const names = debugDetectorsInput.value.split(',').map((s) => s.trim()).filter(Boolean);
+  void api.storage.local.set({ [DEBUG_DISABLED_DETECTORS_KEY]: names });
+});
+
 // --- lifecycle --------------------------------------------------------------
 
 /** Tab switches and in-place navigations both invalidate the page context. */
@@ -981,6 +1006,7 @@ void (async () => {
   renderActivity();
   try { renderVault(await send({ type: 'athena:vault-status' })); renderProvider(await readProviderSettings()); }
   catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not read local settings.'; }
+  await loadDebugDetectors();
   await refreshPageContext();
   try {
     capture = await send({ type: 'athena:get-last-capture' });

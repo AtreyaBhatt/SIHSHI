@@ -1,6 +1,7 @@
 /** Message protocol between extension pages ⇄ service worker ⇄ content script. */
 import type { AgentRequest, AgentResponse, CaptureResult, RawSnapshot } from './schema';
 import type { Detection } from '../pii-detection/types';
+import type { FirewallReport } from '../redaction/firewall';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
 import type { Run, RunMode } from '../background/agent/loop';
 import type { VaultStatus } from './vault';
@@ -44,6 +45,8 @@ export interface PayloadPreview {
   session_id: string;
   request: AgentRequest | null;
   detections: Detection[];
+  /** The independent outbound scan's report (redaction/firewall.ts). Non-null even when the build fails with a Tier-1 block, so the panel can show what was blocked. */
+  firewall: FirewallReport | null;
   build_ms: number;
   perception_note: string | null;
   error: string | null;

@@ -12,6 +12,10 @@
     - headings and buttons whose text names a PII type ("Enter the OTP", "Resend
       OTP") — Tier 3 structure the server needs, not something to black out
     - an empty Tier 1 control (must still be flagged)
+    - a bare, context-free email in prose (no <label>, no autocomplete, no
+      surrounding "email" wording) — only the pattern matcher catches this, so
+      it is also the fixture the privacy firewall demo switch targets: disable
+      `regex:email` and only the firewall (`firewall:email`) should catch it
 -->
 <style>
   body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #1b1d21; background: #fff; padding: 32px; }
@@ -23,6 +27,7 @@
   <h1 id="h-otp">Enter the OTP we sent</h1>
   <h2 id="h-aadhaar">Aadhaar number</h2>
   <p id="lede">Your card ending 4242 is on file.</p>
+  <p id="contact">Questions? Write to support.desk@example.org and we'll get back to you.</p>
 
   <form id="edge" action="#" method="post">
     <input type="text" id="unlabeled-name" name="fullName" value="Ada Lovelace" />

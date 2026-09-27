@@ -38,13 +38,14 @@ await writeFile(entry, `
 import { captureDomSnapshot } from '${resolve('src/capture/dom-snapshot.ts')}';
 import { buildAgentRequest } from '${resolve('src/redaction/build-request.ts')}';
 import { TokenRegistry } from '${resolve('src/redaction/tokens.ts')}';
-export async function run(threshold) {
+export async function run(threshold, disabledDetectors) {
   const snapshot = captureDomSnapshot();
-  const { request, detections } = await buildAgentRequest({
+  const { request, detections, firewall } = await buildAgentRequest({
     snapshot, screenshotDataUrl: null, taskInstruction: 'Complete this form.',
     tokens: new TokenRegistry('test-session'), threshold,
+    disabledDetectors: disabledDetectors ? new Set(disabledDetectors) : undefined,
   });
-  return { request, detections, nodes: snapshot.nodes.length };
+  return { request, detections, firewall, nodes: snapshot.nodes.length };
 }
 `);
 await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
@@ -202,6 +203,31 @@ try {
       for (const [name, value, why] of spec.knownGaps) {
         if (payload.includes(value)) gap(`${name} still passes through — ${why}`);
         else { gapsClosed++; console.log(`  NEW  ${name} is now caught — update fixtures.spec.mjs`); }
+      }
+    }
+
+    // The privacy firewall (redaction/firewall.ts) is an independent second
+    // scan with its own rule table — it must catch what the ordinary cascade
+    // misses when a detector is disabled (the demo switch), never rely on the
+    // cascade to have caught it first. Rebuilding with `disabledDetectors`
+    // silences the one detector this fixture's value would otherwise rely on.
+    if (spec.firewallCatches) {
+      console.log('\nfirewall catches what a disabled detector misses:');
+      const [name, path, value] = spec.firewallCatches;
+      const disabledResult = JSON.parse(
+        await evaluate(`ATHENA.run(0.5, ['regex:email']).then(r => JSON.stringify(r))`),
+      );
+      const disabledPayload = JSON.stringify(disabledResult.request);
+      if (disabledPayload.includes(value)) fail(`${name} — "${value}" IS PRESENT with regex:email disabled`);
+      else pass(`${name} — still absent from the payload with regex:email disabled`);
+
+      const firewallEntry = disabledResult.request.redaction_manifest.find(
+        (e) => e.dom_path === path && e.detector === 'firewall:email',
+      );
+      if ((disabledResult.firewall?.masked ?? 0) >= 1 && firewallEntry) {
+        pass(`${name} — firewall reported it masked (masked=${disabledResult.firewall.masked}) with a firewall:email manifest entry`);
+      } else {
+        fail(`${name} — firewall did not report the catch (masked=${disabledResult.firewall?.masked}, firewall:email manifest entry ${firewallEntry ? 'present' : 'MISSING'})`);
       }
     }
   }

@@ -18,7 +18,8 @@ import type {
 import type { AgentAction, AgentRequest, AgentResponse, PriorAction } from '../shared/schema';
 import type { ActionOutcome, ExecutableAction, ExecutableVerb } from '../executor/execute';
 import { splitAtTabVerb } from '../shared/plan-split';
-import { assertNoTypedSecrets, buildAgentRequest } from '../redaction/build-request';
+import { assertNoTypedSecrets, buildAgentRequest, RawPiiLeakError } from '../redaction/build-request';
+import type { FirewallReport } from '../redaction/firewall';
 import { TokenRegistry, newSessionId, type RegistryJSON } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
 import {
@@ -219,6 +220,25 @@ async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetecti
   }
 }
 
+/**
+ * Demo-only switch: names of detectors (DomRule/PatternRule `detector`, e.g.
+ * `regex:email`) that `detectPii` skips this pass, so the independent firewall
+ * scan (`redaction/firewall.ts`) is the one that catches the value instead —
+ * proof it works, not a way to make it optional. Never read by the firewall.
+ */
+const DEBUG_DISABLED_DETECTORS_KEY = 'athena:debug-disabled-detectors';
+
+async function readDisabledDetectors(): Promise<Set<string> | undefined> {
+  try {
+    const stored = (await api.storage.local.get(DEBUG_DISABLED_DETECTORS_KEY))?.[
+      DEBUG_DISABLED_DETECTORS_KEY
+    ] as string[] | undefined;
+    return stored && stored.length > 0 ? new Set(stored) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function buildPayload(
   capture: CaptureResult,
   threshold: number,
@@ -229,12 +249,13 @@ async function buildPayload(
   const started = performance.now();
   try {
     const { faces, note } = await detectFaces(capture);
-    const { request, detections } = await buildAgentRequest({
+    const { request, detections, firewall } = await buildAgentRequest({
       snapshot: capture.snapshot,
       screenshotDataUrl: capture.screenshot_data_url,
       taskInstruction,
       tokens: registry,
       threshold,
+      disabledDetectors: await readDisabledDetectors(),
       priorActions: history,
       faces,
       forceTier1Paths: typedSecretPaths.get(registry.session_id),
@@ -247,17 +268,24 @@ async function buildPayload(
       session_id: registry.session_id,
       request,
       detections,
+      firewall,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
       perception_note: note,
       error: null,
     };
   } catch (err) {
     // Fail closed: no payload leaves this function when redaction could not be
-    // verified, and the viewer surfaces why.
+    // verified, and the viewer surfaces why. A Tier-1 firewall block still
+    // carries its report (attached to the error as `.report`) so the panel can
+    // show what was blocked, not just that something was.
+    const report = err instanceof RawPiiLeakError
+      ? ((err as RawPiiLeakError & { report?: FirewallReport }).report ?? null)
+      : null;
     return {
       session_id: registry.session_id,
       request: null,
       detections: [],
+      firewall: report,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
       perception_note: null,
       error: err instanceof Error ? err.message : String(err),
