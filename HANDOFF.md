@@ -20,6 +20,7 @@ Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preservin
 | Latency | 66 ms local p50 against a 300 ms budget |
 | Package | ~15 MB against a 20 MB budget |
 | Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 4 screens |
+| Design spec phases (`docs/superpowers/specs/2026-09-11-athena-real-product-design.md`) | Phase 3 (action grammar v2: nine verbs, `risk`, `done`/`result`) and Phase 4 (agent loop: two approval modes, step cap, panel Start/Stop/history) **done** — `7b2b25e..HEAD` |
 
 
 ---
@@ -190,6 +191,11 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 | 6 | **WebGPU is a build flag, defaulting off** | jsep runtime is 26.5 MB vs 13.3 MB; shipping it exceeds PRD §8's budget for marginal gain on a one-shot 320×240 model. |
 | 7 | **Vault is unencrypted** | Chrome exposes no API for the real password manager. Labelled as a demo vault in the options UI. |
 | 8 | **The panel is styled to `design/athena-sidebar/`; the options and viewer pages are not** | The panel adopts the design's white/Instrument Sans system. The other two pages still carry the earlier look, so the extension is visually inconsistent until someone decides the design wins everywhere. |
+| 9 | **Synthetic events are `isTrusted: false`** | The executor dispatches `MouseEvent`/`KeyboardEvent`/etc. via `dispatchEvent`; a site that gates on `event.isTrusted` (rare, but real) will not respond to them. |
+| 10 | **No per-element fingerprint yet** | The executor re-checks a selector against the client's own snapshot, but nothing pins the action to the *specific element instance* the plan was built against — a page that reorders same-selector elements between plan and execute is not detected. |
+| 11 | **Step cap only in `storage.local`, no UI control** | `athena:max-steps` (default 25) is set by writing to extension storage directly; the panel control lands with the Settings redesign in Phase 5. |
+| 12 | **Token registry for a run is recreated after a worker restart** | Session tokens live in worker memory (by design — CLAUDE.md says never persist them). A service-worker restart mid-run starts a fresh `TokenRegistry`, so token ids issued before the restart are not stable across it. |
+| 13 | **`go_back` is not gated in approve-sensitive mode** | Only `navigate` is always sensitive; `go_back` runs as routine even though it changes the page under approve-sensitive, same as `scroll`/`hover`/etc. |
 
 ---
 

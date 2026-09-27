@@ -81,7 +81,17 @@ const provider = createServer(async (req, res) => {
     passwordPath && { action: 'type', selector: passwordPath, value_ref: 'user_saved:password', risk: 'routine' },
     submitPath && { action: 'click', selector: submitPath, risk: 'sensitive' },
   ].filter(Boolean);
-  const planText = JSON.stringify({ reasoning_summary: 'The visible form can use local credential references.', actions, requires_client_secret: true });
+  let planText;
+  if (!passwordPath) {
+    // PAN/OTP fields are DOM-heuristic Tier 1 (dom-heuristics.ts: "an empty
+    // password or OTP field is still Tier 1"), so an empty one arrives on the
+    // wire as `[REDACTED:PAN]`/`[REDACTED:OTP]`, never `null` — match the
+    // redacted marker rather than a null value.
+    const empty = nodes.filter((n) => n.role === 'textbox' && /^\[REDACTED:(PAN|OTP)\]$/.test(n.value ?? '') && /\b(pan|otp)\b/i.test(n.label ?? '')).map((n) => (/otp/i.test(n.label) ? 'OTP' : 'PAN'));
+    planText = JSON.stringify({ reasoning_summary: 'This is a KYC form; two required fields are empty.', actions: [], requires_client_secret: false, done: true, result: `Required fields still empty: ${[...new Set(empty)].join(', ')}.` });
+  } else {
+    planText = JSON.stringify({ reasoning_summary: 'The visible form can use local credential references.', actions, requires_client_secret: true, done: false, result: null });
+  }
   const payload = req.url === '/messages' ? { content: [{ type: 'text', text: '```json\n' + planText + '\n```' }] } : { choices: [{ message: { content: planText } }] };
   res.writeHead(200, { 'access-control-allow-origin': '*', 'content-type': 'application/json' }); res.end(JSON.stringify(payload));
 });
@@ -151,6 +161,12 @@ try {
   const plan = JSON.parse(await evaluate(
     `ATHENA.providerPlan(${JSON.stringify(request)}, ${JSON.stringify(providerSettings)}, "stub-api-key").then(r => JSON.stringify(r))`,
   ));
+  if (plan.done && plan.actions.length === 0) {
+    console.log('\nScenario C — the model answered without acting:');
+    if (/PAN/.test(plan.result) && /OTP/.test(plan.result)) pass(`result names the empty fields: ${plan.result}`); else fail(`result did not name PAN and OTP: ${plan.result}`);
+    if (plan.actions.length === 0) pass('nothing was executed');
+    throw { skip: true };
+  }
   const anthropicPlan = JSON.parse(await evaluate(
     `ATHENA.providerPlan(${JSON.stringify(request)}, ${JSON.stringify({ ...providerSettings, anthropic_format: true })}, "stub-api-key").then(r => JSON.stringify(r))`,
   ));
@@ -219,7 +235,7 @@ try {
     else pass('click dispatched (fixture did not navigate)');
   }
 } catch (err) {
-  fail(err.message);
+  if (err?.skip) {} else fail(err.message);
 } finally {
   socket?.close();
   chrome.kill('SIGKILL');

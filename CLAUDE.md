@@ -24,7 +24,7 @@ contract in §7, and limitations in §9 especially).
     /perception      # Local ViT / object detector via ONNX Runtime Web
     /pii-detection   # DOM heuristics, regex/NER, BlazeFace face detection
     /redaction       # Pixel-level + text-level redaction engine, manifest generator
-    /executor        # Action executor (click/type/scroll/wait) against live DOM
+    /executor        # Action executor (click/type/select/key/hover/scroll/wait; navigate/go_back in the worker)
     /background      # Service worker: orchestration, network calls to server
   /models            # Quantized ONNX model weights (gitignored if large; document source)
   manifest.json
@@ -75,6 +75,8 @@ a bug, not a shortcut to fix later.
   WebGPU; don't hard-fail if it's unavailable.
 - Keep model artifacts quantized (int8 where feasible) and document size/latency
   trade-offs made — this gets reported in the eval writeup (PRD §8).
+- Agent loop state lives in `background/agent/loop.ts` as a pure state machine; side
+  effects only through `LoopDeps`. Test it in Node (`test:loop`), not in a browser.
 
 ### PII detection & redaction
 - Follow the three-tier model in PRD §4.3 exactly (Tier 1 hard-block, Tier 2 mask-but-
@@ -129,7 +131,7 @@ a bug, not a shortcut to fix later.
 
 ## Explicit non-goals (don't build these without discussion — see PRD §3.2)
 - Cross-browser support beyond Chrome + Firefox.
-- A general-purpose automation DSL beyond click/type/scroll/read/wait.
+- A general-purpose automation DSL beyond the nine approved verbs (design spec 2026-09-11, Decisions table).
 - Cryptographic/formally-verified privacy guarantees (secure enclaves, homomorphic
   inference) — this is a heuristic redaction pipeline, not a zero-trust system. Don't
   describe it as one in code comments, docs, or demo copy.

@@ -122,6 +122,30 @@ click the icon first on a site you have not enabled.
 
 The permission prompt itself cannot be scripted; the harnesses cover everything up to it.
 
+### Run the agent
+
+Type a goal in the panel and press **Start**. The agent loop repeats capture →
+plan → gate → execute → settle, one step at a time, until the model calls
+`done` or a limit is hit.
+
+| | |
+|---|---|
+| **Approve every step** | every planned action is shown for approval before it runs |
+| **Approve sensitive only** | routine-risk actions run automatically; sensitive-risk actions (submitting a form, anything destructive) still stop for approval |
+| **Stop** | ends the run immediately, mid-step if necessary |
+| Step cap | `storage.local` key `athena:max-steps` (default 25); no Settings control yet — set it via the extension's storage directly |
+
+The model's plan is nine verbs plus a `done` signal: `click`, `type`, `select`,
+`key`, `hover`, `scroll`, `go_back`, `navigate`, `wait`. Each action carries a
+`risk` (`routine` or `sensitive`) that decides whether **Approve sensitive
+only** stops for it. A step can instead set `done: true` with a `result`
+string and no actions — the model answering a question about the page (for
+example, naming which required fields are still empty) without acting at all.
+Scenario C in [Demo scenarios](#demo-scenarios) exercises exactly this path.
+
+`focus` and `read` are **not** verbs — an earlier iteration had them; they were
+cut in favor of the nine above.
+
 The **demo view** has three columns — what was on screen, what was detected
 (Tier 1 red, Tier 2 amber), and the exact bytes that crossed the network beside
 the redaction manifest — then the plan the server returned and the outcome of
@@ -209,16 +233,21 @@ npm run test:capture      # shadow DOM paths resolve, iframes are black-boxed, n
 npm run test:redaction   # no planted value survives; structure does (both form fixtures)
 npm run test:faces       # detector runs in a browser and finds faces
 npm run test:scenario-b  # 22 faces detected → 0 after blurring
-npm run test:e2e         # full loop: no secret out, no secret back, field still filled
+npm run test:e2e         # Scenario A end to end: no secret out, no secret back, field still filled
+npm run test:e2e:c       # Scenario C end to end: the model answers without acting
+npm run test:executor    # the nine verbs against a live DOM, incl. Enter→requestSubmit and Tab focus
+npm run test:reasoning   # prompt verb rules, risk, done/result
+npm run test:loop        # the agent loop state machine, in Node — no browser
 npm run preview:viewer   # renders the demo view with real data -> eval/results/viewer.png
 
 cd ../server && uv run pytest    # 31 tests: ingress, planner guardrails, endpoint, provider failure modes
 ```
 
 Each harness starts its own Chrome (and, where needed, its own server) and cleans
-up after itself. `test:e2e`, `test:scenario-b` and `preview:viewer` need
+up after itself. `test:e2e`, `test:e2e:c`, `test:scenario-b` and `preview:viewer` need
 `npm run fetch:model`; `test:scenario-b` also needs `fetch:demo-faces`. `test:capture`
-covers `shadow-iframe.html`, `long-page.html` and `many-controls.html`.
+covers `shadow-iframe.html`, `long-page.html` and `many-controls.html`. `test:loop`
+runs the agent loop as a pure state machine with no browser at all.
 
 ## Eval
 
