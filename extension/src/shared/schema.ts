@@ -156,6 +156,12 @@ export interface RawDomNode {
     class: string | null;
     /** File name of an img's src (no path, no query), clipped to 80 chars. */
     src_file: string | null;
+    /**
+     * FNV-1a of the media element's `currentSrc` (8 hex chars) — never the URL
+     * itself. DeltaVision (shared/delta.ts) folds this into a media node's hash
+     * so a swapped image at the same path/box/alt is still seen as changed.
+     */
+    src_hash: string | null;
   };
   bbox: BBox;
   interactive: boolean;

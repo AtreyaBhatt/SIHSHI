@@ -23,6 +23,8 @@ export interface DetectFacesRequest {
   /** Viewport CSS px per screenshot device px. */
   viewport_width: number;
   threshold?: number;
+  /** false skips the whole-frame pass, scanning only `regions` — DeltaVision on a step where some media changed but the rest of the page is known. Default true. */
+  full_frame?: boolean;
 }
 
 export interface DetectFacesReply {
@@ -68,6 +70,7 @@ async function handle(message: DetectFacesRequest): Promise<DetectFacesReply> {
       regions,
       scale: cssPerDevice,
       ...(message.threshold !== undefined ? { threshold: message.threshold } : {}),
+      ...(message.full_frame !== undefined ? { full_frame: message.full_frame } : {}),
     });
 
     return {

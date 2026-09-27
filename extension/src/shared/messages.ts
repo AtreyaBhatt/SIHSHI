@@ -5,6 +5,7 @@ import type { FirewallReport } from '../redaction/firewall';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
 import type { Run, RunMode } from '../background/agent/loop';
 import type { VaultStatus } from './vault';
+import type { DeltaReport } from './delta';
 
 export type PanelToWorker =
   | { type: 'athena:run-capture'; tab_id?: number }
@@ -51,6 +52,8 @@ export interface PayloadPreview {
   build_ms: number;
   perception_note: string | null;
   error: string | null;
+  /** What DeltaVision skipped this step, and how much. Null when the build failed before face detection ran. */
+  delta: DeltaReport | null;
 }
 
 export interface PlanPreview {

@@ -16,6 +16,7 @@
 import type { BBox, RawDomNode, RawSnapshot } from '../shared/schema';
 import { SCHEMA_VERSION } from '../shared/schema';
 import { SHADOW_SEP } from '../shared/resolve-path';
+import { fnv1a } from '../shared/delta';
 
 /** What is sent. Snapshots that needed trimming are flagged `truncated`. */
 const MAX_NODES = 800;
@@ -392,6 +393,16 @@ function srcFile(el: Element): string | null {
   return name ? name.slice(0, 80) : null;
 }
 
+/**
+ * FNV-1a of the resolved `currentSrc` — never the URL. `currentSrc` (img,
+ * video) reflects what actually loaded (post-srcset, post-redirect); a bare
+ * `src` attribute is the fallback for media that doesn't have it (canvas, svg).
+ */
+function srcHash(el: Element): string | null {
+  const current = (el as { currentSrc?: string }).currentSrc || el.getAttribute('src');
+  return current ? fnv1a(current) : null;
+}
+
 // ---------------------------------------------------------------------------
 // The walk
 // ---------------------------------------------------------------------------
@@ -499,6 +510,7 @@ export function captureDomSnapshot(): RawSnapshot {
               maxlength: el.getAttribute('maxlength'),
               class: el.getAttribute('class')?.slice(0, 80) ?? null,
               src_file: media ? srcFile(el) : null,
+              src_hash: media ? srcHash(el) : null,
             },
             bbox: toBBox(rect),
             interactive,

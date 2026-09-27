@@ -27,6 +27,7 @@ import {
 } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
+import { planDelta, nextState, type DeltaReport, type FaceBox, type StepState } from '../shared/delta';
 import {
   approve, drive, newRun, stop, type Run, type RunStatus,
 } from './agent/loop';
@@ -88,6 +89,17 @@ let priorActions: PriorAction[] = [];
  */
 const typedSecretPaths = new Map<string, Set<string>>();
 const typedSecretValues = new Map<string, Set<string>>();
+
+/**
+ * DeltaVision's per-run/session memory: the previous step's node hashes and
+ * known face boxes, keyed by the same registry `session_id` as everything
+ * else above (run id while a loop is driving, single-step session id
+ * otherwise). Worker memory only — a restart is indistinguishable from a
+ * first step, which is the safe direction (re-processes everything rather
+ * than risking a stale face box). Dropped wherever the registry mirror is:
+ * endRun() and resetSession().
+ */
+const stepStates = new Map<string, StepState>();
 
 function forgetTypedSecrets(key: string): void {
   typedSecretPaths.delete(key);
@@ -187,6 +199,7 @@ async function resetSession(): Promise<string> {
   const old = await sessionTokens();
   forgetTypedSecrets(old.session_id);
   await dropRegistry(old.session_id);
+  stepStates.delete(old.session_id);
   tokens = new TokenRegistry(newSessionId());
   try { await api.storage.session.set({ [SESSION_ID_KEY]: tokens.session_id }); } catch { /* memory copy stands */ }
   priorActions = [];
@@ -219,33 +232,92 @@ async function ensureOffscreen(): Promise<void> {
   return offscreenReady;
 }
 
+function toFaceBox(f: FaceDetection): FaceBox {
+  return { bbox: f.bbox, confidence: f.score };
+}
+
+function toFaceDetection(f: FaceBox): FaceDetection {
+  return { bbox: f.bbox, score: f.confidence };
+}
+
 /**
  * Best-effort by design: a page with no faces, an absent model file, or a
  * machine where the runtime will not start must not cost the user their text
  * redaction. Failures are reported, not thrown.
+ *
+ * DeltaVision: only media regions whose node hash changed since `prev` (or
+ * every region, on the first step / when there is no `prev`) are sent to the
+ * detector; faces already known for unchanged regions are carried over from
+ * `prev.facesByPath` and merged in, never dropped. On any doubt — no `prev`,
+ * a hash mismatch, a missing model — the region is (re)processed; reuse only
+ * ever narrows what is *sent*, never what is *redacted*.
  */
-async function detectFaces(capture: CaptureResult): Promise<{ faces: FaceDetection[]; note: string | null }> {
-  if (!capture.screenshot_data_url) return { faces: [], note: 'no screenshot to scan' };
+async function detectFaces(
+  capture: CaptureResult,
+  prev: StepState | null,
+): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState }> {
+  const { changedMedia, reusedFaces, report, hashes } = planDelta(prev, capture.snapshot.nodes);
+  const mediaNodes = capture.snapshot.nodes.filter((n) => n.media && n.media !== 'iframe');
+  const reusedDetections = reusedFaces.map(toFaceDetection);
+
+  const skipReprocess = capture.screenshot_data_url === null;
+  const skipCall = changedMedia.length === 0 && !report.first_step;
+
+  if (skipReprocess) {
+    return {
+      faces: reusedDetections,
+      note: 'no screenshot to scan',
+      report,
+      state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
+    };
+  }
+  if (skipCall) {
+    return {
+      faces: reusedDetections,
+      note: `${reusedFaces.length} face(s) reused · 0 ms`,
+      report,
+      state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
+    };
+  }
+
   try {
     await ensureOffscreen();
     // Frames are black-boxed unconditionally (build-request emits a `frame`
     // entry), so scanning their pixels for faces is inference spent on a
     // region that is already gone.
-    const regions = capture.snapshot.nodes.filter((n) => n.media && n.media !== 'iframe').map((n) => n.bbox);
+    const regions = changedMedia.map((n) => n.bbox);
     const reply = (await api.runtime.sendMessage({
       type: 'athena:detect-faces',
       screenshot_data_url: capture.screenshot_data_url,
       regions,
       viewport_width: capture.snapshot.viewport.width,
+      // The full-frame pass only runs on the first step; a later step with
+      // some changed media scans those regions only, not the whole frame again.
+      full_frame: report.first_step,
     })) as DetectFacesReply;
 
-    if (!reply?.ok) return { faces: [], note: reply?.error ?? 'face detector returned nothing' };
+    if (!reply?.ok) {
+      return {
+        faces: reusedDetections,
+        note: reply?.error ?? 'face detector returned nothing',
+        report,
+        state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
+      };
+    }
+    const state = nextState(hashes, mediaNodes, reply.faces.map(toFaceBox), reusedFaces, prev);
     return {
-      faces: reply.faces,
-      note: `${reply.faces.length} face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
+      faces: [...reply.faces, ...reusedDetections],
+      note: `${reply.faces.length} new + ${reusedFaces.length} reused face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
+      report,
+      state,
     };
   } catch (err) {
-    return { faces: [], note: err instanceof Error ? err.message : String(err) };
+    return {
+      faces: reusedDetections,
+      note: err instanceof Error ? err.message : String(err),
+      report,
+      state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
+    };
   }
 }
 
@@ -258,7 +330,8 @@ async function buildPayload(
 ): Promise<PayloadPreview> {
   const started = performance.now();
   try {
-    const { faces, note } = await detectFaces(capture);
+    const { faces, note, report, state } = await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
+    stepStates.set(registry.session_id, state);
     const { request, detections, firewall } = await buildAgentRequest({
       snapshot: capture.snapshot,
       screenshotDataUrl: capture.screenshot_data_url,
@@ -281,6 +354,7 @@ async function buildPayload(
       firewall,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
       perception_note: note,
+      delta: report,
       error: null,
     };
   } catch (err) {
@@ -299,6 +373,7 @@ async function buildPayload(
       firewall: report,
       build_ms: Math.round((performance.now() - started) * 100) / 100,
       perception_note: null,
+      delta: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -592,6 +667,7 @@ async function endRun(runId: string): Promise<void> {
   forgetTypedSecrets(runId);
   if (runTokens?.session_id === runId) runTokens = null;
   await dropRegistry(runId);
+  stepStates.delete(runId);
 }
 
 /** Runs `fn` and clears any stale stop request once the run reaches a terminal status. */

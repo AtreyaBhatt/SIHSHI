@@ -132,6 +132,8 @@ export interface DetectOptions {
   regions?: BBox[];
   /** Maps source-image pixels to viewport CSS pixels. 1 when they are the same. */
   scale?: number;
+  /** false skips the whole-frame pass (`passes[0] === null`), scanning `regions` only. Default true. */
+  full_frame?: boolean;
 }
 
 async function runOne(
@@ -182,7 +184,10 @@ async function runOne(
 }
 
 export async function detectFaces(source: ImageSource, options: DetectOptions): Promise<FaceDetectionResult> {
-  const passes: (BBox | null)[] = [null, ...(options.regions ?? [])];
+  const passes: (BBox | null)[] = [
+    ...(options.full_frame === false ? [] : [null]),
+    ...(options.regions ?? []),
+  ];
   const all: FaceDetection[] = [];
   let totalMs = 0;
   let preprocessMs = 0;
