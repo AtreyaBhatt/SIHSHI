@@ -20,6 +20,12 @@
      dropped by the bounding-box rule — accepted over-dropping, not a bug. -->
 <span id="sr" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)">Opens in a new tab</span>
 
+<!-- NOT camouflaged: white text over a gradient background-image, not a solid
+     colour. Legible to a human even though the text colour equals nothing in
+     particular; the colour rule must not fire just because an ancestor's
+     background-image happens to be dark. -->
+<div id="hero" style="background-image:linear-gradient(#123,#456);color:#fff">Welcome back</div>
+
 <button id="go" type="button">Go</button>
 </body>
 </html>

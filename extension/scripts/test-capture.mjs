@@ -154,6 +154,11 @@ try {
   else fail(`expected request.hidden_dropped === 4, got ${hidden.request.hidden_dropped}`);
   if (hidden.userMessage.includes('4 hidden or camouflaged text element(s)')) pass('user message reports "4 hidden or camouflaged text element(s)"');
   else fail(`user message missing the hidden-text note: ${hidden.userMessage}`);
+  const hero = hidden.nodes.find((n) => n.path === 'div#hero');
+  if (hero?.text === 'Welcome back') pass('"Welcome back" (white text over a gradient background-image) is present in the snapshot');
+  else fail(`div#hero missing or wrong text: ${JSON.stringify(hero)}`);
+  if (hiddenPayload.includes('Welcome back')) pass('"Welcome back" reaches the built request (it is legible, not camouflaged)');
+  else fail('"Welcome back" was dropped from the request');
 
   console.log('\nnode budget (long-page.html):');
   await call('Page.navigate', { url: `file://${resolve('../eval/fixtures/long-page.html')}` });

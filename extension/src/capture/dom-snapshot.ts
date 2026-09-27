@@ -327,19 +327,41 @@ function parseRgb(value: string): { r: number; g: number; b: number; a: number }
   return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: m[4] !== undefined ? Number(m[4]) : 1 };
 }
 
+/** 'unknown' means an image/gradient sits behind the text somewhere on the way up — the colour rule cannot speak to legibility there. */
+type EffectiveBackground = { r: number; g: number; b: number } | 'unknown';
+
 /**
  * Walks from `el` itself up to `body`, returning the first background-color
- * with alpha > 0. Starts at `el` because a node's own background paints
- * directly behind its own text. Defaults to white — the same assumption a
- * browser's default canvas makes when nothing in the ancestor chain sets one.
+ * with alpha > 0. Starts at `el`'s own already-resolved style (the caller
+ * holds it already, so this only pays for `getComputedStyle` from the parent
+ * upward) because a node's own background paints directly behind its own
+ * text. Defaults to white — the same assumption a browser's default canvas
+ * makes when nothing in the ancestor chain sets one.
+ *
+ * A `background-image` (photo, gradient) encountered before an opaque
+ * background-color makes the answer 'unknown': text can be perfectly legible
+ * over imagery even when its colour matches some solid ancestor further up,
+ * so the colour-match camouflage rule must not apply there.
+ *
+ * Known remaining limit: text coloured like a solid ancestor background is
+ * still dropped even when a *sibling* element (not an ancestor) paints an
+ * overlay that would make it legible in practice — this walk only ever looks
+ * at the ancestor chain's own backgrounds.
  */
-function effectiveBackground(el: Element): { r: number; g: number; b: number } {
+function effectiveBackground(el: Element, style: CSSStyleDeclaration): EffectiveBackground {
   let cur: Element | null = el;
+  let color = style.backgroundColor;
+  let image = style.backgroundImage;
   while (cur) {
-    const bg = parseRgb(getComputedStyle(cur).backgroundColor);
+    if (image && image !== 'none') return 'unknown';
+    const bg = parseRgb(color);
     if (bg && bg.a > 0) return bg;
     if (cur === document.body) break;
     cur = cur.parentElement;
+    if (!cur) break;
+    const parentStyle = getComputedStyle(cur);
+    color = parentStyle.backgroundColor;
+    image = parentStyle.backgroundImage;
   }
   return { r: 255, g: 255, b: 255 };
 }
@@ -354,7 +376,8 @@ function isCamouflaged(el: Element, style: CSSStyleDeclaration, rect: DOMRect): 
   if (rect.width < MIN_READABLE_BOX_PX && rect.height < MIN_READABLE_BOX_PX) return true;
   const fg = parseRgb(style.color);
   if (!fg) return false;
-  const bg = effectiveBackground(el);
+  const bg = effectiveBackground(el, style);
+  if (bg === 'unknown') return false;
   return (
     Math.abs(fg.r - bg.r) < COLOR_MATCH_TOLERANCE &&
     Math.abs(fg.g - bg.g) < COLOR_MATCH_TOLERANCE &&
