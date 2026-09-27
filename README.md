@@ -132,7 +132,7 @@ plan → gate → execute → settle, one step at a time, until the model calls
 |---|---|
 | **Approve every step** | every planned action is shown for approval before it runs |
 | **Approve sensitive only** | pauses for approval on: credentials (any `value_ref`), `navigate`, the Enter key, clicks on buttons and links, typing into any redacted field, and anything the model marks sensitive. Routine typing, selecting and scrolling proceed without a click |
-| **Stop** | ends the run immediately, mid-step if necessary |
+| **Stop** | takes effect after the current action batch finishes; nothing further is planned or executed |
 | Step cap | `storage.local` key `athena:max-steps` (default 25); no Settings control yet — set it via the extension's storage directly |
 
 The model's plan is nine verbs plus a `done` signal: `click`, `type`, `select`,
@@ -236,11 +236,11 @@ npm run test:scenario-b  # 22 faces detected → 0 after blurring
 npm run test:e2e         # Scenario A end to end: no secret out, no secret back, field still filled
 npm run test:e2e:c       # Scenario C end to end: the model answers without acting
 npm run test:executor    # the nine verbs against a live DOM, incl. Enter→requestSubmit and Tab focus
-npm run test:reasoning   # prompt verb rules, risk, done/result
+npm run test:reasoning   # guardrails (verbs, value/value_ref, risk floor, typed-secret masking) and the plan split
 npm run test:loop        # the agent loop state machine, in Node — no browser
 npm run preview:viewer   # renders the demo view with real data -> eval/results/viewer.png
 
-cd ../server && uv run pytest    # 31 tests: ingress, planner guardrails, endpoint, provider failure modes
+cd ../server && uv run pytest    # 43 tests: ingress, planner guardrails, endpoint, provider failure modes
 ```
 
 Each harness starts its own Chrome (and, where needed, its own server) and cleans

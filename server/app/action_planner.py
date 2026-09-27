@@ -1,20 +1,25 @@
 """Constrains model output to something safe to execute (PRD §6.2.8).
 
 The model's plan is a suggestion. This module is what decides whether each action
-is allowed to reach the user's browser. Four guardrails, in order of how badly
-they fail if missing:
+is allowed to reach the user's browser. The rules, mirrored in the extension's
+direct-provider-response.ts:
 
 1. **Selector allowlist.** An action may only target a path the client actually
    sent. Without this the model can name any selector on the page — including
    elements the redaction layer deliberately withheld — and the client would
    dutifully act on it. That is an exfiltration path, not a UX bug.
-2. **No secret injection.** A Tier 1 field must be filled via `value_ref`, never
+2. **Shape.** click/type/select/hover need a selector; select needs an option;
+   key needs a key; navigate needs an http(s) url.
+3. **value / value_ref only on type**, and `type` carries exactly one of them.
+4. **No marker echo.** `[EMAIL_1]` typed into a form is both wrong and a sign the
+   model is treating placeholders as data.
+5. **value_ref is a `user_saved:` reference.**
+6. **No secret injection.** A Tier 1 field must be filled via `value_ref`, never
    a literal. If the server can put a literal into a password box, the server is
    back in the business of handling secrets.
-3. **No marker echo.** `[EMAIL_1]` typed into a form is both wrong and a sign the
-   model is treating placeholders as data.
-4. **Shape.** Verbs that need a selector have one; `type` carries exactly one of
-   value / value_ref.
+7. **Risk floor.** navigate, the Enter key, clicks on buttons and links, and
+   typing into any field with a manifest entry are forced `sensitive`, so
+   approve-sensitive pauses on them whatever the model said.
 
 Violations are dropped, not raised. One bad action should not lose a good plan,
 and the rejections are reported back so the refusal is visible rather than silent.

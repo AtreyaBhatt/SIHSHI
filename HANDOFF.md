@@ -132,8 +132,10 @@ execute  ←───────────── executePlanFlow
 | `npm run test:faces` | Detector runs in a browser and finds faces (25/25 on a group photo) |
 | `npm run test:scenario-b` | 22 faces → 0 after blurring, with the mute button still labelled |
 | `npm run test:e2e` | Full loop: no secret out, no secret back, field still filled, form submitted |
+| `npm run test:e2e:c` | Scenario C: the model answers without acting. The stub selects empty fields by null value; a real model can now tell empty sensitive fields from filled ones via the null-plus-manifest rule (one line added to both system prompts; detector-level eval numbers unchanged) |
+| `npm run test:reasoning` | Guardrails (verbs, value/value_ref, risk floor, typed-secret masking and egress check) and the plan split, in Node |
 | `npm run preview:viewer` | The demo view renders with real data → `eval/results/viewer.png` |
-| `uv run pytest` | 31 tests: ingress, planner guardrails, endpoint, provider failure modes |
+| `uv run pytest` | 43 tests: ingress, planner guardrails, endpoint, provider failure modes |
 
 Each harness starts its own Chrome (and server where needed) and cleans up.
 `fixtures.spec.mjs` reports **known recall gaps** rather than hiding them, and
