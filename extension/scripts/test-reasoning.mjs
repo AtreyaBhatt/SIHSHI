@@ -279,6 +279,7 @@ console.log('firewall');
   req = mk([{ path: 'p#z', role: null, label: null, value: 'ref ４５３９１４８８０３４３６４６７' }]);
   rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
   check(rep.masked === 1 && req.dom_summary[0].value === 'ref [CARD_NUMBER_1]', `full-width digits are folded before matching, then masked (${req.dom_summary[0].value})`);
+  check(req.redaction_manifest.some((e) => e.id === 'CARD_NUMBER_1' && e.tier === 1 && e.masking === 'token' && e.detector === 'firewall:card'), 'full-width card gets a tier-1 manifest entry');
 
   req = mk([{ path: 'p#i', role: null, label: null, value: 'GB29 NWBK 6016 1331 9268 19' }]);
   rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
@@ -318,7 +319,9 @@ console.log('firewall');
     check(o.r.redaction_manifest.some((e) => e.id === tokenId && e.tier === 1 && e.masking === 'token' && e.detector === `firewall:${rule}`), `${rule} gets a tier-1 manifest entry`);
   }
   o = one('2345 6789 0125');
-  check(!o.err && o.rep.blocked === 0, 'Verhoeff-invalid 12 digits pass');
+  check(!o.err && o.rep.masked === 0 && o.out === '2345 6789 0125', 'Verhoeff-invalid 12 digits pass unchanged');
+  o = one('2345 6789 0124 1111');
+  check(!o.err && o.rep.masked === 0 && o.out === '2345 6789 0124 1111', 'a valid Aadhaar digit-run embedded in a longer run is not masked (no Aadhaar window in a longer run)');
   o = one('Ｏｒｄｅｒ ｎｏ. ４２');
   check(o.out === 'Ｏｒｄｅｒ ｎｏ. ４２' && o.rep.masked === 0, 'text with no hits is returned unchanged (no NFKC rewrite)');
   o = one('Ｏｒｄｅｒ ４２ — a@b.co');
@@ -332,12 +335,13 @@ console.log('firewall');
   check(o.out === 'call [PHONE_1] today', `phone with mathematical-bold digits masked in place (${o.out})`);
   o = one(`${'ﬁ'.repeat(3)} a@b.co ${'𝟏'.repeat(3)}`);
   check(!o.out.includes('a@b.co') && (o.err?.name === 'RawPiiLeakError' || o.out === `${'ﬁ'.repeat(3)} [EMAIL_1] ${'𝟏'.repeat(3)}`), `expansion before + contraction after (equal total length) never leaks (${o.out})`);
-  // Fail-closed rescan: a rule that misses on the first pass and fires on the
-  // output (standing in for any replacement bug) blocks instead of sending.
-  FIREWALL_RULES.push({ name: 'probe', type: 'phone', find: (s) => (s.includes('zz') && !s.includes('@') ? [{ start: s.indexOf('zz'), end: s.indexOf('zz') + 2 }] : []) });
-  o = one('mail a@b.co zz');
+  // Fail-closed rescan: a probe that always finds another hit, however many
+  // times it is masked, never converges within the three-pass cap — standing
+  // in for a replacement bug — and blocks instead of sending.
+  FIREWALL_RULES.push({ name: 'probe', type: 'phone', find: (s) => (s.length > 0 ? [{ start: 0, end: 1 }] : []) });
+  o = one('mail a@b.co');
   FIREWALL_RULES.pop();
-  check(o.err?.name === 'RawPiiLeakError' && o.err.message.includes('firewall:residual') && !o.err.message.includes('zz') && o.err.report.hits.some((h) => h.rule === 'residual' && h.action === 'blocked'), `a residual hit after masking blocks (${o.err?.message ?? 'not blocked'})`);
+  check(o.err?.name === 'RawPiiLeakError' && o.err.message.includes('firewall:residual') && o.err.report.hits.some((h) => h.rule === 'residual' && h.action === 'blocked'), `a hit still present after the pass cap blocks (${o.err?.message ?? 'not blocked'})`);
   o = one('mail a@b.co zz');
   check(o.err === null && o.out === 'mail [EMAIL_1] zz', 'a clean rescan passes (probe removed)');
 
@@ -346,6 +350,13 @@ console.log('firewall');
   check(!o.err && o.rep.masked === 0 && o.rep.blocked === 0, `grouped tracking number passes untouched (${o.err?.message ?? 'ok'})`);
   o = one('4111111111111111@ybl');
   check(!o.err && o.rep.masked === 1 && o.rep.hits[0].rule === 'card' && o.out === '[CARD_NUMBER_1]@ybl', `card before upi: card-number UPI handle masks as card, not upi (${o.err?.message ?? o.out})`);
+
+  // J1: masking a card window can leave a remainder that is itself a whole
+  // digit run on the next pass — that gets its own token instead of blocking.
+  o = one('4111 1111 1111 1111 2345 6789 0124');
+  check(!o.err && o.rep.masked === 2 && o.rep.blocked === 0 && o.out === '[CARD_NUMBER_1] [AADHAAR_1]', `card and the aadhaar remainder it leaves behind are both masked, no throw (${o.err?.message ?? o.out})`);
+  o = one('4111 1111 1111 1111 41111 11111 111111');
+  check(!o.err && o.rep.masked >= 1, `a remainder that only becomes card-shaped after masking is absorbed within the pass cap, not blocked (${o.err?.message ?? o.out})`);
   // G4: ids left to right.
   o = one('a@b.co then c@d.co');
   check(o.out === '[EMAIL_1] then [EMAIL_2]', `token ids assigned left to right (${o.out})`);

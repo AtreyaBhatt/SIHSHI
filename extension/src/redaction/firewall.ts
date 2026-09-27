@@ -160,15 +160,19 @@ function scanText(folded: string): Hit[] {
 export function scanRequest(request: AgentRequest, registry: TokenRegistry, nodesByPath: Map<string, Pick<RawDomNode, 'path' | 'bbox'>>): FirewallReport {
   const report: FirewallReport = { fields_scanned: 0, masked: 0, blocked: 0, hits: [] };
   const declared = new Set<string>();
-  const maskField = (text: string, field: string, path: string | null): string => {
-    report.fields_scanned++;
+  // One scan-and-replace pass over `text`. Masking a window can turn a leftover
+  // digit run into a new maximal run (e.g. a card window carved out of a longer
+  // run leaves a remainder that is now, on its own, a valid Aadhaar number) —
+  // that remainder is a fresh hit, not a residual, so `maskField` below re-runs
+  // this up to three times before treating anything left as a leak.
+  const maskOnce = (text: string, field: string, path: string | null): { out: string; hadHits: boolean } => {
     const { folded, from, to } = foldWithMap(text);
     const hits = scanText(folded).sort((a, b) => a.start - b.start);
-    if (hits.length === 0) return text; // Tier-3 text goes out exactly as it came in
+    if (hits.length === 0) return { out: text, hadHits: false };
     // Token ids are assigned left to right; replacement then runs right to left.
     // Every hit is masked here, Tier 1 included: a chance Luhn/Verhoeff match
-    // must not kill the run, and the fail-closed rescan below is what actually
-    // guards against a leak.
+    // must not kill the run, and the fail-closed rescan in `maskField` is what
+    // actually guards against a leak.
     const masks: { id: string; start: number; end: number }[] = [];
     for (const { rule, match, start, end } of hits) {
       const tier = TIER_BY_TYPE[rule.type];
@@ -183,8 +187,19 @@ export function scanRequest(request: AgentRequest, registry: TokenRegistry, node
     }
     let out = text, limit = text.length;
     for (const { id, start, end } of masks.reverse()) { out = `${out.slice(0, start)}[${id}]${out.slice(Math.min(end, limit))}`; limit = start; }
-    // Fail closed: whatever goes out must not match any rule here. A residual
-    // hit (a replacement that missed its value) blocks the request instead.
+    return { out, hadHits: true };
+  };
+  const maskField = (text: string, field: string, path: string | null): string => {
+    report.fields_scanned++;
+    let out = text;
+    for (let pass = 0; pass < 3; pass++) {
+      const step = maskOnce(out, field, path);
+      if (!step.hadHits) return pass === 0 ? text : out; // Tier-3 text (pass 0), or a clean rescan: nothing left to mask
+      out = step.out;
+    }
+    // Fail closed: whatever remains after three masking passes must not match
+    // any rule here. A residual hit (a remainder that never resolved into a
+    // clean run, or a replacement that missed its value) blocks the request.
     for (const r of scanText(foldWithMap(out).folded)) { report.blocked++; report.hits.push({ type: r.rule.type, rule: 'residual', field, action: 'blocked' }); }
     return out;
   };

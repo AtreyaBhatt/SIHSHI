@@ -353,10 +353,11 @@ export async function buildAgentRequest(
 
   // The firewall is the independent outbound scan that replaces the old
   // context-free assertNoRawPii check (client-side mirror of the server
-  // ingress check, PRD §6.2.6) — but it also masks what it finds (Tier 2) and
-  // pushes manifest entries for it, rather than merely asserting. It must run
-  // before the screenshot is redacted below so a new manifest entry still gets
-  // its pixels blacked out.
+  // ingress check, PRD §6.2.6) — it masks every hit it finds, Tier 1 and
+  // Tier 2 alike, with a numbered token and a manifest entry, and only ever
+  // blocks the request on a residual hit still present after masking. It must
+  // run before the screenshot is redacted below so a new manifest entry still
+  // gets its pixels blacked out.
   const nodesByPath = new Map(snapshot.nodes.map((node) => [node.path, node]));
   const firewall = scanRequest(request, tokens, nodesByPath);
 
