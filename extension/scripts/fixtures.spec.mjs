@@ -44,6 +44,13 @@ export const FIXTURES = [
       ['account number cell', 'dd#account-number'],
       ['customer id field', 'input#customer-id'],
     ],
+    tokenFields: [
+      ['PAN field', 'input#pan', /^\[PAN_\d+\]$/],
+      ['account number cell', 'dd#account-number', /^\[BANK_ACCOUNT_\d+\]$/],
+    ],
+    fixedMarkerFields: [
+      ['password field', 'input#password', '[REDACTED:PASSWORD]'],
+    ],
   },
   {
     name: 'kyc-form (Scenario C)',
@@ -66,6 +73,11 @@ export const FIXTURES = [
       ['PIN code', 'input#pincode'],
       ['applicant name', 'input#applicant-name'],
       ['customer reference cell', 'td#cust-ref'],
+    ],
+    tokenFields: [
+      ['aadhaar field', 'input#aadhaar', /^\[AADHAAR_\d+\]$/],
+      ['refund account', 'td#refund-account', /^\[BANK_ACCOUNT_\d+\]$/],
+      ['IFSC', 'td#refund-ifsc', /^\[IFSC_\d+\]$/],
     ],
     emptyTier1Fields: [
       ['empty PAN field', 'input#pan'],

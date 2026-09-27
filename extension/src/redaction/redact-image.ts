@@ -100,7 +100,10 @@ export async function redactScreenshot(
 
     if (masking !== "blur") {
       // Solid fill by default: a blurred region still carries signal, and Tier 1
-      // means never leaves the device.
+      // means never leaves the device. This covers 'token' regions too — a
+      // resolvable Tier-1 entry (aadhaar, pan, card_number, ...) gets a numbered
+      // text token in dom_summary, but its pixels are still blacked out here,
+      // never blurred: masking !== 'blur' fills every non-blur region.
       ctx.fillStyle = "#000";
       ctx.fillRect(x, y, w, h);
     } else {

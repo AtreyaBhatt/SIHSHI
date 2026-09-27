@@ -62,6 +62,8 @@ export interface BuildOptions {
    * occurrence and masked before the payload leaves this function.
    */
   typedSecretValues?: Iterable<string>;
+  /** 'user_saved:<slot>' names the vault holds — names only, never values. Defaults to []. */
+  availableRefs?: string[];
 }
 
 /** Matches a value that is *entirely* a redaction marker, not one embedded in other text. */
@@ -389,6 +391,7 @@ export async function buildAgentRequest(
     redaction_manifest: manifest,
     prior_actions: options.priorActions ?? [],
     truncated: snapshot.truncated,
+    available_refs: options.availableRefs ?? [],
   };
 
   assertNoRawPii(request);

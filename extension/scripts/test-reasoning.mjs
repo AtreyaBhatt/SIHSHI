@@ -196,6 +196,28 @@ console.log('plan split');
   check(s3.page.length === 0 && s3.tab?.action === 'go_back', 'tab verb first');
 }
 
+console.log('registry values and tier-1 tokens');
+{
+  await build({ entryPoints: ['src/redaction/tokens.ts'], outfile: join(temp, 'tokens.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error' });
+  await build({ entryPoints: ['src/redaction/redact-text.ts'], outfile: join(temp, 'redact-text.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error' });
+  const { TokenRegistry } = await import(`file://${join(temp, 'tokens.mjs')}`);
+  const { replacementFor } = await import(`file://${join(temp, 'redact-text.mjs')}`);
+  const reg = new TokenRegistry('r1');
+  const id = reg.idFor('aadhaar', '2345 6789 0124', 'input#aadhaar');
+  check(id === 'AADHAAR_1', `first aadhaar token is AADHAAR_1 (${id})`);
+  check(reg.valueOf('AADHAAR_1') === '2345 6789 0124', 'registry resolves the token to the original value');
+  check(reg.idFor('aadhaar', '2345-6789-0124', 'td#alt') === 'AADHAAR_1', 'same value with different punctuation gets the same token');
+  check(reg.valueOf('PASSWORD_1') === undefined, 'unknown id resolves to undefined');
+  const empty = reg.idFor('otp', null, 'input#otp');
+  check(reg.valueOf(empty) === undefined, 'a null value records no resolvable value');
+  const copy = TokenRegistry.from(JSON.parse(JSON.stringify(reg)));
+  check(copy.session_id === 'r1' && copy.valueOf('AADHAAR_1') === '2345 6789 0124' && copy.idFor('aadhaar', '2345 6789 0124', 'x') === 'AADHAAR_1', 'round-trips through JSON with counters intact');
+  check(replacementFor('aadhaar', 1, 'AADHAAR_1', '2345 6789 0124') === '[AADHAAR_1]', 'resolvable tier-1 emits a numbered token');
+  check(replacementFor('password', 1, 'PASSWORD_1', null) === '[REDACTED:PASSWORD]', 'password keeps the fixed marker');
+  check(replacementFor('otp', 1, 'OTP_1', '123456') === '[REDACTED:OTP]', 'otp keeps the fixed marker');
+  check(replacementFor('phone', 2, 'PHONE_1', '9845012345') === '[PHONE_1]', 'tier-2 unchanged');
+}
+
 await rm(temp, { recursive: true, force: true });
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} problem(s)`);
 process.exit(failures === 0 ? 0 : 1);

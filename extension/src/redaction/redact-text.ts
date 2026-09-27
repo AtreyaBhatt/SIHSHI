@@ -4,11 +4,12 @@
  * Operates on strings taken from the serialized snapshot. Nothing in here can
  * reach the live page — the user's DOM is never touched.
  */
+import { RESOLVABLE_TIER1 } from "../shared/schema";
 import type { MaskingStrategy, PiiTier, PiiType } from "../shared/schema";
 
 /** Tier 1 is replaced outright; Tier 2 keeps enough shape for the server to reason about the form. */
 export function maskingFor(type: PiiType, tier: PiiTier): MaskingStrategy {
-  if (tier === 1) return "blackbox";
+  if (tier === 1) return RESOLVABLE_TIER1.has(type) ? "token" : "blackbox";
   // PRD §4.3 offers partial masking or tokenisation for Tier 2. Email keeps a
   // partial because its shape ("this is an address, at some domain") is what
   // makes a login form legible. Phone numbers are tokenised rather than
@@ -34,7 +35,11 @@ export function replacementFor(
   tokenId: string,
   original: string | null,
 ): string {
-  if (tier === 1) return `[REDACTED:${type.toUpperCase()}]`;
+  if (tier === 1) {
+    return RESOLVABLE_TIER1.has(type)
+      ? `[${tokenId}]`
+      : `[REDACTED:${type.toUpperCase()}]`;
+  }
   if (type === "email" && original) return partialEmail(original);
   return `[${tokenId}]`;
 }

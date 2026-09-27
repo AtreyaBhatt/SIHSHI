@@ -19,9 +19,9 @@ import type { AgentAction, AgentRequest, AgentResponse, PriorAction } from '../s
 import type { ActionOutcome, ExecutableAction, ExecutableVerb } from '../executor/execute';
 import { splitAtTabVerb } from '../shared/plan-split';
 import { assertNoTypedSecrets, buildAgentRequest } from '../redaction/build-request';
-import { TokenRegistry, newSessionId } from '../redaction/tokens';
+import { TokenRegistry, newSessionId, type RegistryJSON } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
-import { resolveValueRef } from '../shared/vault';
+import { resolveValueRef, vaultSlots } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
 import {
@@ -117,8 +117,50 @@ function originOf(url: string): string {
   }
 }
 
+/**
+ * Mirrors a token registry to chrome.storage.session, keyed by its session id,
+ * so a service-worker restart mid-session can rebuild it instead of starting
+ * token numbering (and the id→value map a typed token needs) over from zero.
+ * storage.session is memory-backed and browser-session scoped — it is never
+ * written to disk and is gone when the browser session ends, which is what
+ * keeps this consistent with PRD §9.4. Never mirror to storage.local.
+ */
+const REGISTRY_KEY = (id: string) => `athena:registry:${id}`;
+
+async function saveRegistry(registry: TokenRegistry): Promise<void> {
+  try {
+    await api.storage.session.set({ [REGISTRY_KEY(registry.session_id)]: registry.toJSON() });
+  } catch {
+    // Memory copy stands.
+  }
+}
+
+async function loadRegistry(id: string): Promise<TokenRegistry | null> {
+  try {
+    const key = REGISTRY_KEY(id);
+    const stored = (await api.storage.session.get(key))?.[key] as RegistryJSON | undefined;
+    return stored ? TokenRegistry.from(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dropRegistry(id: string): Promise<void> {
+  try {
+    await api.storage.session.remove(REGISTRY_KEY(id));
+  } catch {
+    // Nothing to drop.
+  }
+}
+
+/** 'user_saved:<slot>' names only — never values. Task 3 will replace this with vault.vaultSlotRefs(). */
+async function computeAvailableRefs(): Promise<string[]> {
+  return (await vaultSlots()).map((slot) => `user_saved:${slot}`);
+}
+
 function resetSession(): string {
   forgetTypedSecrets(tokens.session_id);
+  void dropRegistry(tokens.session_id);
   tokens = new TokenRegistry(newSessionId());
   priorActions = [];
   void setLastPlan(null);
@@ -200,7 +242,9 @@ async function buildPayload(
       faces,
       forceTier1Paths: typedSecretPaths.get(registry.session_id),
       typedSecretValues: typedSecretValues.get(registry.session_id),
+      availableRefs: await computeAvailableRefs(),
     });
+    await saveRegistry(registry);
     assertNoTypedSecrets(request, typedSecretValues.get(registry.session_id) ?? []);
     return {
       session_id: registry.session_id,
@@ -479,19 +523,22 @@ const RUN_IN_PROGRESS_STATUSES: ReadonlySet<RunStatus> = new Set([
 let driveLock = false;
 
 /**
- * The run's token registry. Recreated whenever the run id changes, and — since
- * this is worker memory, not storage — also recreated from scratch after a
- * worker restart mid-run: token numbering restarts at that point. This is a
- * documented ceiling (a mid-run token could in principle repeat a number
- * already shown to the model), to be closed by moving the registry to
- * storage.session alongside the vault work.
+ * The run's token registry, held in worker memory for the common case. On a
+ * worker restart mid-run (or a run id change) it is rebuilt from the
+ * storage.session mirror `saveRegistry`/`loadRegistry` maintain, rather than
+ * recreated from scratch — token numbering and the id→value map survive the
+ * restart. Dropped from storage.session once the run reaches a terminal status.
  */
 let runTokens: TokenRegistry | null = null;
 
 /** Runs `fn` and clears any stale stop request once the run reaches a terminal status. */
 async function runDrive(runId: string, fn: () => Promise<Run>): Promise<Run> {
   const result = await fn();
-  if (TERMINAL_STATUSES.has(result.status)) { stopRequested.delete(runId); forgetTypedSecrets(runId); }
+  if (TERMINAL_STATUSES.has(result.status)) {
+    stopRequested.delete(runId);
+    forgetTypedSecrets(runId);
+    await dropRegistry(runId);
+  }
   return result;
 }
 
@@ -528,7 +575,7 @@ const loopDeps = {
     // `tokens`/`priorActions` (those belong to the single-step flows only) and
     // never LAST_PLAN_KEY (a run's pending plan is not the single-step
     // "last plan"; execute-plan must not be able to run it without approval).
-    if (!runTokens || runTokens.session_id !== runId) runTokens = new TokenRegistry(runId);
+    if (!runTokens || runTokens.session_id !== runId) runTokens = (await loadRegistry(runId)) ?? new TokenRegistry(runId);
     const preview = await buildPayload(capture, DEFAULT_THRESHOLD, goal, runTokens, history);
     if (!preview.request) throw new Error(preview.error ?? 'No payload was built.');
     const response = await requestPlan(preview.request);

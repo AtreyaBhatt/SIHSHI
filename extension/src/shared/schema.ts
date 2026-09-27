@@ -78,6 +78,25 @@ export const TIER_BY_TYPE: Record<PiiType, PiiTier> = {
   account_id: 2,
 };
 
+/**
+ * Tier-1 types whose value the user may need to reference again (retyping an
+ * Aadhaar or card number the model asks about). These get a numbered token
+ * (`[AADHAAR_1]`) that the registry can resolve back to the original value
+ * locally, instead of the fixed `[REDACTED:TYPE]` marker every other Tier-1
+ * type gets. The value itself never leaves the device either way — only the
+ * marker shape differs.
+ */
+export const RESOLVABLE_TIER1: ReadonlySet<PiiType> = new Set<PiiType>([
+  'aadhaar',
+  'pan',
+  'card_number',
+  'card_expiry',
+  'ssn',
+  'passport',
+  'bank_account',
+  'ifsc',
+]);
+
 export type MaskingStrategy = 'blackbox' | 'blur' | 'token' | 'partial';
 
 /** PRD §6.2.4. Describes *what kind* of thing was removed and *where* — never the value. */
@@ -199,6 +218,8 @@ export interface AgentRequest {
   prior_actions: PriorAction[];
   /** True when the snapshot hit the node budget: the model sees a partial page. */
   truncated: boolean;
+  /** 'user_saved:<slot>' names of credentials the vault holds — names only, never values. */
+  available_refs: string[];
 }
 
 /**
@@ -224,6 +245,8 @@ export interface AgentAction {
   value?: string;
   /** type: PRD §7.2 indirection, `user_saved:<slot>`. The provider never sees the secret. */
   value_ref?: string;
+  /** type: a token from this request's redaction_manifest, e.g. `[AADHAAR_1]`; resolved locally. Mutually exclusive with value and value_ref. */
+  value_token?: string;
   /** select: visible option label (case-insensitive) or option value. */
   option?: string;
   /** key */

@@ -140,15 +140,30 @@ try {
       }
     }
 
+    if (spec.tokenFields?.length || spec.fixedMarkerFields?.length) {
+      console.log('\nresolvable tier-1 fields get numbered tokens, others keep fixed markers:');
+      for (const [name, selector, re] of spec.tokenFields ?? []) {
+        const node = result.request.dom_summary.find((n) => n.path === selector);
+        if (node && re.test(node.value ?? '')) pass(`${name} → numbered token ${node.value}`); else fail(`${name}: expected numbered token, got ${JSON.stringify(node?.value)}`);
+      }
+      for (const [name, selector, marker] of spec.fixedMarkerFields ?? []) {
+        const node = result.request.dom_summary.find((n) => n.path === selector);
+        if (node?.value === marker) pass(`${name} → ${marker}`); else fail(`${name}: expected ${marker}, got ${JSON.stringify(node?.value)}`);
+      }
+    }
+
     if (spec.emptyTier1Fields?.length) {
       console.log('\nempty sensitive fields send null and keep their manifest entry:');
       const byPath = new Map(result.request.dom_summary.map((n) => [n.path, n]));
       for (const [name, selector] of spec.emptyTier1Fields) {
         const node = byPath.get(selector);
         const entry = result.request.redaction_manifest.find((e) => e.dom_path === selector && e.tier === 1);
+        // Tier-1 masking is 'blackbox' for a fixed-marker type or 'token' for a
+        // resolvable one (RESOLVABLE_TIER1); either way pixels are filled, not
+        // blurred — 'blur' is reserved for faces. Never both null value AND blur.
         if (!node) fail(`${name} — ${selector} was not captured at all`);
         else if (node.value !== null) fail(`${name} — ${selector} sent ${JSON.stringify(node.value)}, expected null`);
-        else if (!entry || entry.masking !== 'blackbox') fail(`${name} — ${selector} has no Tier-1 blackbox manifest entry`);
+        else if (!entry || entry.masking === 'blur') fail(`${name} — ${selector} has no Tier-1 blackout manifest entry`);
         else pass(`${name} → null, declared as ${entry.type}`);
       }
     }
