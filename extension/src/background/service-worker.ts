@@ -257,9 +257,10 @@ async function buildPayload(
     };
   } catch (err) {
     // Fail closed: no payload leaves this function when redaction could not be
-    // verified, and the viewer surfaces why. A Tier-1 firewall block still
-    // carries its report (attached to the error as `.report`) so the panel can
-    // show what was blocked, not just that something was.
+    // verified, and the viewer surfaces why. A firewall block (only ever the
+    // fail-closed residual rescan now — Tier-1 hits are masked, not blocked)
+    // still carries its report (attached to the error as `.report`) so the
+    // panel can show what was caught, not just that something was.
     const report = err instanceof RawPiiLeakError
       ? ((err as RawPiiLeakError & { report?: FirewallReport }).report ?? null)
       : null;

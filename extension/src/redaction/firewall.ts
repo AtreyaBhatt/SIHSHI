@@ -1,9 +1,13 @@
 /**
  * Independent outbound scanner (design spec §C). Deliberately does NOT import
  * pii-detection/*: a bug shared with the detectors would be a bug in both
- * layers. Rules are self-validating where a checksum exists. A Tier-1 hit means
- * the request is not sent; a Tier-2 hit is masked in place with a registry
- * token and declared in the manifest.
+ * layers. Rules are self-validating where a checksum exists. Every hit, Tier 1
+ * or Tier 2, is masked in place with a registry token and declared in the
+ * manifest — a chance Luhn/Verhoeff match on an unrelated number must not kill
+ * the run; over-redaction, not a dead run, is this project's stated bias. The
+ * request is only ever blocked by the fail-closed rescan below finding a
+ * match still present after masking (rule `residual`), which means a bug in
+ * this file, not page content.
  *
  * This runs on the fully-assembled request, after the detector cascade and
  * before the screenshot is redacted — so a hit here still gets its pixels
@@ -38,7 +42,7 @@ const mod97 = (s: string) => { const iban = s.replace(/\s+/g, '').toUpperCase();
  * it — so `4111 1111 1111 1111 12 28` still finds the card. A window that is
  * the whole run needs only `check`; one inside a longer run must also have
  * the value's printed `shape`, or random grouped numbers (tracking ids) would
- * block on a chance checksum.
+ * mask on a chance checksum.
  */
 const windowed = (min: number, max: number, check: (d: string) => boolean, shape: (groups: string[]) => boolean) => (s: string): { start: number; end: number }[] => {
   const out: { start: number; end: number }[] = [];
@@ -56,17 +60,41 @@ const windowed = (min: number, max: number, check: (d: string) => boolean, shape
   return out;
 };
 
-/** Card inside a longer run: 13–19 digits, a network prefix, printed as one block or a card grouping. */
+/**
+ * Card-network prefix, required whether the digits are the whole run (via
+ * `cardCheck`) or a window inside a longer one (again via `cardCheck`, plus
+ * `cardShape`'s length/grouping test) — a run of random digits must pass both
+ * the prefix and the checksum before it counts as a card.
+ */
+const CARD_PREFIX = /^(?:4|5[1-5]|2[2-7]|3[47]|6)/;
+const cardCheck = (d: string) => luhn(d) && CARD_PREFIX.test(d);
+/** Card inside a longer run: 13–19 digits, printed as one block or a card grouping (the prefix is `cardCheck`'s job). */
 const CARD_GROUPINGS = new Set(['4-4-4-4', '4-4-4-4-3', '4-6-5', '4-6-4']);
-const cardShape = (g: string[]) => { const d = g.join(''); return d.length >= 13 && /^(?:4|5[1-5]|2[2-7]|3[47]|6)/.test(d) && (g.length === 1 || CARD_GROUPINGS.has(g.map((x) => x.length).join('-'))); };
-/** Aadhaar inside a longer run: starts 2–9, printed as 4-4-4 or one block. */
-const aadhaarShape = (g: string[]) => /^[2-9]/.test(g[0]!) && (g.length === 1 || g.map((x) => x.length).join('-') === '4-4-4');
+const cardShape = (g: string[]) => { const d = g.join(''); return d.length >= 13 && (g.length === 1 || CARD_GROUPINGS.has(g.map((x) => x.length).join('-'))); };
 
-/** Rule order is precedence on overlap: card/Aadhaar before upi, so `4111111111111111@ybl` blocks. */
+/**
+ * Aadhaar only ever matches a maximal digit run that is *exactly* 12 digits
+ * long, printed as 4-4-4 or one block and starting 2–9 — never a 12-digit
+ * window carved out of a longer run (that is indistinguishable from a random
+ * card/tracking number sharing a prefix with a real Aadhaar number).
+ */
+const aadhaarFind = (s: string): { start: number; end: number }[] => {
+  const out: { start: number; end: number }[] = [];
+  for (const run of s.matchAll(/(?<!\d)\d+(?:[ -]\d+)*(?!\d)/g)) {
+    const groups = run[0].match(/\d+/g)!;
+    const digits = groups.join('');
+    if (digits.length !== 12 || !/^[2-9]/.test(digits)) continue;
+    if (groups.length !== 1 && groups.map((g) => g.length).join('-') !== '4-4-4') continue;
+    if (verhoeff(digits)) out.push({ start: run.index!, end: run.index! + run[0].length });
+  }
+  return out;
+};
+
+/** Rule order is precedence on overlap: card/Aadhaar before upi, so `4111111111111111@ybl` masks as a card, not a UPI handle. */
 export const FIREWALL_RULES: FirewallRule[] = [
   { name: 'email', type: 'email', regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
-  { name: 'card', type: 'card_number', find: windowed(12, 19, luhn, cardShape) },
-  { name: 'aadhaar', type: 'aadhaar', find: windowed(12, 12, verhoeff, aadhaarShape) },
+  { name: 'card', type: 'card_number', find: windowed(13, 19, cardCheck, cardShape) },
+  { name: 'aadhaar', type: 'aadhaar', find: aadhaarFind },
   { name: 'upi', type: 'account_id', regex: /\b[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}\b(?!\.?\w)/g },
   { name: 'pan', type: 'pan', regex: /\b[A-Z]{5}\d{4}[A-Z]\b/g },
   { name: 'ifsc', type: 'ifsc', regex: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g },
@@ -98,6 +126,13 @@ function foldWithMap(text: string): { folded: string; from: number[]; to: number
   return { folded, from, to };
 }
 
+/**
+ * `action` is `'masked'` for an ordinary hit, whatever its tier — a numbered
+ * token replaced it in place and a manifest entry declares it. `'blocked'`
+ * only ever comes from the fail-closed rescan (`rule: 'residual'`): masking
+ * ran and a match is still there, which is a bug in this file, not something
+ * page content should be able to trigger.
+ */
 export interface FirewallHit { type: PiiType; rule: string; field: string; action: 'masked' | 'blocked' }
 export interface FirewallReport { fields_scanned: number; masked: number; blocked: number; hits: FirewallHit[] }
 
@@ -130,12 +165,13 @@ export function scanRequest(request: AgentRequest, registry: TokenRegistry, node
     const { folded, from, to } = foldWithMap(text);
     const hits = scanText(folded).sort((a, b) => a.start - b.start);
     if (hits.length === 0) return text; // Tier-3 text goes out exactly as it came in
-    const block = (type: PiiType, rule: string) => { report.blocked++; report.hits.push({ type, rule, field, action: 'blocked' }); };
     // Token ids are assigned left to right; replacement then runs right to left.
+    // Every hit is masked here, Tier 1 included: a chance Luhn/Verhoeff match
+    // must not kill the run, and the fail-closed rescan below is what actually
+    // guards against a leak.
     const masks: { id: string; start: number; end: number }[] = [];
     for (const { rule, match, start, end } of hits) {
       const tier = TIER_BY_TYPE[rule.type];
-      if (tier === 1) { block(rule.type, rule.name); continue; }
       const id = registry.idFor(rule.type, match, path ?? field);
       // A span edge inside a multi-unit fold widens to the whole original code point.
       masks.push({ id, start: from[start]!, end: to[end - 1]! });
@@ -149,7 +185,7 @@ export function scanRequest(request: AgentRequest, registry: TokenRegistry, node
     for (const { id, start, end } of masks.reverse()) { out = `${out.slice(0, start)}[${id}]${out.slice(Math.min(end, limit))}`; limit = start; }
     // Fail closed: whatever goes out must not match any rule here. A residual
     // hit (a replacement that missed its value) blocks the request instead.
-    if (report.hits.every((h) => h.field !== field || h.action === 'masked')) for (const r of scanText(foldWithMap(out).folded)) block(r.rule.type, 'residual');
+    for (const r of scanText(foldWithMap(out).folded)) { report.blocked++; report.hits.push({ type: r.rule.type, rule: 'residual', field, action: 'blocked' }); }
     return out;
   };
   request.task_instruction = maskField(request.task_instruction, 'task_instruction', null);

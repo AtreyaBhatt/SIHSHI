@@ -272,16 +272,18 @@ console.log('firewall');
   check(rep.masked === 1 && rep.hits[0].type === 'account_id' && rep.hits[0].rule === 'upi', 'UPI id masked as account_id');
 
   req = mk([{ path: 'p#c', role: null, label: null, value: 'card 4539 1488 0343 6467' }]);
-  let threw = null; try { scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary)); } catch (e) { threw = e; }
-  check(threw?.name === 'RawPiiLeakError' && !String(threw.message).includes('4539'), 'tier-1 card blocks without quoting the value');
+  rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
+  check(rep.masked === 1 && rep.blocked === 0 && req.dom_summary[0].value === 'card [CARD_NUMBER_1]' && !req.dom_summary[0].value.includes('4539'), `tier-1 card is masked with a numbered token, not blocked (${req.dom_summary[0].value})`);
+  check(req.redaction_manifest.some((e) => e.id === 'CARD_NUMBER_1' && e.tier === 1 && e.masking === 'token' && e.detector === 'firewall:card'), 'card gets a tier-1 manifest entry');
 
   req = mk([{ path: 'p#z', role: null, label: null, value: 'ref ４５３９１４８８０３４３６４６７' }]);
-  threw = null; try { scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary)); } catch (e) { threw = e; }
-  check(threw?.name === 'RawPiiLeakError', 'full-width digits are folded before matching');
+  rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
+  check(rep.masked === 1 && req.dom_summary[0].value === 'ref [CARD_NUMBER_1]', `full-width digits are folded before matching, then masked (${req.dom_summary[0].value})`);
 
   req = mk([{ path: 'p#i', role: null, label: null, value: 'GB29 NWBK 6016 1331 9268 19' }]);
-  threw = null; try { scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary)); } catch (e) { threw = e; }
-  check(threw?.name === 'RawPiiLeakError', 'IBAN with valid mod-97 blocks');
+  rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
+  check(rep.masked === 1 && req.dom_summary[0].value === '[BANK_ACCOUNT_1]', `IBAN with valid mod-97 is masked, not blocked (${req.dom_summary[0].value})`);
+  check(req.redaction_manifest.some((e) => e.id === 'BANK_ACCOUNT_1' && e.tier === 1 && e.masking === 'token' && e.detector === 'firewall:iban'), 'iban gets a tier-1 manifest entry');
 
   req = mk([{ path: 'p#ok', role: null, label: null, value: 'Order 12345 shipped, [EMAIL_1] notified, GB00 not an iban' }], 'help user_saved:aadhaar');
   rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
@@ -300,9 +302,20 @@ console.log('firewall');
   o = one('pay priya@okaxis.');
   check(o.out === 'pay [ACCOUNT_ID_1].', `UPI id before a full stop masked (${o.out})`);
   for (const v of ['+919845012345', '09845012345']) { o = one(`call ${v}`); check(o.out === 'call [PHONE_1]', `phone with prefix ${v} masked (${o.out})`); }
-  for (const [v, rule] of [['4111 1111 1111 1111 12 28', 'card'], ['4111111111111111 123', 'card'], ['Order 5500 0055 5555 5559 0 items', 'card'], ['2345 6789 0124', 'aadhaar'], ['ABCDE1234F', 'pan'], ['SBIN0001234', 'ifsc'], ['123-45-6789', 'ssn']]) {
+  // H1: a tier-1 firewall hit is masked with its numbered token, not blocked.
+  for (const [v, rule, type, raw] of [
+    ['4111 1111 1111 1111 12 28', 'card', 'card_number', '4111111111111111'],
+    ['4111111111111111 123', 'card', 'card_number', '4111111111111111'],
+    ['Order 5500 0055 5555 5559 0 items', 'card', 'card_number', '5500005555555559'],
+    ['2345 6789 0124', 'aadhaar', 'aadhaar', '234567890124'],
+    ['ABCDE1234F', 'pan', 'pan', 'ABCDE1234F'],
+    ['SBIN0001234', 'ifsc', 'ifsc', 'SBIN0001234'],
+    ['123-45-6789', 'ssn', 'ssn', '123-45-6789'],
+  ]) {
     o = one(v);
-    check(o.err?.name === 'RawPiiLeakError' && o.err.message.includes(`firewall:${rule}`) && !o.err.message.includes(v.slice(0, 6)), `${rule} blocks: ${o.err?.message ?? 'not blocked'}`);
+    const tokenId = `${type.toUpperCase()}_1`;
+    check(!o.err && o.rep?.masked === 1 && o.rep.hits[0].rule === rule && o.out.includes(`[${tokenId}]`) && !o.out.includes(raw), `${rule} masks with a ${type} token, not blocked (${o.err?.message ?? o.out})`);
+    check(o.r.redaction_manifest.some((e) => e.id === tokenId && e.tier === 1 && e.masking === 'token' && e.detector === `firewall:${rule}`), `${rule} gets a tier-1 manifest entry`);
   }
   o = one('2345 6789 0125');
   check(!o.err && o.rep.blocked === 0, 'Verhoeff-invalid 12 digits pass');
@@ -328,11 +341,11 @@ console.log('firewall');
   o = one('mail a@b.co zz');
   check(o.err === null && o.out === 'mail [EMAIL_1] zz', 'a clean rescan passes (probe removed)');
 
-  // G2: a card window inside a longer run needs a card-like shape.
+  // G2/H2: a card window inside a longer run needs a card-like shape.
   o = one('Tracking 1234 5678 9012 3456 7890');
-  check(!o.err && o.rep.blocked === 0, `grouped tracking number passes (${o.err?.message ?? 'ok'})`);
+  check(!o.err && o.rep.masked === 0 && o.rep.blocked === 0, `grouped tracking number passes untouched (${o.err?.message ?? 'ok'})`);
   o = one('4111111111111111@ybl');
-  check(o.err?.message.includes('firewall:card'), `card before upi: card-number UPI handle blocks (${o.err?.message ?? 'not blocked'})`);
+  check(!o.err && o.rep.masked === 1 && o.rep.hits[0].rule === 'card' && o.out === '[CARD_NUMBER_1]@ybl', `card before upi: card-number UPI handle masks as card, not upi (${o.err?.message ?? o.out})`);
   // G4: ids left to right.
   o = one('a@b.co then c@d.co');
   check(o.out === '[EMAIL_1] then [EMAIL_2]', `token ids assigned left to right (${o.out})`);
