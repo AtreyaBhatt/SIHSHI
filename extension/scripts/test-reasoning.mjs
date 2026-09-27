@@ -286,7 +286,7 @@ console.log('firewall');
   req = mk([{ path: 'p#ok', role: null, label: null, value: 'Order 12345 shipped, [EMAIL_1] notified, GB00 not an iban' }], 'help user_saved:aadhaar');
   rep = scanRequest(req, new TokenRegistry('s'), nodesByPath(req.dom_summary));
   check(rep.masked === 0 && rep.blocked === 0, 'short numbers, existing tokens and slot names do not fire');
-  check(FIREWALL_RULES.every((r) => typeof r.name === 'string' && r.regex instanceof RegExp), 'rules table is data');
+  check(FIREWALL_RULES.every((r) => typeof r.name === 'string' && (r.regex instanceof RegExp) !== (typeof r.find === 'function')), 'rules table is data: each rule has a regex or a find, not both');
 
   const one = (value) => { const r = mk([{ path: 'p#x', role: null, label: null, value }]); let rep = null, err = null; try { rep = scanRequest(r, new TokenRegistry('s'), nodesByPath(r.dom_summary)); } catch (e) { err = e; } return { r, rep, err, out: r.dom_summary[0].value }; };
   let o = one('john+news@my-bank.com');
@@ -310,6 +310,32 @@ console.log('firewall');
   check(o.out === 'Ｏｒｄｅｒ ｎｏ. ４２' && o.rep.masked === 0, 'text with no hits is returned unchanged (no NFKC rewrite)');
   o = one('Ｏｒｄｅｒ ４２ — a@b.co');
   check(o.out === 'Ｏｒｄｅｒ ４２ — [EMAIL_1]', `a hit is replaced in the original text (${o.out})`);
+
+  // G1: offsets survive folds that change length before and after a hit.
+  const lig = 'ﬁ'.repeat(10), comb = 'e\u0301'.repeat(10);
+  o = one(`${lig} priya.sharma@gmail.com ${comb}`);
+  check(o.out === `${lig} [EMAIL_1] ${comb}` && !o.out.includes('priya') && o.r.redaction_manifest.length === 1, `ligatures before, combining marks after: email masked in place (${o.out})`);
+  o = one('call 98450 𝟏𝟐𝟑𝟒𝟓 today');
+  check(o.out === 'call [PHONE_1] today', `phone with mathematical-bold digits masked in place (${o.out})`);
+  o = one(`${'ﬁ'.repeat(3)} a@b.co ${'𝟏'.repeat(3)}`);
+  check(!o.out.includes('a@b.co') && (o.err?.name === 'RawPiiLeakError' || o.out === `${'ﬁ'.repeat(3)} [EMAIL_1] ${'𝟏'.repeat(3)}`), `expansion before + contraction after (equal total length) never leaks (${o.out})`);
+  // Fail-closed rescan: a rule that misses on the first pass and fires on the
+  // output (standing in for any replacement bug) blocks instead of sending.
+  FIREWALL_RULES.push({ name: 'probe', type: 'phone', find: (s) => (s.includes('zz') && !s.includes('@') ? [{ start: s.indexOf('zz'), end: s.indexOf('zz') + 2 }] : []) });
+  o = one('mail a@b.co zz');
+  FIREWALL_RULES.pop();
+  check(o.err?.name === 'RawPiiLeakError' && o.err.message.includes('firewall:residual') && !o.err.message.includes('zz') && o.err.report.hits.some((h) => h.rule === 'residual' && h.action === 'blocked'), `a residual hit after masking blocks (${o.err?.message ?? 'not blocked'})`);
+  o = one('mail a@b.co zz');
+  check(o.err === null && o.out === 'mail [EMAIL_1] zz', 'a clean rescan passes (probe removed)');
+
+  // G2: a card window inside a longer run needs a card-like shape.
+  o = one('Tracking 1234 5678 9012 3456 7890');
+  check(!o.err && o.rep.blocked === 0, `grouped tracking number passes (${o.err?.message ?? 'ok'})`);
+  o = one('4111111111111111@ybl');
+  check(o.err?.message.includes('firewall:card'), `card before upi: card-number UPI handle blocks (${o.err?.message ?? 'not blocked'})`);
+  // G4: ids left to right.
+  o = one('a@b.co then c@d.co');
+  check(o.out === '[EMAIL_1] then [EMAIL_2]', `token ids assigned left to right (${o.out})`);
 }
 
 console.log('demo detector switch');
@@ -325,6 +351,8 @@ console.log('demo detector switch');
   let err = null; try { await setDisabledDetectors(['regex:email', 'regex:nope']); } catch (e) { err = e; }
   check(/not detector names/.test(err?.message ?? '') && !err.message.includes('regex:nope') && session['athena:debug-disabled-detectors'].length === 2, 'an unknown name is rejected and nothing changes');
   check((await setDisabledDetectors([])).length === 0 && (await readDisabledDetectors()) === undefined, 'an empty list clears the switch');
+  await setDisabledDetectors(['regex:email']);
+  check((await setDisabledDetectors('regex:email')).length === 0 && (await readDisabledDetectors()) === undefined, 'a non-array names value is treated as an empty list');
   delete globalThis.chrome;
 }
 

@@ -20,7 +20,9 @@ import { RawPiiLeakError } from '../shared/errors';
  * `regex` finds candidates (optionally checked by `validate`); `find` replaces
  * it for rules that must search inside longer digit runs (card, Aadhaar).
  */
-export interface FirewallRule { name: string; type: PiiType; regex: RegExp; validate?: (m: string) => boolean; find?: (s: string) => { start: number; end: number }[] }
+export type FirewallRule = { name: string; type: PiiType } & (
+  | { regex: RegExp; validate?: (m: string) => boolean; find?: undefined }
+  | { find: (s: string) => { start: number; end: number }[]; regex?: undefined; validate?: undefined });
 
 const digitsOf = (s: string) => s.replace(/\D/g, '');
 const luhn = (s: string) => { const d = digitsOf(s); let sum = 0, alt = false; for (let i = d.length - 1; i >= 0; i--) { let n = +d[i]!; if (alt) { n *= 2; if (n > 9) n -= 9; } sum += n; alt = !alt; } return d.length >= 12 && sum % 10 === 0; };
@@ -33,9 +35,12 @@ const mod97 = (s: string) => { const iban = s.replace(/\s+/g, '').toUpperCase();
  * For each maximal run of digit groups (single space/dash separators), tries
  * every window of whole consecutive groups whose digit count is in
  * [min, max] and accepts the first that passes `check`, then continues after
- * it — so `4111 1111 1111 1111 12 28` still finds the card.
+ * it — so `4111 1111 1111 1111 12 28` still finds the card. A window that is
+ * the whole run needs only `check`; one inside a longer run must also have
+ * the value's printed `shape`, or random grouped numbers (tracking ids) would
+ * block on a chance checksum.
  */
-const windowed = (min: number, max: number, check: (d: string) => boolean) => (s: string): { start: number; end: number }[] => {
+const windowed = (min: number, max: number, check: (d: string) => boolean, shape: (groups: string[]) => boolean) => (s: string): { start: number; end: number }[] => {
   const out: { start: number; end: number }[] = [];
   for (const run of s.matchAll(/(?<!\d)\d+(?:[ -]\d+)*(?!\d)/g)) {
     const groups = [...run[0].matchAll(/\d+/g)].map((g) => ({ start: run.index! + g.index!, end: run.index! + g.index! + g[0].length, d: g[0] }));
@@ -43,18 +48,26 @@ const windowed = (min: number, max: number, check: (d: string) => boolean) => (s
       let digits = '';
       for (let j = i; j < groups.length && digits.length + groups[j]!.d.length <= max; j++) {
         digits += groups[j]!.d;
-        if (digits.length >= min && check(digits)) { out.push({ start: groups[i]!.start, end: groups[j]!.end }); i = j; break; }
+        const whole = i === 0 && j === groups.length - 1;
+        if (digits.length >= min && (whole || shape(groups.slice(i, j + 1).map((g) => g.d))) && check(digits)) { out.push({ start: groups[i]!.start, end: groups[j]!.end }); i = j; break; }
       }
     }
   }
   return out;
 };
 
+/** Card inside a longer run: 13–19 digits, a network prefix, printed as one block or a card grouping. */
+const CARD_GROUPINGS = new Set(['4-4-4-4', '4-4-4-4-3', '4-6-5', '4-6-4']);
+const cardShape = (g: string[]) => { const d = g.join(''); return d.length >= 13 && /^(?:4|5[1-5]|2[2-7]|3[47]|6)/.test(d) && (g.length === 1 || CARD_GROUPINGS.has(g.map((x) => x.length).join('-'))); };
+/** Aadhaar inside a longer run: starts 2–9, printed as 4-4-4 or one block. */
+const aadhaarShape = (g: string[]) => /^[2-9]/.test(g[0]!) && (g.length === 1 || g.map((x) => x.length).join('-') === '4-4-4');
+
+/** Rule order is precedence on overlap: card/Aadhaar before upi, so `4111111111111111@ybl` blocks. */
 export const FIREWALL_RULES: FirewallRule[] = [
   { name: 'email', type: 'email', regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
+  { name: 'card', type: 'card_number', find: windowed(12, 19, luhn, cardShape) },
+  { name: 'aadhaar', type: 'aadhaar', find: windowed(12, 12, verhoeff, aadhaarShape) },
   { name: 'upi', type: 'account_id', regex: /\b[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}\b(?!\.?\w)/g },
-  { name: 'card', type: 'card_number', regex: /\b(?:\d[ -]?){12,19}\b/g, find: windowed(12, 19, luhn) },
-  { name: 'aadhaar', type: 'aadhaar', regex: /\b\d{4}[ -]?\d{4}[ -]?\d{4}\b/g, find: windowed(12, 12, verhoeff) },
   { name: 'pan', type: 'pan', regex: /\b[A-Z]{5}\d{4}[A-Z]\b/g },
   { name: 'ifsc', type: 'ifsc', regex: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g },
   { name: 'iban', type: 'bank_account', regex: /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?\b/g, validate: mod97 },
@@ -66,7 +79,24 @@ const TOKEN_OR_MARKER = /\[(?:REDACTED:[A-Z_]+|[A-Z][A-Z0-9_]*_\d+)\]/g;
 
 /** Folds full-width and other compatibility digits (and other scripts' decimal digits) to ASCII before matching. */
 const DIGIT_ZEROS = [0x0030, 0x0660, 0x06F0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66, 0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0E50, 0xFF10];
-const foldDigits = (s: string) => s.normalize('NFKC').replace(/\p{Nd}/gu, (d) => { const cp = d.codePointAt(0)!; for (const zero of DIGIT_ZEROS) if (cp >= zero && cp <= zero + 9) return String(cp - zero); return d; });
+const foldCodePoint = (ch: string) => ch.normalize('NFKC').replace(/\p{Nd}/gu, (d) => { const cp = d.codePointAt(0)!; for (const zero of DIGIT_ZEROS) if (cp >= zero && cp <= zero + 9) return String(cp - zero); return d; });
+
+/**
+ * Folds one code point at a time (ﬁ → fi, 𝟏 → 1) and records, for every folded
+ * UTF-16 unit, the original code point it came from — so a hit found in the
+ * folded text is replaced at the right place in the original, whatever the
+ * folds before it did to the length.
+ */
+function foldWithMap(text: string): { folded: string; from: number[]; to: number[] } {
+  let folded = '', at = 0;
+  const from: number[] = [], to: number[] = [];
+  for (const ch of text) {
+    const f = foldCodePoint(ch);
+    for (let k = 0; k < f.length; k++) { from.push(at); to.push(at + ch.length); }
+    folded += f; at += ch.length;
+  }
+  return { folded, from, to };
+}
 
 export interface FirewallHit { type: PiiType; rule: string; field: string; action: 'masked' | 'blocked' }
 export interface FirewallReport { fields_scanned: number; masked: number; blocked: number; hits: FirewallHit[] }
@@ -83,7 +113,7 @@ function scanText(folded: string): Hit[] {
   const accepted: Hit[] = [];
   for (const rule of FIREWALL_RULES) {
     const spans = rule.find ? rule.find(shielded)
-      : [...shielded.matchAll(rule.regex)].filter((m) => !rule.validate || rule.validate(m[0])).map((m) => ({ start: m.index!, end: m.index! + m[0].length }));
+      : [...shielded.matchAll(rule.regex!)].filter((m) => !rule.validate || rule.validate(m[0])).map((m) => ({ start: m.index!, end: m.index! + m[0].length }));
     for (const { start, end } of spans.sort((x, y) => x.start - y.start)) {
       if (accepted.some((h) => start < h.end && h.start < end)) continue;
       accepted.push({ rule, match: folded.slice(start, end), start, end });
@@ -97,23 +127,29 @@ export function scanRequest(request: AgentRequest, registry: TokenRegistry, node
   const declared = new Set<string>();
   const maskField = (text: string, field: string, path: string | null): string => {
     report.fields_scanned++;
-    const folded = foldDigits(text);
-    const hits = scanText(folded);
+    const { folded, from, to } = foldWithMap(text);
+    const hits = scanText(folded).sort((a, b) => a.start - b.start);
     if (hits.length === 0) return text; // Tier-3 text goes out exactly as it came in
-    // Folding is 1:1 per code point for digits, so indices carry over to the
-    // original; if NFKC changed the length, fall back to the folded string.
-    let out = folded.length === text.length ? text : folded;
-    for (const { rule, match, start, end } of hits.sort((a, b) => b.start - a.start)) {
+    const block = (type: PiiType, rule: string) => { report.blocked++; report.hits.push({ type, rule, field, action: 'blocked' }); };
+    // Token ids are assigned left to right; replacement then runs right to left.
+    const masks: { id: string; start: number; end: number }[] = [];
+    for (const { rule, match, start, end } of hits) {
       const tier = TIER_BY_TYPE[rule.type];
-      if (tier === 1) { report.blocked++; report.hits.push({ type: rule.type, rule: rule.name, field, action: 'blocked' }); continue; }
+      if (tier === 1) { block(rule.type, rule.name); continue; }
       const id = registry.idFor(rule.type, match, path ?? field);
-      out = `${out.slice(0, start)}[${id}]${out.slice(end)}`;
+      // A span edge inside a multi-unit fold widens to the whole original code point.
+      masks.push({ id, start: from[start]!, end: to[end - 1]! });
       report.masked++; report.hits.push({ type: rule.type, rule: rule.name, field, action: 'masked' });
       if (path && !declared.has(`${path}\n${id}`)) {
         declared.add(`${path}\n${id}`);
         request.redaction_manifest.push({ id, type: rule.type, tier, bbox: nodesByPath.get(path)?.bbox ?? null, dom_path: path, masking: 'token', detector: `firewall:${rule.name}`, confidence: 1 } as RedactionManifestEntry);
       }
     }
+    let out = text, limit = text.length;
+    for (const { id, start, end } of masks.reverse()) { out = `${out.slice(0, start)}[${id}]${out.slice(Math.min(end, limit))}`; limit = start; }
+    // Fail closed: whatever goes out must not match any rule here. A residual
+    // hit (a replacement that missed its value) blocks the request instead.
+    if (report.hits.every((h) => h.field !== field || h.action === 'masked')) for (const r of scanText(foldWithMap(out).folded)) block(r.rule.type, 'residual');
     return out;
   };
   request.task_instruction = maskField(request.task_instruction, 'task_instruction', null);

@@ -25,8 +25,9 @@ export async function readDisabledDetectors(): Promise<Set<string> | undefined> 
 }
 
 /** Validates and stores the demo switch (names omitted: read only); returns the stored set. */
-export async function setDisabledDetectors(names: string[] | undefined): Promise<string[]> {
-  if (names) {
+export async function setDisabledDetectors(input: string[] | undefined): Promise<string[]> {
+  if (input !== undefined) {
+    const names = Array.isArray(input) ? input : []; // a malformed message clears rather than throws
     const unknown = names.filter((name) => !KNOWN_DETECTORS.has(name));
     if (unknown.length > 0) throw new Error(`${unknown.length} name(s) are not detector names (use the names shown against each finding, e.g. regex:email). Nothing was changed.`);
     await api.storage.session.set({ [DEBUG_DISABLED_DETECTORS_KEY]: [...new Set(names)] });
