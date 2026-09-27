@@ -196,30 +196,57 @@ export interface AgentRequest {
   screenshot_redacted: string | null;
   dom_summary: SanitizedDomNode[];
   redaction_manifest: RedactionManifestEntry[];
-  prior_actions: AgentAction[];
+  prior_actions: PriorAction[];
   /** True when the snapshot hit the node budget: the model sees a partial page. */
   truncated: boolean;
 }
 
-/** PRD §3.2 caps the action grammar at these verbs. Do not extend without discussion. */
-export type ActionVerb = 'click' | 'type' | 'focus' | 'scroll' | 'read' | 'wait';
+/**
+ * Action grammar v2 (design spec §Phase 3, owner-confirmed). Nine verbs.
+ * `navigate` and `go_back` are tab-level and run in the service worker; the
+ * rest run in the content script against the live DOM.
+ */
+export type ActionVerb = 'click' | 'type' | 'select' | 'key' | 'hover' | 'scroll' | 'go_back' | 'navigate' | 'wait';
+export type KeyName = 'Enter' | 'Escape' | 'Tab' | 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Backspace' | 'Space';
+export type ActionRisk = 'routine' | 'sensitive';
+
+export const ACTION_VERBS: ReadonlySet<string> = new Set<ActionVerb>(['click', 'type', 'select', 'key', 'hover', 'scroll', 'go_back', 'navigate', 'wait']);
+export const KEY_NAMES: ReadonlySet<string> = new Set<KeyName>(['Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Space']);
+export const TAB_VERBS: ReadonlySet<ActionVerb> = new Set<ActionVerb>(['navigate', 'go_back']);
+/** Verbs that must carry a selector. `key` and `scroll` may; the rest must not. */
+export const NEEDS_SELECTOR: ReadonlySet<ActionVerb> = new Set<ActionVerb>(['click', 'type', 'select', 'hover']);
 
 export interface AgentAction {
   action: ActionVerb;
+  /** click, type, select, hover; optional for key, scroll. Must be a `dom_summary[].path`. */
   selector?: string;
-  /** Non-secret literal to type. Mutually exclusive with value_ref. */
+  /** type: non-secret literal. Mutually exclusive with value_ref. */
   value?: string;
-  /** PRD §7.2 indirection: names a locally-stored credential. The server never sees the secret. */
+  /** type: PRD §7.2 indirection, `user_saved:<slot>`. The provider never sees the secret. */
   value_ref?: string;
+  /** select: visible option label (case-insensitive) or option value. */
+  option?: string;
+  /** key */
+  key?: KeyName;
+  /** scroll, default down. */
+  direction?: 'up' | 'down';
+  /** navigate, http(s) only. */
+  url?: string;
+  /** Anything that submits, pays, sends, deletes, or leaves the site. navigate is always sensitive. */
+  risk: ActionRisk;
+}
+
+/** History entry: the action as executed plus what happened. `error` is executor text, never a value. */
+export interface PriorAction extends AgentAction {
+  outcome: 'ok' | 'failed' | 'skipped';
+  error?: string;
 }
 
 /**
- * PRD §7.2, plus one addition.
- *
- * `guardrail_rejections` is not in the PRD's response shape. It carries the
- * actions the server's planner refused and why — an invented selector, a literal
- * aimed at a Tier 1 field. A silent refusal would make the guardrail invisible
- * exactly when it matters, and PRD §5 story 4 asks for an auditable trail.
+ * PRD §7.2 plus additions. `guardrail_rejections` lists actions the client's
+ * planner refused and why. `done`/`result`: the model sets `done: true` when
+ * the goal is complete or cannot be advanced and puts the answer or reason in
+ * `result`; `result` never speculates about redacted content.
  */
 export interface AgentResponse {
   session_id: string;
@@ -227,4 +254,6 @@ export interface AgentResponse {
   actions: AgentAction[];
   requires_client_secret: boolean;
   guardrail_rejections?: string[];
+  done: boolean;
+  result: string | null;
 }

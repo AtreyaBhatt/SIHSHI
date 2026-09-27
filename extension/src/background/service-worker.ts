@@ -15,8 +15,9 @@ import type { CaptureResult } from '../shared/schema';
 import type {
   ContentToWorker, ExecutionResult, HealthReport, PanelToWorker, PayloadPreview, PlanPreview, WorkerReply,
 } from '../shared/messages';
-import type { AgentAction, AgentRequest, AgentResponse } from '../shared/schema';
-import type { ExecutableAction } from '../executor/execute';
+import type { AgentRequest, AgentResponse, PriorAction } from '../shared/schema';
+import { TAB_VERBS } from '../shared/schema';
+import type { ExecutableAction, ExecutableVerb } from '../executor/execute';
 import { buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
@@ -48,7 +49,7 @@ let lastCapture: CaptureResult | null = null;
 let tokens = new TokenRegistry(newSessionId());
 
 /** Multi-turn history for PRD §7.1. Verbs and selectors only — never a result. */
-let priorActions: AgentAction[] = [];
+let priorActions: PriorAction[] = [];
 
 /**
  * The plan the user may execute. Held only until the next plan replaces it.
@@ -320,8 +321,12 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
 
   const actions: ExecutableAction[] = [];
   for (const action of plan.response.actions) {
-    const executable: ExecutableAction = { action: action.action };
+    if (TAB_VERBS.has(action.action)) break; // Task 3 runs these in the worker; until then a plan stops here.
+    const executable: ExecutableAction = { action: action.action as ExecutableVerb };
     if (action.selector) executable.selector = action.selector;
+    if (action.option) executable.option = action.option;
+    if (action.key) executable.key = action.key;
+    if (action.direction) executable.direction = action.direction;
     if (action.value_ref) {
       executable.value = await resolveValueRef(action.value_ref);
       executable.value_ref = action.value_ref;
@@ -346,7 +351,10 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
   }
 
   // Only what was attempted, never what was read or typed.
-  priorActions = [...priorActions, ...plan.response.actions];
+  priorActions = [...priorActions, ...plan.response.actions.map((action, i): PriorAction => {
+    const outcome = reply.outcomes[i];
+    return { ...action, outcome: outcome ? (outcome.ok ? 'ok' : 'failed') : 'skipped', ...(outcome && !outcome.ok && outcome.error ? { error: outcome.error } : {}) };
+  })];
 
   return {
     outcomes: reply.outcomes,

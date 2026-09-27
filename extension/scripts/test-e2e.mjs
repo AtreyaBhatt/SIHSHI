@@ -77,9 +77,9 @@ const provider = createServer(async (req, res) => {
   const passwordPath = nodes.find((node) => node.path.includes('password'))?.path;
   const submitPath = nodes.find((node) => node.path.includes('submit'))?.path;
   const actions = [
-    customerPath && { action: 'type', selector: customerPath, value_ref: 'user_saved:username' },
-    passwordPath && { action: 'type', selector: passwordPath, value_ref: 'user_saved:password' },
-    submitPath && { action: 'click', selector: submitPath },
+    customerPath && { action: 'type', selector: customerPath, value_ref: 'user_saved:username', risk: 'routine' },
+    passwordPath && { action: 'type', selector: passwordPath, value_ref: 'user_saved:password', risk: 'routine' },
+    submitPath && { action: 'click', selector: submitPath, risk: 'sensitive' },
   ].filter(Boolean);
   const planText = JSON.stringify({ reasoning_summary: 'The visible form can use local credential references.', actions, requires_client_secret: true });
   const payload = req.url === '/messages' ? { content: [{ type: 'text', text: '```json\n' + planText + '\n```' }] } : { choices: [{ message: { content: planText } }] };

@@ -16,8 +16,10 @@
  * compromised or buggy server.
  */
 import { resolvePath } from '../shared/resolve-path';
+import type { ActionVerb, KeyName } from '../shared/schema';
 
-export type ExecutableVerb = 'click' | 'type' | 'focus' | 'scroll' | 'read' | 'wait';
+/** Page-level verbs. `navigate` and `go_back` are handled by the service worker. */
+export type ExecutableVerb = Exclude<ActionVerb, 'navigate' | 'go_back'>;
 
 export interface ExecutableAction {
   action: ExecutableVerb;
@@ -26,19 +28,20 @@ export interface ExecutableAction {
   value?: string;
   /** Present for display only, so the audit trail can say "typed the saved password". */
   value_ref?: string;
+  option?: string;
+  key?: KeyName;
+  direction?: 'up' | 'down';
 }
 
 export interface ActionOutcome {
   action: ExecutableVerb;
   selector: string | null;
   ok: boolean;
-  /** Populated only by `read`. Local-only — must be redacted before any resend. */
-  text?: string;
   error?: string;
   duration_ms: number;
 }
 
-const NEEDS_SELECTOR = new Set<ExecutableVerb>(['click', 'type', 'focus']);
+const NEEDS_SELECTOR = new Set<ExecutableVerb>(['click', 'type', 'select', 'hover']);
 const WAIT_MS = 400;
 
 function findOne(selector: string): Element {
@@ -85,10 +88,10 @@ async function runOne(action: ExecutableAction, allowed: Set<string>): Promise<v
       (element as HTMLElement).click();
       return;
     }
-    case 'focus': {
-      (findOne(action.selector!) as HTMLElement).focus();
-      return;
-    }
+    case 'select':
+    case 'key':
+    case 'hover':
+      throw new Error(`${action.action} is not implemented yet`);
     case 'type': {
       const element = findOne(action.selector!);
       (element as HTMLElement).focus();
@@ -103,8 +106,6 @@ async function runOne(action: ExecutableAction, allowed: Set<string>): Promise<v
     }
     case 'wait':
       await sleep(WAIT_MS);
-      return;
-    case 'read':
       return;
   }
 }
@@ -126,9 +127,6 @@ export async function executeActions(
         ok: true,
         duration_ms: Math.round((performance.now() - started) * 100) / 100,
       };
-      if (action.action === 'read' && action.selector) {
-        outcome.text = (findOne(action.selector).textContent ?? '').trim().slice(0, 500);
-      }
       outcomes.push(outcome);
     } catch (err) {
       outcomes.push({

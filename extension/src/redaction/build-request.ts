@@ -13,8 +13,8 @@
  * refusal to build rather than as a leak.
  */
 import type {
-  AgentAction,
   AgentRequest,
+  PriorAction,
   RawDomNode,
   RawSnapshot,
   RedactionManifestEntry,
@@ -40,7 +40,7 @@ export interface BuildOptions {
   taskInstruction: string;
   tokens: TokenRegistry;
   threshold?: number;
-  priorActions?: AgentAction[];
+  priorActions?: PriorAction[];
   /**
    * Faces found by the local detector. They arrive separately from the text
    * cascade because they have no DOM representation — a face is pixels in a
