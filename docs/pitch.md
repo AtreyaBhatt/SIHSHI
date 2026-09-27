@@ -149,7 +149,7 @@ deliberate — PRD §9 — over-redact rather than leak."* Then the eval table.
 | Overall recall | 0.941 (the two prose FNs) | — |
 | Local pipeline p50 | ~66 ms (capture 1 · screenshot ~40 · faces ~13 · redaction ~17) | < 300 ms |
 | Package | ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) | < 20 MB |
-| Tests | 5 browser harnesses + capture harness + 31 server tests | — |
+| Tests | 9 browser/Node harnesses (capture, redaction, faces, scenario B, e2e A + C, executor, guardrails, loop) + 43 server tests | — |
 
 The caveat, verbatim, because a judge will ask: *"These are on three fixture
 screens written by the same people who wrote the detectors, scored against
