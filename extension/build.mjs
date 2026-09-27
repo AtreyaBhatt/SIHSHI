@@ -1,5 +1,7 @@
 import { build, context } from 'esbuild';
-import { cp, mkdir, rm } from 'node:fs/promises';
+import {
+  cp, mkdir, readFile, rm, stat, writeFile,
+} from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
 const watch = process.argv.includes('--watch');
@@ -60,6 +62,69 @@ async function copyStatic() {
     );
   }
   await cp('models/version-RFB-320.onnx', 'dist/models/version-RFB-320.onnx');
+
+  await writeBenchmark();
+}
+
+/**
+ * Copies the eval corpus's own measured numbers into the package so the
+ * metrics card can show them with a date and corpus size, without recomputing
+ * anything at build time. Every field here is either read straight out of
+ * `eval/results/metrics.json` (the eval scripts already wrote it) or, for
+ * latency, a plain p50/p95 over the raw per-run milliseconds in
+ * `eval/results/latency.json` — a percentile of real measurements, not a
+ * fabricated number. Missing corpus output writes `{ missing: true }` rather
+ * than failing the build: the extension must still work for a checkout that
+ * has not run the eval.
+ */
+const METRICS_PATH = '../eval/results/metrics.json';
+const LATENCY_PATH = '../eval/results/latency.json';
+const LATENCY_STAGES = ['capture_ms', 'screenshot_ms', 'perception_ms', 'redaction_ms', 'network_ms', 'execute_ms'];
+
+function percentile(values, p) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[idx];
+}
+
+async function writeBenchmark() {
+  if (!existsSync(METRICS_PATH)) {
+    await writeFile('dist/assets/benchmark.json', JSON.stringify({ missing: true }, null, 2));
+    return;
+  }
+  const metrics = JSON.parse(await readFile(METRICS_PATH, 'utf8'));
+  const generatedAt = (await stat(METRICS_PATH)).mtime.toISOString();
+
+  let latency = null;
+  if (existsSync(LATENCY_PATH)) {
+    const raw = JSON.parse(await readFile(LATENCY_PATH, 'utf8'));
+    const runs = raw.runs ?? [];
+    latency = Object.fromEntries(LATENCY_STAGES.map((stage) => {
+      const values = runs.map((r) => r[stage]).filter((v) => typeof v === 'number');
+      return [stage, { p50: percentile(values, 50), p95: percentile(values, 95) }];
+    }));
+  }
+
+  const benchmark = {
+    generated_at: generatedAt,
+    screens: metrics.screens,
+    items: metrics.labelled_items,
+    detection: {
+      overall: metrics.detection?.overall ?? null,
+      tier1: metrics.detection?.by_tier?.['1'] ?? null,
+      tier2: metrics.detection?.by_tier?.['2'] ?? null,
+    },
+    // Only tier1 IoU-based redaction precision is computed by run_eval.py
+    // today; tier2/overall stay null rather than being invented here.
+    redaction_precision: {
+      tier1: metrics.metrics?.tier1_redaction_precision ?? null,
+      tier2: null,
+      overall: null,
+    },
+    latency,
+  };
+  await writeFile('dist/assets/benchmark.json', JSON.stringify(benchmark, null, 2));
 }
 
 const common = {

@@ -40,12 +40,12 @@ import { buildAgentRequest } from '${resolve('src/redaction/build-request.ts')}'
 import { TokenRegistry } from '${resolve('src/redaction/tokens.ts')}';
 export async function run(threshold, disabledDetectors) {
   const snapshot = captureDomSnapshot();
-  const { request, detections, firewall } = await buildAgentRequest({
+  const { request, detections, firewall, timings } = await buildAgentRequest({
     snapshot, screenshotDataUrl: null, taskInstruction: 'Complete this form.',
     tokens: new TokenRegistry('test-session'), threshold,
     disabledDetectors: disabledDetectors ? new Set(disabledDetectors) : undefined,
   });
-  return { request, detections, firewall, nodes: snapshot.nodes.length };
+  return { request, detections, firewall, timings, nodes: snapshot.nodes.length };
 }
 `);
 await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
@@ -112,6 +112,14 @@ try {
     const result = JSON.parse(await evaluate(`ATHENA.run(0.5).then(r => JSON.stringify(r))`));
     const payload = JSON.stringify(result.request);
     console.log(`nodes ${result.nodes} · detections ${result.detections.length} · manifest ${result.request.redaction_manifest.length}`);
+
+    if (spec.name.startsWith('bank-login')) {
+      console.log('\nbuildAgentRequest reports its own stage timings:');
+      if (typeof result.timings?.redaction_ms === 'number' && result.timings.redaction_ms >= 0) pass(`redaction_ms >= 0 (${result.timings.redaction_ms})`);
+      else fail(`redaction_ms missing or negative (${result.timings?.redaction_ms})`);
+      if (typeof result.timings?.firewall_ms === 'number' && result.timings.firewall_ms >= 0) pass(`firewall_ms >= 0 (${result.timings.firewall_ms})`);
+      else fail(`firewall_ms missing or negative (${result.timings?.firewall_ms})`);
+    }
 
     if (process.env.ATHENA_EMIT_PAYLOAD && spec === specs[0]) {
       await writeFile(process.env.ATHENA_EMIT_PAYLOAD, JSON.stringify(result.request, null, 2));

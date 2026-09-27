@@ -13,7 +13,7 @@
 import { api, isRestrictedUrl } from '../shared/browser';
 import type { CaptureResult } from '../shared/schema';
 import type {
-  ContentToWorker, ExecutionResult, HealthReport, PanelToWorker, PayloadPreview, PlanPreview, WorkerReply,
+  ContentToWorker, ExecutionResult, HealthReport, PanelToWorker, PayloadPreview, PlanPreview, StepMetrics, WorkerReply,
 } from '../shared/messages';
 import type { AgentAction, AgentRequest, AgentResponse, PriorAction } from '../shared/schema';
 import type { ActionOutcome, ExecutableAction, ExecutableVerb } from '../executor/execute';
@@ -267,13 +267,13 @@ function toFaceDetection(f: FaceBox): FaceDetection {
 async function detectFaces(
   capture: CaptureResult,
   prev: StepState | null,
-): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null; screenshotWithheld: boolean }> {
+): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null; ms: number; screenshotWithheld: boolean }> {
   const plan = planDelta(prev, capture.snapshot.nodes);
   const { changedMedia, reusedFaces, report } = plan;
   const { width, height } = capture.snapshot.viewport;
   const reusedDetections = reusedFaces.map((f) => toFaceDetection({ ...f, bbox: padBox(f.bbox, width, height) }));
   const failed = (note: string, screenshotWithheld: boolean) =>
-    ({ faces: reusedDetections, note, report, state: advance(prev, plan, null), screenshotWithheld });
+    ({ faces: reusedDetections, note, report, state: advance(prev, plan, null), ms: 0, screenshotWithheld });
 
   if (capture.screenshot_data_url === null) return failed('no screenshot to scan', false);
 
@@ -297,6 +297,7 @@ async function detectFaces(
       note: `${reply.faces.length} new + ${reusedFaces.length} reused face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
       report,
       state: advance(prev, plan, reply.faces.map(toFaceBox)),
+      ms: reply.inference_ms ?? 0,
       screenshotWithheld: false,
     };
   } catch (err) {
@@ -313,7 +314,7 @@ async function buildPayload(
 ): Promise<PayloadPreview> {
   const started = performance.now();
   try {
-    const { faces, note, report, state, screenshotWithheld } =
+    const { faces, note, report, state, ms: perceptionMs, screenshotWithheld } =
       await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
     if (state) stepStates.set(registry.session_id, state);
     else stepStates.delete(registry.session_id);
@@ -322,7 +323,7 @@ async function buildPayload(
     // hide an unblurred face, so unproven pixels do not leave the device.
     const screenshotDataUrl = screenshotWithheld ? null : capture.screenshot_data_url;
     const perceptionNote = screenshotWithheld ? 'face scan failed — screenshot withheld' : note;
-    const { request, detections, firewall } = await buildAgentRequest({
+    const { request, detections, firewall, timings } = await buildAgentRequest({
       snapshot: capture.snapshot,
       screenshotDataUrl,
       taskInstruction,
@@ -337,6 +338,26 @@ async function buildPayload(
     });
     await saveRegistry(registry);
     assertNoTypedSecrets(request, typedSecretValues.get(registry.session_id) ?? []);
+    const metrics: StepMetrics = {
+      capture_ms: capture.timings.dom_walk_ms,
+      screenshot_ms: capture.timings.screenshot_ms,
+      perception_ms: perceptionMs,
+      redaction_ms: timings.redaction_ms,
+      firewall_ms: timings.firewall_ms,
+      provider_ms: null,
+      execute_ms: null,
+      settle_ms: null,
+      payload_bytes: new TextEncoder().encode(JSON.stringify(request)).length,
+      screenshot: request.screenshot_redacted !== null ? 'redacted' : 'none',
+      detected: request.redaction_manifest.length,
+      redacted_tier1: request.redaction_manifest.filter((e) => e.tier === 1).length,
+      redacted_tier2: request.redaction_manifest.filter((e) => e.tier === 2).length,
+      faces: request.redaction_manifest.filter((e) => e.type === 'face').length,
+      frames: request.redaction_manifest.filter((e) => e.type === 'frame').length,
+      firewall_masked: firewall.masked,
+      firewall_blocked: firewall.blocked,
+      hidden_dropped: request.hidden_dropped,
+    };
     return {
       session_id: registry.session_id,
       request,
@@ -345,6 +366,7 @@ async function buildPayload(
       build_ms: Math.round((performance.now() - started) * 100) / 100,
       perception_note: perceptionNote,
       delta: report,
+      metrics,
       error: null,
     };
   } catch (err) {
@@ -364,6 +386,7 @@ async function buildPayload(
       build_ms: Math.round((performance.now() - started) * 100) / 100,
       perception_note: null,
       delta: null,
+      metrics: null,
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -736,8 +759,9 @@ const loopDeps = {
     if (!runTokens || runTokens.session_id !== runId) runTokens = (await loadRegistry(runId)) ?? new TokenRegistry(runId);
     const preview = await buildPayload(capture, DEFAULT_THRESHOLD, goal, runTokens, history);
     if (!preview.request) throw new Error(preview.error ?? 'No payload was built.');
+    const t0 = performance.now();
     const response = await requestPlan(preview.request);
-    return { preview, response };
+    return { preview, response, ms: Math.round((performance.now() - t0) * 100) / 100 };
   },
   execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string) => {
     // The worker may have been suspended while the user read the approval card.
@@ -749,29 +773,33 @@ const loopDeps = {
     if (!runTokens || runTokens.session_id !== runId) runTokens = (await loadRegistry(runId)) ?? null;
     const tab = await api.tabs.get(tabId);
     if (!tab.url || originOf(tab.url) !== originOf(pageUrl)) throw new Error('The page changed since it was captured.');
-    return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId, runTokens));
+    const t0 = performance.now();
+    const history = toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId, runTokens));
+    return { history, ms: Math.round((performance.now() - t0) * 100) / 100 };
   },
   settle: async (tabId: number) => {
+    const t0 = performance.now();
     // A click-driven navigation may not have flipped the tab to 'loading' yet.
     await new Promise((r) => setTimeout(r, 150));
     const tab = await waitForTabComplete(tabId);
     const url = tab.url;
     const origin = url ? originOf(url) : undefined;
+    const ms = () => Math.round((performance.now() - t0) * 100) / 100;
     // Unusable: no URL, a browser-internal page, or an opaque ("null") origin.
     // None of these can ever be granted host permission, so report no url —
     // the loop's originOf(undefined) is undefined, and the existing
     // `!run.needs_origin` branch in run-grant-and-resume stops the run instead
     // of leaving it stuck in needs_permission forever.
-    if (!url || isRestrictedUrl(url) || !origin || origin === 'null') return { url: undefined, granted: false };
+    if (!url || isRestrictedUrl(url) || !origin || origin === 'null') return { url: undefined, granted: false, ms: ms() };
     // Injection is the probe either way: without a host grant activeTab may still
     // cover this tab (same tab, earlier gesture); with one, an error page or a
     // tab that closed mid-navigation fails the same way. A failure is not granted.
     try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
-    catch { return { url, granted: false }; }
+    catch { return { url, granted: false, ms: ms() }; }
     try { await api.tabs.sendMessage(tabId, { type: 'athena:settle' }); } catch { /* page navigated again */ }
     // The quiet period can end in a navigation; let that load finish before capturing.
     await waitForTabComplete(tabId);
-    return { url, granted: true };
+    return { url, granted: true, ms: ms() };
   },
   save: async (run: Run) => {
     // A drive still in flight after Stop must not overwrite the stopped record.

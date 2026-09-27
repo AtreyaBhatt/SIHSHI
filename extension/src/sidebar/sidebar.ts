@@ -31,10 +31,23 @@ import { ensureProviderOriginPermission, readProviderSettings, saveProviderSetti
 import type { VaultStatus } from '../shared/vault'; // type only: the vault itself lives in the worker
 import type { CaptureResult, RedactionManifestEntry } from '../shared/schema';
 import type {
-  ExecutionResult, PanelToWorker, PayloadPreview, PlanPreview, ResponseFor, WorkerReply,
+  ExecutionResult, PanelToWorker, PayloadPreview, PlanPreview, ResponseFor, StepMetrics, WorkerReply,
 } from '../shared/messages';
 import type { Detection } from '../pii-detection/types';
 import type { Run, RunMode } from '../background/agent/loop';
+
+/** dist/assets/benchmark.json, copied at build time from eval/results/*.json (build.mjs). `{ missing: true }` when the eval has never been run. */
+interface BenchmarkCounts { tp: number; fp: number; fn: number }
+interface BenchmarkStage { p50: number | null; p95: number | null }
+interface Benchmark {
+  missing?: true;
+  generated_at?: string;
+  screens?: number;
+  items?: number;
+  detection?: { overall: BenchmarkCounts | null; tier1: BenchmarkCounts | null; tier2: BenchmarkCounts | null };
+  redaction_precision?: { tier1: number | null; tier2: number | null; overall: number | null };
+  latency?: Record<string, BenchmarkStage> | null;
+}
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -59,6 +72,8 @@ const activityCount = $('activity-count');
 const activityToggle = $<HTMLButtonElement>('activity-toggle');
 const outbound = $('outbound');
 const previewLink = $<HTMLButtonElement>('preview-link');
+const metricsToggle = $<HTMLButtonElement>('metrics-toggle');
+const metricsBody = $('metrics-body');
 const approval = $('approval');
 const toastEl = $('toast');
 const toastMessage = $('toast-message');
@@ -71,6 +86,7 @@ let plan: PlanPreview | null = null;
 let execution: ExecutionResult | null = null;
 let run: Run | null = null;
 let mode: RunMode = 'approve-all';
+let benchmark: Benchmark | null = null;
 
 function setMode(next: RunMode): void {
   mode = next;
@@ -121,6 +137,7 @@ function renderRun(): void {
     status.hidden = true; startBtn.hidden = false; stopBtn.hidden = true; banner.hidden = true; permission.hidden = true; $('run-unlock').hidden = true;
     history.innerHTML = '<p class="empty">No steps yet.</p>';
     taskEl.disabled = false; askButton.disabled = false; analyzeButton.disabled = false; $<HTMLButtonElement>('reset-session').disabled = false;
+    renderMetrics();
     return;
   }
 
@@ -165,6 +182,7 @@ function renderRun(): void {
     planSteps.innerHTML = `<p class="empty" style="margin-top:10px;">${esc(run.status === 'planning' ? 'Sanitized context sent; waiting for the plan.' : run.status === 'executing' ? 'Running the approved step on the page.' : run.status === 'settling' ? 'Waiting for the page to settle.' : 'Capturing and redacting.')}</p>`;
     planActions.hidden = true;
   }
+  renderMetrics();
 }
 
 async function refreshRun(): Promise<void> {
@@ -434,6 +452,98 @@ function renderPrivacy(): void {
   else sub.textContent = `${detections.length} sensitive region(s) held back from the request.`;
 }
 
+function fmtMs(v: number | null | undefined): string {
+  return typeof v === 'number' ? `${v.toFixed(1)} ms` : '—';
+}
+
+function fmtPct(v: number | null | undefined): string {
+  return typeof v === 'number' ? `${v.toFixed(1)}%` : '—';
+}
+
+function fmtCounts(c: BenchmarkCounts | null | undefined): string {
+  return c ? `${c.tp} tp · ${c.fp} fp · ${c.fn} fn` : '—';
+}
+
+function metRow(label: string, value: string): string {
+  return `<div class="met-row"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
+}
+
+/**
+ * The Metrics card: every number here is either this step's own measurement
+ * (`preview.metrics` / `run.last_metrics`, `preview.delta`) or a number copied
+ * from the bundled eval output at build time (`benchmark`) — nothing on this
+ * card is invented or hardcoded. Only rendered when the card is expanded.
+ */
+function renderMetrics(): void {
+  if (metricsBody.hidden) return;
+  const metrics: StepMetrics | null = run?.last_metrics ?? preview?.metrics ?? null;
+  const delta = preview?.delta ?? run?.last_preview?.delta ?? null;
+  const none = '<p class="empty">No step measured yet.</p>';
+
+  $('metrics-privacy').innerHTML = !metrics ? none : [
+    metRow('regions detected', String(metrics.detected)),
+    metRow('redacted — tier 1', String(metrics.redacted_tier1)),
+    metRow('redacted — tier 2', String(metrics.redacted_tier2)),
+    metRow('firewall masked / blocked', `${metrics.firewall_masked} / ${metrics.firewall_blocked}`),
+    metRow('hidden nodes dropped', String(metrics.hidden_dropped)),
+    metRow('payload size', `${(metrics.payload_bytes / 1024).toFixed(1)} KB`),
+  ].join('');
+
+  $('metrics-boundary').innerHTML = !metrics ? none
+    : metrics.screenshot === 'redacted' ? metRow('raw pixels transmitted', '0') : metRow('screenshot', 'none');
+
+  $('metrics-performance').innerHTML = !metrics ? none : [
+    metRow('capture', fmtMs(metrics.capture_ms)),
+    metRow('screenshot', fmtMs(metrics.screenshot_ms)),
+    metRow('perception', fmtMs(metrics.perception_ms)),
+    metRow('redaction', fmtMs(metrics.redaction_ms)),
+    metRow('firewall', fmtMs(metrics.firewall_ms)),
+    metRow('provider (network)', fmtMs(metrics.provider_ms)),
+    metRow('execute', fmtMs(metrics.execute_ms)),
+    metRow('settle', fmtMs(metrics.settle_ms)),
+  ].join('');
+
+  const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize;
+  $('metrics-resources').innerHTML = [
+    metRow('panel JS heap', typeof heap === 'number' ? `${(heap / (1024 * 1024)).toFixed(1)} MB` : '—'),
+    metRow('CPU / GPU', 'not exposed to extensions — see Chrome Task Manager'),
+  ].join('');
+
+  $('metrics-delta').innerHTML = !delta ? none : [
+    metRow('nodes changed', `${delta.nodes_changed} / ${delta.nodes_total} (${delta.nodes_changed_pct}%)`),
+    metRow('media re-processed', `${delta.media_reprocessed} / ${delta.media_total} (${delta.media_area_reprocessed_pct}%)`),
+    metRow('faces reused', String(delta.faces_reused)),
+  ].join('');
+
+  if (!benchmark || benchmark.missing) {
+    $('metrics-benchmark').innerHTML = '<p class="met-note">no benchmark bundled — run the eval and rebuild</p>';
+  } else {
+    const date = benchmark.generated_at ? benchmark.generated_at.slice(0, 10) : '—';
+    const rp = benchmark.redaction_precision;
+    const latRows = benchmark.latency
+      ? Object.entries(benchmark.latency).map(([stage, v]) => metRow(stage.replace(/_ms$/, ''), `p50 ${fmtMs(v.p50)} · p95 ${fmtMs(v.p95)}`)).join('')
+      : '';
+    $('metrics-benchmark').innerHTML = [
+      `<p class="met-note">measured on ${benchmark.screens ?? '—'} screens, ${esc(date)}</p>`,
+      metRow('detection tp·fp·fn — overall', fmtCounts(benchmark.detection?.overall)),
+      metRow('detection tp·fp·fn — tier 1', fmtCounts(benchmark.detection?.tier1)),
+      metRow('detection tp·fp·fn — tier 2', fmtCounts(benchmark.detection?.tier2)),
+      metRow('redaction precision (IoU) — tier 1', rp?.tier1 != null ? fmtPct(rp.tier1 * 100) : 'not measured'),
+      metRow('redaction precision (IoU) — tier 2', rp?.tier2 != null ? fmtPct(rp.tier2 * 100) : 'not measured'),
+      latRows,
+    ].join('');
+  }
+}
+
+async function loadBenchmark(): Promise<void> {
+  try {
+    benchmark = await (await fetch(api.runtime.getURL('assets/benchmark.json'))).json();
+  } catch {
+    benchmark = null;
+  }
+  renderMetrics();
+}
+
 function renderDetections(): void {
   const detections = preview?.detections ?? [];
   const list = $('detections');
@@ -616,6 +726,7 @@ function renderAll(): void {
   renderDetections();
   renderOutbound();
   renderPlan();
+  renderMetrics();
 }
 
 // --- flow -------------------------------------------------------------------
@@ -817,6 +928,13 @@ activityToggle.addEventListener('click', () => {
   const collapsed = activityToggle.getAttribute('aria-expanded') === 'false';
   activityToggle.setAttribute('aria-expanded', String(collapsed));
   renderActivity();
+});
+
+metricsToggle.addEventListener('click', () => {
+  const collapsed = metricsToggle.getAttribute('aria-expanded') === 'false';
+  metricsToggle.setAttribute('aria-expanded', String(collapsed));
+  metricsBody.hidden = !collapsed;
+  renderMetrics();
 });
 
 $('open-viewer').addEventListener('click', async () => {
@@ -1030,6 +1148,7 @@ api.tabs.onUpdated.addListener((_tabId, info) => {
 
 void (async () => {
   renderActivity();
+  void loadBenchmark();
   try { renderVault(await send({ type: 'athena:vault-status' })); renderProvider(await readProviderSettings()); }
   catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not read local settings.'; }
   await loadDebugDetectors();

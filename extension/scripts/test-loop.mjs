@@ -22,7 +22,14 @@ const isSubsequence = (seq, arr) => {
 };
 
 const capture = { tab_id: 7, snapshot: { page_url: 'https://bank.example/login', nodes: [], viewport: {}, truncated: false, unscanned: [], timings: {} }, screenshot_data_url: null, screenshot_error: null, timings: {} };
-const preview = { session_id: 'r', request: { session_id: 'r', task_instruction: 'g', screenshot_redacted: null, dom_summary: [{ path: 'input#u', role: 'textbox', label: 'User', value: null }, { path: 'button#go', role: 'button', label: 'Go', value: null }], redaction_manifest: [], prior_actions: [], truncated: false }, detections: [], build_ms: 1, perception_note: null, error: null };
+const stepMetrics = {
+  capture_ms: 1, screenshot_ms: 2, perception_ms: 3, redaction_ms: 4, firewall_ms: 5,
+  provider_ms: null, execute_ms: null, settle_ms: null,
+  payload_bytes: 100, screenshot: 'none',
+  detected: 0, redacted_tier1: 0, redacted_tier2: 0, faces: 0, frames: 0,
+  firewall_masked: 0, firewall_blocked: 0, hidden_dropped: 0,
+};
+const preview = { session_id: 'r', request: { session_id: 'r', task_instruction: 'g', screenshot_redacted: null, dom_summary: [{ path: 'input#u', role: 'textbox', label: 'User', value: null }, { path: 'button#go', role: 'button', label: 'Go', value: null }], redaction_manifest: [], prior_actions: [], truncated: false }, detections: [], build_ms: 1, perception_note: null, delta: null, metrics: stepMetrics, error: null };
 const plan = (actions, done = false, result = null) => ({ session_id: 'r', reasoning_summary: 's', actions, requires_client_secret: actions.some((a) => a.value_ref), done, result });
 const login = [{ action: 'type', selector: 'input#u', value_ref: 'user_saved:username', risk: 'routine' }, { action: 'click', selector: 'button#go', risk: 'sensitive' }];
 
@@ -33,16 +40,17 @@ function fakeDeps(plans, opts = {}) {
   return {
     log, stoppedIds, saved,
     capture: async (tabId) => { log.push('capture'); return { ...capture, tab_id: tabId }; },
-    plan: async (_c, _g, history) => { log.push(`plan(${history.length})`); return { preview, response: plans.shift() ?? plan([], true, 'nothing left') }; },
+    plan: async (_c, _g, history) => { log.push(`plan(${history.length})`); return { preview, response: plans.shift() ?? plan([], true, 'nothing left'), ms: 30 }; },
     execute: async (_t, actions) => {
       log.push(`execute(${actions.length})`);
       const failThisCall = opts.failFirst && log.filter((l) => l.startsWith('execute')).length === 1;
-      return actions.map((a) => {
+      const history = actions.map((a) => {
         const outcome = failThisCall ? 'failed' : 'ok';
         return { ...a, outcome, ...(outcome === 'failed' ? { error: 'No element matches' } : {}) };
       });
+      return { history, ms: 10 };
     },
-    settle: async () => { log.push('settle'); return { url: opts.afterUrl ?? 'https://bank.example/home', granted: opts.granted ?? true }; },
+    settle: async () => { log.push('settle'); return { url: opts.afterUrl ?? 'https://bank.example/home', granted: opts.granted ?? true, ms: 20 }; },
     save: async (run) => { saved.push(run); },
     stopped: (id) => stoppedIds.has(id),
   };
@@ -74,6 +82,13 @@ console.log('mode approve-sensitive');
   let run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
   check(run.status === 'awaiting_approval', 'routine step ran unattended, sensitive step paused');
   check(run.history.length === 1 && run.history[0].action === 'scroll', 'routine action already in history');
+  check(
+    run.last_metrics !== null
+      && typeof run.last_metrics.provider_ms === 'number'
+      && typeof run.last_metrics.execute_ms === 'number'
+      && typeof run.last_metrics.settle_ms === 'number',
+    `last_metrics is set after the completed routine step, with provider_ms/execute_ms/settle_ms as numbers (${JSON.stringify(run.last_metrics)})`,
+  );
   check(needsApproval(run, plan([{ action: 'type', selector: 'input#u', value_ref: 'user_saved:x', risk: 'routine' }])) === true, 'value_ref requires approval');
   check(needsApproval(run, plan([{ action: 'type', selector: 'input#u', value_token: '[AADHAAR_1]', risk: 'routine' }])) === true, 'value_token requires approval');
   check(needsApproval(run, plan([{ action: 'navigate', url: 'https://a.example', risk: 'routine' }])) === true, 'navigate requires approval');
@@ -148,7 +163,7 @@ console.log('stop lands during execute (transition keeps the patch)');
   deps.execute = async (_t, actions) => {
     deps.log.push(`execute(${actions.length})`);
     deps.stoppedIds.add(run.run_id);
-    return actions.map((a) => ({ ...a, outcome: 'ok' }));
+    return { history: actions.map((a) => ({ ...a, outcome: 'ok' })), ms: 10 };
   };
   run = await approve(run, deps);
   check(

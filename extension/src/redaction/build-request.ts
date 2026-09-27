@@ -78,6 +78,8 @@ export interface BuildResult {
   request: AgentRequest;
   detections: Detection[];
   firewall: FirewallReport;
+  /** Measured with performance.now() around the two stages below. Rounded to 2dp, like every other timing in this codebase. */
+  timings: { redaction_ms: number; firewall_ms: number };
 }
 
 /**
@@ -185,6 +187,7 @@ export async function buildAgentRequest(
   options: BuildOptions,
 ): Promise<BuildResult> {
   const { snapshot, screenshotDataUrl, taskInstruction, tokens } = options;
+  const redactionStarted = performance.now();
   const detections = detectPii(snapshot, {
     threshold: options.threshold ?? DEFAULT_THRESHOLD,
     disabledDetectors: options.disabledDetectors,
@@ -364,6 +367,8 @@ export async function buildAgentRequest(
     hidden_dropped: snapshot.hidden_dropped,
   };
 
+  const redaction_ms = Math.round((performance.now() - redactionStarted) * 100) / 100;
+
   // The firewall is the independent outbound scan that replaces the old
   // context-free assertNoRawPii check (client-side mirror of the server
   // ingress check, PRD §6.2.6) — it masks every hit it finds, Tier 1 and
@@ -371,8 +376,10 @@ export async function buildAgentRequest(
   // blocks the request on a residual hit still present after masking. It must
   // run before the screenshot is redacted below so a new manifest entry still
   // gets its pixels blacked out.
+  const firewallStarted = performance.now();
   const nodesByPath = new Map(snapshot.nodes.map((node) => [node.path, node]));
   const firewall = scanRequest(request, tokens, nodesByPath);
+  const firewall_ms = Math.round((performance.now() - firewallStarted) * 100) / 100;
 
   let screenshotRedacted: string | null = null;
   if (screenshotDataUrl) {
@@ -419,5 +426,6 @@ export async function buildAgentRequest(
     request,
     detections: [...detections, ...faceDetections, ...frameDetections],
     firewall,
+    timings: { redaction_ms, firewall_ms },
   };
 }

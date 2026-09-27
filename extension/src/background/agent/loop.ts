@@ -11,7 +11,7 @@
  * is not counted, and approve() re-captures.
  */
 import type { AgentAction, AgentResponse, CaptureResult, PriorAction } from '../../shared/schema';
-import type { PayloadPreview } from '../../shared/messages';
+import type { PayloadPreview, StepMetrics } from '../../shared/messages';
 
 export type RunMode = 'approve-all' | 'approve-sensitive';
 export type RunStatus = 'idle' | 'capturing' | 'planning' | 'awaiting_approval' | 'executing' | 'settling' | 'needs_permission' | 'needs_unlock' | 'done' | 'failed' | 'stopped';
@@ -38,17 +38,38 @@ export interface Run {
   tier1_paths: string[];
   /** dom_summary labels (≤ 80 chars, already sanitized) of the pending plan's targets, keyed by path; shown on the approval card. */
   labels: Record<string, string>;
+  /** The last fully-settled step's metrics (build-time fields plus provider/execute/settle ms). Null before any step completes. */
+  last_metrics: StepMetrics | null;
+  /**
+   * Scratch space for the step in progress: provider_ms lands here at plan
+   * time, execute_ms/settle_ms at execute time — often across two separate
+   * drive()/approve() calls, since a plan can sit at awaiting_approval for a
+   * while. Folded into last_metrics once the step reaches capturing/done and
+   * cleared; never shown to the panel directly.
+   */
+  pending_metrics: { provider_ms?: number; execute_ms?: number; settle_ms?: number } | null;
 }
 
 export interface LoopDeps {
   capture(tabId: number): Promise<CaptureResult>;
-  plan(capture: CaptureResult, goal: string, history: PriorAction[], runId: string): Promise<{ preview: PayloadPreview; response: AgentResponse }>;
-  execute(tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string): Promise<PriorAction[]>;
+  plan(capture: CaptureResult, goal: string, history: PriorAction[], runId: string): Promise<{ preview: PayloadPreview; response: AgentResponse; ms?: number }>;
+  execute(tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string): Promise<{ history: PriorAction[]; ms?: number }>;
   /** Waits for the tab to load and the DOM to go quiet; reports where it landed and whether we may inject there. */
-  settle(tabId: number): Promise<{ url: string | undefined; granted: boolean }>;
+  settle(tabId: number): Promise<{ url: string | undefined; granted: boolean; ms?: number }>;
   save(run: Run): Promise<void>;
   /** True once stop() was requested for this run while a drive was in flight. */
   stopped(runId: string): boolean;
+}
+
+/** Merges this step's build-time metrics (from the just-stored preview) with whatever provider/execute/settle timings have landed so far. */
+function finalizeMetrics(preview: PayloadPreview | null, pending: Run['pending_metrics']): StepMetrics | null {
+  if (!preview?.metrics) return null;
+  return {
+    ...preview.metrics,
+    provider_ms: pending?.provider_ms ?? preview.metrics.provider_ms,
+    execute_ms: pending?.execute_ms ?? preview.metrics.execute_ms,
+    settle_ms: pending?.settle_ms ?? preview.metrics.settle_ms,
+  };
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped']);
@@ -57,6 +78,7 @@ export function newRun(goal: string, tabId: number, mode: RunMode, maxSteps: num
   return {
     run_id: crypto.randomUUID(), tab_id: tabId, goal, mode, step: 0, max_steps: maxSteps, status: 'idle',
     history: [], pending: null, last_preview: null, result: null, error: null, page_url: null, allowed: [], tier1_paths: [], labels: {},
+    last_metrics: null, pending_metrics: null,
   };
 }
 
@@ -100,21 +122,37 @@ async function executePending(run: Run, deps: LoopDeps): Promise<Run> {
   run = await transition(run, { status: 'executing', pending: null }, deps);
   if (run.status === 'stopped') return run;
   let executed: PriorAction[];
+  let executeMs: number | undefined;
   try {
-    executed = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '', run.run_id);
+    const result = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '', run.run_id);
+    executed = result.history;
+    executeMs = result.ms;
   } catch (err) {
     // Matched by name so this file stays free of the (worker-only) vault module.
     // Values are resolved before anything runs, so nothing executed: keep the plan.
     if ((err as Error | null)?.name === 'VaultLockedError') return transition(run, { status: 'needs_unlock', pending: response }, deps);
     throw err;
   }
-  run = await transition(run, { history: [...run.history, ...executed], status: 'settling' }, deps);
-  if (response.done) return transition(run, { status: 'done', result: response.result }, deps);
-  const landed = await deps.settle(run.tab_id);
-  if (!landed.granted) {
-    return transition(run, { status: 'needs_permission', needs_origin: originOf(landed.url) ?? undefined }, deps);
+  const afterExecute = { ...run.pending_metrics, ...(executeMs !== undefined ? { execute_ms: executeMs } : {}) };
+  run = await transition(run, { history: [...run.history, ...executed], status: 'settling', pending_metrics: afterExecute }, deps);
+  if (response.done) {
+    return transition(run, {
+      status: 'done', result: response.result,
+      last_metrics: finalizeMetrics(run.last_preview, afterExecute), pending_metrics: null,
+    }, deps);
   }
-  return transition(run, { status: 'capturing' }, deps);
+  const landed = await deps.settle(run.tab_id);
+  const afterSettle = { ...afterExecute, ...(landed.ms !== undefined ? { settle_ms: landed.ms } : {}) };
+  if (!landed.granted) {
+    return transition(run, {
+      status: 'needs_permission', needs_origin: originOf(landed.url) ?? undefined,
+      last_metrics: finalizeMetrics(run.last_preview, afterSettle), pending_metrics: null,
+    }, deps);
+  }
+  return transition(run, {
+    status: 'capturing',
+    last_metrics: finalizeMetrics(run.last_preview, afterSettle), pending_metrics: null,
+  }, deps);
 }
 
 /**
@@ -148,8 +186,15 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
           last_preview: preview.request ? { ...preview, request: { ...preview.request, screenshot_redacted: null } } : preview,
           allowed: preview.request?.dom_summary.map((n) => n.path) ?? [],
           tier1_paths: preview.request?.redaction_manifest.filter((e) => e.tier === 1 && e.dom_path).map((e) => e.dom_path!) ?? [],
+          // Fresh scratch for the step that just planned; execute()/settle() add to it.
+          pending_metrics: planned.ms !== undefined ? { provider_ms: planned.ms } : null,
         }, deps);
-        if (response.done && response.actions.length === 0) return transition(run, { status: 'done', result: response.result }, deps);
+        if (response.done && response.actions.length === 0) {
+          return transition(run, {
+            status: 'done', result: response.result,
+            last_metrics: finalizeMetrics(run.last_preview, run.pending_metrics), pending_metrics: null,
+          }, deps);
+        }
         if (response.actions.length === 0) {
           // Nothing to do and not done: re-capturing would loop on the same page. The run cannot advance.
           const why = response.guardrail_rejections?.length ? response.guardrail_rejections.join('; ') : response.reasoning_summary;

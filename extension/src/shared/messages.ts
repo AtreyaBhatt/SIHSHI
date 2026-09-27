@@ -43,6 +43,40 @@ export type ContentToWorker =
 /** Pushed from the worker whenever a run transitions, so the panel can render without polling. */
 export type WorkerToPanel = { type: 'athena:run-changed'; run: Run };
 
+/**
+ * Every rubric number for one step, measured in that step — nothing
+ * hardcoded, nothing recomputed later. Counts, milliseconds, bytes,
+ * percentages and the two enums only: never a value, a label, or selector
+ * text (CLAUDE.md, phase 5b global constraints).
+ *
+ * `provider_ms`/`execute_ms`/`settle_ms` are null on the `PayloadPreview` this
+ * came from (buildPayload never talks to the network, the executor or the
+ * tab) and are filled in by the loop once those stages actually run, becoming
+ * `Run.last_metrics`.
+ */
+export interface StepMetrics {
+  capture_ms: number;
+  screenshot_ms: number;
+  perception_ms: number;
+  redaction_ms: number;
+  firewall_ms: number;
+  provider_ms: number | null;
+  execute_ms: number | null;
+  settle_ms: number | null;
+  /** JSON.stringify(request).length re-encoded as UTF-8 bytes via TextEncoder. */
+  payload_bytes: number;
+  /** 'redacted' only when request.screenshot_redacted is the output of redactScreenshot for this capture; 'none' when withheld or absent. */
+  screenshot: 'redacted' | 'none';
+  detected: number;
+  redacted_tier1: number;
+  redacted_tier2: number;
+  faces: number;
+  frames: number;
+  firewall_masked: number;
+  firewall_blocked: number;
+  hidden_dropped: number;
+}
+
 export interface PayloadPreview {
   session_id: string;
   request: AgentRequest | null;
@@ -54,6 +88,8 @@ export interface PayloadPreview {
   error: string | null;
   /** What DeltaVision skipped this step, and how much. Null when the build failed before face detection ran. */
   delta: DeltaReport | null;
+  /** Null when the build failed before a request existed to measure. */
+  metrics: StepMetrics | null;
 }
 
 export interface PlanPreview {

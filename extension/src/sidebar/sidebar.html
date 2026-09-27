@@ -97,6 +97,41 @@
           </div>
         </div>
 
+        <div class="card">
+          <div class="between">
+            <span class="lbl">Metrics</span>
+            <button id="metrics-toggle" class="chev" type="button" aria-expanded="false" aria-label="Toggle metrics">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg>
+            </button>
+          </div>
+          <div id="metrics-body" class="list" hidden>
+            <div class="met-group">
+              <div class="met-hd">Privacy</div>
+              <div id="metrics-privacy" class="met-rows"></div>
+            </div>
+            <div class="met-group">
+              <div class="met-hd">Boundary</div>
+              <div id="metrics-boundary" class="met-rows"></div>
+            </div>
+            <div class="met-group">
+              <div class="met-hd">Performance (last step)</div>
+              <div id="metrics-performance" class="met-rows"></div>
+            </div>
+            <div class="met-group">
+              <div class="met-hd">Resources</div>
+              <div id="metrics-resources" class="met-rows"></div>
+            </div>
+            <div class="met-group">
+              <div class="met-hd">Delta</div>
+              <div id="metrics-delta" class="met-rows"></div>
+            </div>
+            <div class="met-group">
+              <div class="met-hd">Benchmark</div>
+              <div id="metrics-benchmark" class="met-rows"></div>
+            </div>
+          </div>
+        </div>
+
         <div>
           <div class="lbl ask-lbl">Ask ATHENA</div>
           <textarea id="task" class="ta" rows="3" aria-label="Task instruction">Check what is missing in this form and help me submit it.</textarea>
