@@ -92,21 +92,25 @@
         <div>
           <div class="lbl ask-lbl">Ask ATHENA</div>
           <textarea id="task" class="ta" rows="3" aria-label="Task instruction">Check what is missing in this form and help me submit it.</textarea>
+          <div class="seg" role="radiogroup" aria-label="Approval mode">
+            <button type="button" class="seg-btn on" id="mode-all" role="radio" aria-checked="true">Approve every step</button>
+            <button type="button" class="seg-btn" id="mode-sensitive" role="radio" aria-checked="false">Approve sensitive only</button>
+          </div>
           <div class="btns ask-btns">
-            <button id="ask" class="btn pri" type="button">
-              Ask ATHENA
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#cfe9e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 2.5 2.5 6.8l5 1.7 1.7 5z"/><path d="M13.5 2.5 7.5 8.5"/></svg>
-            </button>
+            <button id="run-start" class="btn pri" type="button">Start agent</button>
+            <button id="run-stop" class="btn ghost" type="button" hidden>Stop</button>
             <button id="analyze" class="btn sec" type="button">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#0e5a52" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 13 3.6v4.1c0 3.1-2.1 5.3-5 6.5-2.9-1.2-5-3.4-5-6.5V3.6z"/><path d="m5.8 8 1.5 1.5L10.3 6.5"/></svg>
               Analyze page safely
             </button>
           </div>
+          <div class="row t3" id="run-status" hidden><span id="run-step">step 0/25</span> · <span id="run-state">idle</span></div>
           <div class="fine-row">
             <label class="slider">threshold <b id="thr-value">0.50</b>
               <input type="range" id="threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Redaction threshold" />
             </label>
             <label class="toggle"><input type="checkbox" id="show-boxes" /><span>Outline elements</span></label>
+            <button id="ask" class="link" type="button">Plan one step only</button>
           </div>
         </div>
 
@@ -154,11 +158,17 @@
           <div class="steps" id="plan-steps"><p class="empty" style="margin-top:10px;">No plan yet. Ask ATHENA to capture and plan.</p></div>
           <div class="btns" id="plan-actions" hidden>
             <button id="approve" class="btn pri" type="button">
-              Approve and proceed
+              Approve this step
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#cfe9e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/></svg>
             </button>
             <button id="cancel-plan" class="btn ghost" type="button">Cancel</button>
           </div>
+          <div id="run-banner" class="banner" hidden></div>
+          <div class="btns" id="run-permission" hidden>
+            <button id="run-grant" class="btn sec sm" type="button">Enable on this site and continue</button>
+          </div>
+          <div class="lbl" style="margin-top:10px">History</div>
+          <div class="steps" id="run-history"><p class="empty">No steps yet.</p></div>
         </div>
 
         <div class="log">

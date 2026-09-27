@@ -34,6 +34,7 @@ import type {
   ExecutionResult, PanelToWorker, PayloadPreview, PlanPreview, ResponseFor, WorkerReply,
 } from '../shared/messages';
 import type { Detection } from '../pii-detection/types';
+import type { Run, RunMode } from '../background/agent/loop';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -66,6 +67,78 @@ let capture: CaptureResult | null = null;
 let preview: PayloadPreview | null = null;
 let plan: PlanPreview | null = null;
 let execution: ExecutionResult | null = null;
+let run: Run | null = null;
+let mode: RunMode = 'approve-all';
+
+function setMode(next: RunMode): void {
+  mode = next;
+  $('mode-all').classList.toggle('on', next === 'approve-all');
+  $('mode-all').setAttribute('aria-checked', String(next === 'approve-all'));
+  $('mode-sensitive').classList.toggle('on', next === 'approve-sensitive');
+  $('mode-sensitive').setAttribute('aria-checked', String(next === 'approve-sensitive'));
+}
+
+const ACTIVE: ReadonlySet<Run['status']> = new Set(['capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission']);
+
+function describe(action: { action: string; selector?: string; option?: string; key?: string; url?: string; direction?: string; value?: string; value_ref?: string }): string {
+  const target = action.selector ? ` <code>${esc(action.selector)}</code>` : '';
+  switch (action.action) {
+    case 'select': return `select${target} → ${esc(action.option ?? '')}`;
+    case 'key': return `press ${esc(action.key ?? '')}${target}`;
+    case 'navigate': return `navigate to <code>${esc(action.url ?? '')}</code>`;
+    case 'scroll': return `scroll ${esc(action.direction ?? 'down')}${target}`;
+    case 'type': return `type${target}${action.value_ref ? ` <span class="sub">Resolves <code>${esc(action.value_ref)}</code> on this device, never sent</span>` : ` <span class="sub">Types <code>${esc(action.value ?? '')}</code></span>`}`;
+    default: return `${esc(action.action)}${target}`;
+  }
+}
+
+function renderRun(): void {
+  const status = $('run-status'); const startBtn = $<HTMLButtonElement>('run-start'); const stopBtn = $<HTMLButtonElement>('run-stop');
+  const banner = $('run-banner'); const permission = $('run-permission'); const history = $('run-history');
+  if (!run) {
+    status.hidden = true; startBtn.hidden = false; stopBtn.hidden = true; banner.hidden = true; permission.hidden = true;
+    history.innerHTML = '<p class="empty">No steps yet.</p>';
+    taskEl.disabled = false; askButton.disabled = false; analyzeButton.disabled = false; $<HTMLButtonElement>('reset-session').disabled = false;
+    return;
+  }
+
+  const active = ACTIVE.has(run.status);
+  status.hidden = false;
+  $('run-step').textContent = `step ${run.step}/${run.max_steps}`;
+  $('run-state').textContent = run.status.replace('_', ' ');
+  startBtn.hidden = active; stopBtn.hidden = !active;
+  taskEl.disabled = active;
+  askButton.disabled = active; analyzeButton.disabled = active; $<HTMLButtonElement>('reset-session').disabled = active;
+
+  history.innerHTML = run.history.length
+    ? run.history.map((h, i) => `<div class="step ${h.outcome === 'ok' ? 'done' : 'failed'}"><span class="n">${i + 1}</span>${h.outcome === 'ok' ? ICON_CHECK : ICON_RING}<span>${describe(h)}${h.error ? `<span class="sub">${esc(h.error)}</span>` : ''}</span></div>`).join('')
+    : '<p class="empty">No steps yet.</p>';
+
+  banner.hidden = !(run.status === 'done' || run.status === 'failed' || run.status === 'stopped');
+  banner.className = `banner ${run.status === 'done' ? 'ok' : 'blocked'}`;
+  banner.innerHTML = run.status === 'done' ? `<strong>Done.</strong> ${esc(run.result ?? '')}` : run.status === 'failed' ? `<strong>Failed.</strong> ${esc(run.error ?? '')}` : '<strong>Stopped.</strong>';
+  permission.hidden = run.status !== 'needs_permission';
+  if (run.status === 'needs_permission') { banner.hidden = false; banner.className = 'banner blocked'; banner.innerHTML = `<strong>Needs access.</strong> The page moved to ${esc(run.needs_origin ?? 'another site')}.`; }
+
+  // The plan card shows the pending plan while a run waits for approval.
+  if (run.status === 'awaiting_approval' && run.pending) {
+    planBadge.textContent = `Awaiting approval · step ${run.step}`; planBadge.className = 'tag';
+    planSteps.innerHTML = `<p class="t2" style="margin:10px 0 4px;">${esc(run.pending.reasoning_summary)}</p>` +
+      (run.pending.guardrail_rejections?.length ? `<div class="banner blocked"><strong>Guardrails dropped ${run.pending.guardrail_rejections.length} action(s):</strong> ${run.pending.guardrail_rejections.map(esc).join('<br />')}</div>` : '') +
+      run.pending.actions.map((a, i) => `<div class="step next"><span class="n">${i + 1}</span>${ICON_RING}<span>${describe(a)}<span class="tag ${a.risk === 'sensitive' ? 'risk' : 'routine'}">${a.risk}</span></span></div>`).join('');
+    planActions.hidden = false;
+    $<HTMLButtonElement>('approve').disabled = false;
+  } else if (active) {
+    planBadge.textContent = run.status.replace('_', ' '); planBadge.className = 'tag';
+    planSteps.innerHTML = `<p class="empty" style="margin-top:10px;">${esc(run.status === 'planning' ? 'Sanitized context sent; waiting for the plan.' : run.status === 'executing' ? 'Running the approved step on the page.' : run.status === 'settling' ? 'Waiting for the page to settle.' : 'Capturing and redacting.')}</p>`;
+    planActions.hidden = true;
+  }
+}
+
+async function refreshRun(): Promise<void> {
+  try { run = await send({ type: 'athena:run-get' }); } catch { run = null; }
+  renderRun();
+}
 
 /** Which tab the current capture describes. A mismatch means the panel is stale. */
 let inspectedTabId: number | null = null;
@@ -434,6 +507,7 @@ const ICON_CHECK = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" 
 const ICON_RING = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none"/></svg>';
 
 function renderPlan(): void {
+  if (run && ACTIVE.has(run.status)) return; // the loop's card (renderRun) owns the plan card while a run is active
   if (!plan) {
     planBadge.textContent = 'Idle';
     planBadge.className = 'tag';
@@ -707,12 +781,44 @@ $('reset-session').addEventListener('click', async () => {
   showToast('New session — token mapping discarded.');
 });
 
-$('approve').addEventListener('click', openApproval);
-$('cancel-plan').addEventListener('click', () => {
-  note('Cancelled before approval — nothing was executed', 'info');
-  planActions.hidden = true;
-  showToast('Nothing executed.');
+$('mode-all').addEventListener('click', () => setMode('approve-all'));
+$('mode-sensitive').addEventListener('click', () => setMode('approve-sensitive'));
+
+$('run-start').addEventListener('click', async () => {
+  const goal = currentTaskInstruction();
+  if (!goal) { showToast('Describe the goal first.', true); return; }
+  note(`Agent started: ${goal}`, 'info');
+  execution = null; plan = null;
+  try { run = await send({ type: 'athena:run-start', goal, mode }); renderRun(); }
+  catch (err) { const m = err instanceof Error ? err.message : String(err); showToast(m, true); note(`Agent failed to start: ${m}`, 'warn'); }
 });
+$('run-stop').addEventListener('click', async () => { try { run = await send({ type: 'athena:run-stop' }); renderRun(); note('Agent stopped', 'warn'); } catch { /* already terminal */ } });
+$('run-grant').addEventListener('click', async () => {
+  if (!run?.needs_origin) return;
+  const granted = await api.permissions.request({ origins: [`${run.needs_origin}/*`] }).catch(() => false);
+  if (!granted) { showToast('Access was not granted.', true); return; }
+  run = await send({ type: 'athena:run-grant-and-resume' }); renderRun();
+});
+$('approve').addEventListener('click', () => {
+  if (run?.status === 'awaiting_approval') { void approveRunStep(); return; }
+  openApproval(); // single-step "Plan one step only" flow keeps its confirmation dialog
+});
+$('cancel-plan').addEventListener('click', async () => {
+  if (run?.status === 'awaiting_approval') { run = await send({ type: 'athena:run-stop' }); renderRun(); return; }
+  plan = null; execution = null; renderPlan(); note('Plan discarded', 'info');
+});
+
+async function approveRunStep(): Promise<void> {
+  note('Step approved — executing on the live page', 'ok');
+  $<HTMLButtonElement>('approve').disabled = true;
+  try { run = await send({ type: 'athena:run-approve', step: run!.step }); renderRun(); }
+  catch (err) { showToast(err instanceof Error ? err.message : String(err), true); }
+}
+
+api.runtime.onMessage.addListener((message: { type?: string; run?: Run }) => {
+  if (message?.type === 'athena:run-changed' && message.run) { run = message.run; renderRun(); }
+});
+
 $('approval-confirm').addEventListener('click', () => void confirmExecution());
 $('approval-cancel').addEventListener('click', () => {
   approval.hidden = true;
@@ -822,5 +928,6 @@ void (async () => {
     // A cold worker with no session storage is the normal first-run case.
   }
   renderAll();
+  await refreshRun();
   await refreshPageContext();
 })();
