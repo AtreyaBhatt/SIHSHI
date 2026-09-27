@@ -139,6 +139,18 @@ console.log('R2: v1 cleanup does not depend on the session write succeeding');
   check(local['athena:vault'] === undefined && !cookies.has('https://openrouter.ai:athena_api_key'), 'v1 vault and cookie are removed even though adopt() failed');
 }
 
+console.log('X8: a Lock during unlock wins and says so');
+{
+  await v.lockVault();
+  const unlocking = v.unlockVault('r2 passphrase');
+  await v.lockVault(); // lands while PBKDF2 is still deriving
+  let x8 = null; try { await unlocking; } catch (e) { x8 = e; }
+  check(x8?.name === 'VaultError' && x8.message === 'Locked while unlocking. Try again.', `unlock refused by a concurrent Lock throws a VaultError (${x8?.message})`);
+  check((await v.vaultStatus()).locked && session['athena:vault-key'] === undefined, 'the vault stays locked and no session key is written');
+  await v.unlockVault('r2 passphrase');
+  check(!(await v.vaultStatus()).locked, 'a later unlock still works');
+}
+
 console.log('R5: concurrent creates are serialized');
 {
   await v.lockVault();

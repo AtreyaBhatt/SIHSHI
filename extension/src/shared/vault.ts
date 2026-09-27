@@ -16,7 +16,9 @@
  * once and kept in chrome.storage.session under 'athena:vault-key' with a
  * last-used time; a restarted worker re-imports them as a non-extractable key.
  * 15 minutes without a resolve, an API-key read or a write locks the vault; a
- * status read does not count as activity.
+ * status read does not count as activity. The idle limit is checked on the next
+ * vault access (there is no timer and no alarms permission); until then the key
+ * stays in the browser's session storage.
  *
  * RESIDUAL RISK: while the vault is unlocked, the raw key is readable by
  * extension pages (not content scripts — the session store keeps its default
@@ -126,10 +128,12 @@ async function persist(salt: Uint8Array<ArrayBuffer>): Promise<void> {
   await api.storage.local.set({ [V2_KEY]: { kdf: 'pbkdf2-sha256-600k', salt: b64(salt), iv: b64(iv), ciphertext: b64(ciphertext), api_key_present: Boolean(cache!.provider_api_key) } satisfies StoredVault });
 }
 
-async function adopt(gen: number, derived: { raw: ArrayBuffer; key: CryptoKey }, salt: Uint8Array<ArrayBuffer>, data: VaultData): Promise<void> {
-  if (gen !== lockGen) return; // a Lock ran while the caller was deriving/decrypting; it wins — no assignment, no session write
+/** Returns false, assigning nothing, when a Lock ran since `gen` was captured. */
+async function adopt(gen: number, derived: { raw: ArrayBuffer; key: CryptoKey }, salt: Uint8Array<ArrayBuffer>, data: VaultData): Promise<boolean> {
+  if (gen !== lockGen) return false; // a Lock ran while the caller was deriving/decrypting; it wins — no assignment, no session write
   key = derived.key; currentSalt = salt; cache = data; lastUsed = sessionLastUsed = Date.now();
   await api.storage.session.set({ [SESSION_KEY]: { raw: b64(derived.raw), last_used: lastUsed } satisfies SessionKey });
+  return true;
 }
 
 export async function vaultStatus(): Promise<VaultStatus> {
@@ -202,7 +206,7 @@ export async function unlockVault(passphrase: string): Promise<VaultStatus> {
   let plain: ArrayBuffer;
   try { plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(stored.iv) }, derived.key, unb64(stored.ciphertext)); }
   catch { throw new VaultError('Wrong passphrase.'); }
-  await adopt(gen, derived, salt, JSON.parse(dec.decode(plain)) as VaultData);
+  if (!(await adopt(gen, derived, salt, JSON.parse(dec.decode(plain)) as VaultData))) throw new VaultError('Locked while unlocking. Try again.');
   migratedFromV1 = false;
   return vaultStatus();
 }
