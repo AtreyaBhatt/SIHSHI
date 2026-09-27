@@ -63,7 +63,9 @@ const received = [];
 const fixtureHtml = await readFile(fixture, 'utf8');
 const provider = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/fixture') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(fixtureHtml); return; }
+  if (req.method === 'POST' && req.url === '/fixture') { res.writeHead(204); res.end(); return; }
   if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type, authorization, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access', 'access-control-allow-private-network': 'true' }); res.end(); return; }
+  if (req.method !== 'POST') { res.writeHead(404); res.end(); return; }
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   received.push({ path: req.url, headers: req.headers, body });
