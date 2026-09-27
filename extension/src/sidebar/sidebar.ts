@@ -106,6 +106,10 @@ function describe(action: { action: string; selector?: string; option?: string; 
  * (the guardrails already require a same-type entry; this is the visible check).
  */
 function notRedactedTag(a: { selector?: string; value_ref?: string; value_token?: string }, tier1: string[], manifestPaths: string[]): string {
+  // The value_token half of this check cannot actually trigger on a plan that
+  // passed the guardrails — they require a same-type manifest entry at the
+  // target selector before a token action is allowed through. Kept here as
+  // defence in depth in case a guardrail regresses.
   const flagged = (a.value_ref && !tier1.includes(a.selector ?? '')) || (a.value_token && !manifestPaths.includes(a.selector ?? ''));
   return flagged ? '<span class="tag risk">not a redacted field</span>' : '';
 }

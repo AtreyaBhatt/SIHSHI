@@ -11,11 +11,13 @@ import { PATTERNS } from '../pii-detection/patterns';
 export const DEBUG_DISABLED_DETECTORS_KEY = 'athena:debug-disabled-detectors';
 /**
  * Only detectors whose type the firewall also catches (its email, card, Aadhaar,
- * PAN, IFSC, SSN, phone rules, and UPI as account_id) may be switched off —
- * turning off, say, dom:input-type-password would leave nothing behind it.
- * Every other name is rejected, never stored.
+ * PAN, IFSC, SSN, phone rules) may be switched off — turning off, say,
+ * dom:input-type-password would leave nothing behind it. account_id is excluded:
+ * the firewall's only account_id rule is UPI, and no cascade detector is
+ * UPI-specific, so dom:account-id must not be switchable. Every other name is
+ * rejected, never stored.
  */
-const FIREWALL_TYPES = new Set(['email', 'card_number', 'aadhaar', 'pan', 'ifsc', 'ssn', 'phone', 'account_id']);
+const FIREWALL_TYPES = new Set(['email', 'card_number', 'aadhaar', 'pan', 'ifsc', 'ssn', 'phone']);
 const SWITCHABLE_DETECTORS = new Set([...DOM_RULES, ...PATTERNS].filter((rule) => FIREWALL_TYPES.has(rule.type)).map((rule) => rule.detector));
 
 export async function readDisabledDetectors(): Promise<Set<string> | undefined> {
@@ -35,7 +37,7 @@ export async function setDisabledDetectors(input: string[] | undefined): Promise
   if (input !== undefined) {
     const names = Array.isArray(input) ? input : []; // a malformed message clears rather than throws
     const refused = names.filter((name) => !SWITCHABLE_DETECTORS.has(name));
-    if (refused.length > 0) throw new Error(`${refused.length} name(s) cannot be switched off: only detectors for a type the firewall also covers (email, card number, Aadhaar, PAN, IFSC, SSN, phone, account id), e.g. regex:email. Nothing was changed.`);
+    if (refused.length > 0) throw new Error(`${refused.length} name(s) cannot be switched off: only detectors for a type the firewall also covers (email, card number, Aadhaar, PAN, IFSC, SSN, phone), e.g. regex:email. Nothing was changed.`);
     await api.storage.session.set({ [DEBUG_DISABLED_DETECTORS_KEY]: [...new Set(names)] });
   }
   return [...((await readDisabledDetectors()) ?? [])];

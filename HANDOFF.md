@@ -209,6 +209,9 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 | 16 | **Firewall has no OCR** | The privacy firewall (`redaction/firewall.ts`) scans outbound *text* fields only. A card number rendered only as an image (a screenshot of a card, a canvas-drawn field) is invisible to it, same as to the rest of the text-based cascade. |
 | 17 | **Firewall card prefixes don't cover RuPay or Maestro** | Its card-network prefix list is `4; 5[1-5]; 2[2-7]; 3[47]; 6`. A RuPay or Maestro card number that the DOM/regex cascade also misses would pass both layers. The cascade detectors remain the primary line for those. |
 | 18 | **Firewall over-masks a measurable fraction of random grouped numbers** | Not a bug, the stated conservative bias: ~3% of random 16-digit 4×4-grouped numbers are falsely masked as a card, ~8% of random 12-digit 4-4-4-grouped numbers as an Aadhaar number. `dom_path`/manifest path strings are never scanned by the firewall. |
+| 19 | **Vault slot values of 3 characters or fewer are never echo-masked** | And never trip the credential egress check. |
+| 20 | **The credential egress check has a narrow read surface** | It reads `dom_summary` labels and values, the task instruction, and prior-action values; it does not read prior-action error/option/url fields or DOM path strings. |
+| 21 | **A token can only be typed into a field a detector classified as the same type** | Fields with labels the DOM rules miss (for example "UID", "WhatsApp", non-English labels), fields resolved to a different single type, split card or Aadhaar inputs, and fields below the fold or inside iframes are refused by the guardrail; the user fills those by hand. |
 
 ---
 
@@ -305,7 +308,7 @@ Range `a00a1b8..HEAD`. Done.
   review (H2) by shaped windows: a card window inside a longer run needs a
   card-network prefix and card-like grouping, Aadhaar only matches a whole
   12-digit run. The demo switch only accepts detectors for types the firewall
-  covers (email, card, Aadhaar, PAN, IFSC, SSN, phone, account_id).
+  covers (email, card, Aadhaar, PAN, IFSC, SSN, phone) — no account ids.
 - Deferred from the final review: a worker-level BlindFill e2e that
   suspends the worker at approval (`ServiceWorker.stopAllWorkers`); removing
   the redundant `value`/`value_ref` type guard clause that the

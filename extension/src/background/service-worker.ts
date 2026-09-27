@@ -611,10 +611,20 @@ async function runDrive(runId: string, fn: () => Promise<Run>): Promise<Run> {
  * saved by the time its own mirror could appear in the listing.
  */
 async function sweepRegistries(): Promise<void> {
+  // loadRun() swallows storage errors and returns null, which reads the same
+  // as "no run" — indistinguishable from "there is a live run whose mirror
+  // must be kept". A storage error here must not be misread as no run, so
+  // the run key is read directly, with its own try/catch, and a throw skips
+  // the sweep entirely rather than risk deleting a live run's registry mirror.
+  let run: Run | null;
+  try {
+    run = ((await api.storage.session.get(RUN_KEY))?.[RUN_KEY] as Run | undefined) ?? null;
+  } catch {
+    return;
+  }
   try {
     const keys = Object.keys((await api.storage.session.get(null)) ?? {}).filter((k) => k.startsWith(REGISTRY_KEY('')));
     const keep = new Set([REGISTRY_KEY((await sessionTokens()).session_id)]);
-    const run = await loadRun();
     if (run && !TERMINAL_STATUSES.has(run.status)) keep.add(REGISTRY_KEY(run.run_id));
     const stale = keys.filter((k) => !keep.has(k));
     if (stale.length > 0) await api.storage.session.remove(stale);
@@ -665,7 +675,12 @@ const loopDeps = {
   },
   execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string) => {
     // The worker may have been suspended while the user read the approval card.
-    if (!runTokens || runTokens.session_id !== runId) runTokens = (await loadRegistry(runId)) ?? runTokens;
+    // Fail closed: if the in-memory registry isn't already this run's (the
+    // `if` below only holds when it's missing or belongs to a different run/
+    // session), a restored registry wins; otherwise there is nothing usable,
+    // so toExecutable must throw "not resolvable" rather than resolve a token
+    // against the wrong registry.
+    if (!runTokens || runTokens.session_id !== runId) runTokens = (await loadRegistry(runId)) ?? null;
     const tab = await api.tabs.get(tabId);
     if (!tab.url || originOf(tab.url) !== originOf(pageUrl)) throw new Error('The page changed since it was captured.');
     return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId, runTokens));

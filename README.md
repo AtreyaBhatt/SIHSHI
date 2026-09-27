@@ -196,6 +196,11 @@ profile-to-form fixture: no profile value or vault secret ever appears in a
 request or response body, only the tokens/refs and the plan that resolves
 them locally.
 
+**Limitation.** A token can only be typed into a field a detector classified
+as the same type — a missed label, a field resolved to a different type,
+split card/Aadhaar inputs, or a field below the fold or inside an iframe is
+refused by the guardrail, and the user fills those by hand.
+
 ---
 
 ## Vault
@@ -279,8 +284,8 @@ does not defeat the other.
   detectors (by their `dom:*`/`regex:*` name) for a session, so a screen still
   gets masked by the firewall alone — proof the second layer actually works,
   not a way to turn redaction off. Only detectors for a type the firewall also
-  covers (email, card number, Aadhaar, PAN, IFSC, SSN, phone, and `account_id`
-  for UPI ids) can be switched off; any other name is rejected. The switch lives in `chrome.storage.session`
+  covers (email, card number, Aadhaar, PAN, IFSC, SSN, phone) can be switched
+  off — no account ids; any other name is rejected. The switch lives in `chrome.storage.session`
   (gone on browser restart) and shows a red **"detectors off: …"** chip on
   the Privacy card whenever it's non-empty.
 

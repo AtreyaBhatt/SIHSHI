@@ -420,7 +420,7 @@ console.log('demo detector switch');
   check(JSON.stringify(await setDisabledDetectors(['regex:email', 'dom:email'])) === '["regex:email","dom:email"]' && session['athena:debug-disabled-detectors'].length === 2, 'known names are stored in storage.session');
   let err = null; try { await setDisabledDetectors(['regex:email', 'regex:nope']); } catch (e) { err = e; }
   check(/cannot be switched off/.test(err?.message ?? '') && !err.message.includes('regex:nope') && session['athena:debug-disabled-detectors'].length === 2, 'an unknown name is rejected and nothing changes');
-  for (const name of ['dom:input-type-password', 'regex:otp(context)', 'regex:bank_account(context)', 'dom:person-name']) {
+  for (const name of ['dom:input-type-password', 'regex:otp(context)', 'regex:bank_account(context)', 'dom:person-name', 'dom:account-id']) {
     err = null; try { await setDisabledDetectors([name]); } catch (e) { err = e; }
     check(/cannot be switched off/.test(err?.message ?? '') && session['athena:debug-disabled-detectors'].length === 2, `${name} (a type the firewall does not cover) is rejected`);
   }
