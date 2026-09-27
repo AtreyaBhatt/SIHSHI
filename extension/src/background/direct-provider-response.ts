@@ -56,6 +56,7 @@ function constrainAction(candidate: unknown, index: number, allowedPaths: Set<st
   if (verb === 'scroll' && direction !== undefined && direction !== 'up' && direction !== 'down') return { rejection: `${tag}: direction must be up or down` };
   if (verb === 'navigate' && (!url || !HTTP_URL.test(url))) return { rejection: `${tag}: requires an http(s) url` };
 
+  if (verb !== 'type' && (value !== undefined || valueRef !== undefined)) return { rejection: `${tag}: value / value_ref only apply to type` };
   if (value !== undefined && MARKER.test(value)) return { rejection: `${tag}: value echoes a redaction marker` };
   if (valueRef !== undefined && !VALUE_REF.test(valueRef)) return { rejection: `${tag}: value_ref is not a user_saved reference` };
   if (verb === 'type') {

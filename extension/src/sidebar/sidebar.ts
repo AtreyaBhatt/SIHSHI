@@ -125,7 +125,7 @@ function renderRun(): void {
     planBadge.textContent = `Awaiting approval · step ${run.step}`; planBadge.className = 'tag';
     planSteps.innerHTML = `<p class="t2" style="margin:10px 0 4px;">${esc(run.pending.reasoning_summary)}</p>` +
       (run.pending.guardrail_rejections?.length ? `<div class="banner blocked"><strong>Guardrails dropped ${run.pending.guardrail_rejections.length} action(s):</strong> ${run.pending.guardrail_rejections.map(esc).join('<br />')}</div>` : '') +
-      run.pending.actions.map((a, i) => `<div class="step next"><span class="n">${i + 1}</span>${ICON_RING}<span>${describe(a)}<span class="tag ${a.risk === 'sensitive' ? 'risk' : 'routine'}">${a.risk}</span></span></div>`).join('');
+      run.pending.actions.map((a, i) => `<div class="step next"><span class="n">${i + 1}</span>${ICON_RING}<span>${describe(a)}<span class="tag ${a.risk === 'sensitive' ? 'risk' : 'routine'}">${a.risk}</span>${a.value_ref && !(run!.tier1_paths ?? []).includes(a.selector ?? '') ? '<span class="tag risk">not a redacted field</span>' : ''}</span></div>`).join('');
     planActions.hidden = false;
     $<HTMLButtonElement>('approve').disabled = false;
   } else if (active) {

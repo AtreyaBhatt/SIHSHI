@@ -170,6 +170,25 @@ console.log('stop lands during plan');
   check(lastSaved?.status === 'stopped', `last saved status is stopped (${lastSaved?.status})`);
 }
 
+console.log('tier1_paths');
+{
+  const tier1Preview = { ...preview, request: { ...preview.request, screenshot_redacted: 'data:image/png;base64,AAAA', dom_summary: [...preview.request.dom_summary, { path: 'input#p', role: 'textbox', label: 'Password', value: '[REDACTED:PASSWORD]' }], redaction_manifest: [{ id: 'PASSWORD_1', type: 'password', tier: 1, bbox: null, dom_path: 'input#p', masking: 'blackbox', detector: 't', confidence: 1 }] } };
+  const deps = fakeDeps([plan([{ action: 'type', selector: 'input#u', value_ref: 'user_saved:password', risk: 'routine' }])]);
+  deps.plan = async () => ({ preview: tier1Preview, response: plan([{ action: 'type', selector: 'input#u', value_ref: 'user_saved:password', risk: 'routine' }]) });
+  const run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
+  check(run.status === 'awaiting_approval' && run.tier1_paths.includes('input#p') && !run.tier1_paths.includes(run.pending.actions[0].selector), `value_ref into a non-Tier-1 path: tier1_paths excludes it (${run.tier1_paths})`);
+  check(run.last_preview.request.screenshot_redacted === null, 'stored preview drops the screenshot');
+}
+
+console.log('stop before approval executes nothing');
+{
+  const deps = fakeDeps([plan(login)]);
+  let run = await drive(newRun('g', 7, 'approve-all', 25), deps);
+  deps.stoppedIds.add(run.run_id);
+  run = await approve(run, deps);
+  check(run.status === 'stopped' && !deps.log.some((l) => l.startsWith('execute')), `nothing executes after a stop (${deps.log.join(' ')})`);
+}
+
 console.log('resume guard');
 {
   const deps = fakeDeps([]);

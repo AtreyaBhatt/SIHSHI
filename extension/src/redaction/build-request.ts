@@ -48,6 +48,12 @@ export interface BuildOptions {
    * pixel regions but never touch dom_summary.
    */
   faces?: FaceDetection[];
+  /**
+   * Paths a credential was typed into via value_ref earlier in this run or
+   * session. Their live value is the secret itself, so they are declared Tier 1
+   * whatever the detectors think of the field.
+   */
+  forceTier1Paths?: Set<string>;
 }
 
 export interface BuildResult {
@@ -162,6 +168,22 @@ function assertNoRawPii(request: AgentRequest): void {
   if (offenders.length > 0) throw new RawPiiLeakError(offenders);
 }
 
+/**
+ * Exact-match egress check for credentials this extension typed itself. The
+ * screenshot is left out: pixels cannot carry the string, and a short secret
+ * would match base64 by chance. Never quotes the value.
+ */
+export function assertNoTypedSecrets(
+  request: AgentRequest,
+  values: Iterable<string>,
+): void {
+  const text = JSON.stringify({ ...request, screenshot_redacted: null });
+  for (const value of values) {
+    if (value && text.includes(JSON.stringify(value).slice(1, -1)))
+      throw new RawPiiLeakError(["a resolved credential appears in the payload"]);
+  }
+}
+
 export async function buildAgentRequest(
   options: BuildOptions,
 ): Promise<BuildResult> {
@@ -204,6 +226,23 @@ export async function buildAgentRequest(
         dom_path: node.path,
         masking: "blackbox",
         detector: "capture:value-omitted",
+        confidence: 1,
+      });
+      value = "[REDACTED:PASSWORD]";
+    }
+
+    if (
+      options.forceTier1Paths?.has(node.path) &&
+      !manifest.some((e) => e.dom_path === node.path && e.tier === 1)
+    ) {
+      manifest.push({
+        id: tokens.idFor("password", null, node.path),
+        type: "password",
+        tier: TIER_BY_TYPE.password,
+        bbox: node.bbox,
+        dom_path: node.path,
+        masking: "blackbox",
+        detector: "agent:typed-secret",
         confidence: 1,
       });
       value = "[REDACTED:PASSWORD]";

@@ -145,3 +145,17 @@ def test_key_is_an_enum():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         AgentAction(action="key", key="F5")
+
+
+def test_value_only_applies_to_type(bank_login_payload):
+    request = AgentRequest.model_validate(bank_login_payload)
+    path = request.dom_summary[0].path
+    kept, rejected = constrain(
+        _plan(
+            AgentAction(action="click", selector=path, value="x"),
+            AgentAction(action="hover", selector=path, value_ref="user_saved:password"),
+        ),
+        request,
+    )
+    assert kept == []
+    assert all("value / value_ref only apply to type" in r for r in rejected)

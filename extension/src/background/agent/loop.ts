@@ -31,12 +31,14 @@ export interface Run {
   page_url: string | null;
   /** dom_summary paths of the last capture — the executor's allowlist. */
   allowed: string[];
+  /** Tier-1 dom_paths of the last capture; the panel flags a value_ref aimed elsewhere. */
+  tier1_paths: string[];
 }
 
 export interface LoopDeps {
   capture(tabId: number): Promise<CaptureResult>;
   plan(capture: CaptureResult, goal: string, history: PriorAction[], runId: string): Promise<{ preview: PayloadPreview; response: AgentResponse }>;
-  execute(tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string): Promise<PriorAction[]>;
+  execute(tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string): Promise<PriorAction[]>;
   /** Waits for the tab to load and the DOM to go quiet; reports where it landed and whether we may inject there. */
   settle(tabId: number): Promise<{ url: string | undefined; granted: boolean }>;
   save(run: Run): Promise<void>;
@@ -49,7 +51,7 @@ const TERMINAL: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped']);
 export function newRun(goal: string, tabId: number, mode: RunMode, maxSteps: number): Run {
   return {
     run_id: crypto.randomUUID(), tab_id: tabId, goal, mode, step: 0, max_steps: maxSteps, status: 'idle',
-    history: [], pending: null, last_preview: null, result: null, error: null, page_url: null, allowed: [],
+    history: [], pending: null, last_preview: null, result: null, error: null, page_url: null, allowed: [], tier1_paths: [],
   };
 }
 
@@ -91,7 +93,8 @@ async function executePending(run: Run, deps: LoopDeps): Promise<Run> {
   if (!run.pending) return transition(run, { status: 'failed', error: 'interrupted mid-execution; start again', pending: null }, deps);
   const response = run.pending;
   run = await transition(run, { status: 'executing', pending: null }, deps);
-  const executed = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '');
+  if (run.status === 'stopped') return run;
+  const executed = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '', run.run_id);
   run = await transition(run, { history: [...run.history, ...executed], status: 'settling' }, deps);
   if (response.done) return transition(run, { status: 'done', result: response.result }, deps);
   const landed = await deps.settle(run.tab_id);
@@ -119,7 +122,12 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
           step: run.step + 1, status: 'planning', page_url: capture.snapshot.page_url,
         }, deps);
         const { preview, response } = await deps.plan(capture, run.goal, run.history, run.run_id);
-        run = await transition(run, { last_preview: preview, allowed: preview.request?.dom_summary.map((n) => n.path) ?? [] }, deps);
+        run = await transition(run, {
+          // The panel never reads the screenshot; keep the stored run small.
+          last_preview: preview.request ? { ...preview, request: { ...preview.request, screenshot_redacted: null } } : preview,
+          allowed: preview.request?.dom_summary.map((n) => n.path) ?? [],
+          tier1_paths: preview.request?.redaction_manifest.filter((e) => e.tier === 1 && e.dom_path).map((e) => e.dom_path!) ?? [],
+        }, deps);
         if (response.done && response.actions.length === 0) return transition(run, { status: 'done', result: response.result }, deps);
         if (response.actions.length === 0) {
           // Nothing to do and not done: re-capturing would loop on the same page. Treat as cannot-advance.

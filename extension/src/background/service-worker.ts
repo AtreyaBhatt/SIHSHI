@@ -18,7 +18,7 @@ import type {
 import type { AgentAction, AgentRequest, AgentResponse, PriorAction } from '../shared/schema';
 import type { ActionOutcome, ExecutableAction, ExecutableVerb } from '../executor/execute';
 import { splitAtTabVerb } from '../shared/plan-split';
-import { buildAgentRequest } from '../redaction/build-request';
+import { assertNoTypedSecrets, buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
 import { resolveValueRef } from '../shared/vault';
@@ -54,6 +54,30 @@ let tokens = new TokenRegistry(newSessionId());
 
 /** Multi-turn history for PRD §7.1. Verbs and selectors only — never a result. */
 let priorActions: PriorAction[] = [];
+
+/**
+ * Selectors and values of credentials typed via value_ref, keyed by the run id
+ * (loop) or session id (single step) — the registry's session_id either way.
+ * Worker memory only: never stored, logged, quoted in an error, or sent. The
+ * paths are forced to Tier 1 on the next capture; the values are the egress
+ * check's needles.
+ */
+const typedSecretPaths = new Map<string, Set<string>>();
+const typedSecretValues = new Map<string, Set<string>>();
+
+function forgetTypedSecrets(key: string): void {
+  typedSecretPaths.delete(key);
+  typedSecretValues.delete(key);
+}
+
+function rememberTypedSecret(key: string, selector: string | undefined, value: string): void {
+  const add = (map: Map<string, Set<string>>, item: string) => {
+    if (!map.has(key)) map.set(key, new Set());
+    map.get(key)!.add(item);
+  };
+  if (selector) add(typedSecretPaths, selector);
+  if (value) add(typedSecretValues, value);
+}
 
 /**
  * The plan the user may execute. Held only until the next plan replaces it.
@@ -94,6 +118,7 @@ function originOf(url: string): string {
 }
 
 function resetSession(): string {
+  forgetTypedSecrets(tokens.session_id);
   tokens = new TokenRegistry(newSessionId());
   priorActions = [];
   void setLastPlan(null);
@@ -173,7 +198,9 @@ async function buildPayload(
       threshold,
       priorActions: history,
       faces,
+      forceTier1Paths: typedSecretPaths.get(registry.session_id),
     });
+    assertNoTypedSecrets(request, typedSecretValues.get(registry.session_id) ?? []);
     return {
       session_id: registry.session_id,
       request,
@@ -239,7 +266,12 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
   let screenshotDataUrl: string | null = null;
   let screenshotError: string | null = null;
   try {
-    screenshotDataUrl = await api.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+    // captureVisibleTab captures whatever is visible in the window, and this
+    // tab's DOM must never be used to redact another page's pixels. A run's tab
+    // in the background goes DOM-only for this step.
+    const [visible] = await api.tabs.query({ active: true, windowId: tab.windowId });
+    if (visible?.id !== tabId) screenshotError = 'Tab is not visible; screenshot skipped.';
+    else screenshotDataUrl = await api.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
   } catch (err) {
     screenshotError = err instanceof Error ? err.message : String(err);
   }
@@ -313,7 +345,7 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
 
 const NOT_EXECUTED = 'not executed: page changed';
 
-async function toExecutable(actions: AgentAction[]): Promise<ExecutableAction[]> {
+async function toExecutable(actions: AgentAction[], secretKey: string): Promise<ExecutableAction[]> {
   const out: ExecutableAction[] = [];
   for (const action of actions) {
     const executable: ExecutableAction = { action: action.action as ExecutableVerb };
@@ -324,6 +356,7 @@ async function toExecutable(actions: AgentAction[]): Promise<ExecutableAction[]>
     if (action.value_ref) {
       executable.value = await resolveValueRef(action.value_ref);
       executable.value_ref = action.value_ref;
+      rememberTypedSecret(secretKey, action.selector, executable.value);
     } else if (typeof action.value === 'string') {
       // JSON round-trips absence as null, not undefined.
       executable.value = action.value;
@@ -349,12 +382,12 @@ async function runTabVerb(tabId: number, action: AgentAction): Promise<ActionOut
  * to the first tab verb; the tab verb runs here; the remainder is recorded as
  * not executed. Returns one outcome per planned action, in order.
  */
-async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelectors: string[], pageUrl: string): Promise<ActionOutcome[]> {
+async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelectors: string[], pageUrl: string, secretKey: string): Promise<ActionOutcome[]> {
   const { page, tab, dropped } = splitAtTabVerb(actions);
   const outcomes: ActionOutcome[] = [];
 
   if (page.length > 0) {
-    const executable = await toExecutable(page);
+    const executable = await toExecutable(page, secretKey);
     await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] });
     const reply = (await api.tabs.sendMessage(tabId, {
       type: 'athena:execute', actions: executable, allowed_selectors: allowedSelectors, expected_origin: originOf(pageUrl),
@@ -365,7 +398,7 @@ async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelect
   const pageShort = page.slice(outcomes.length); // page actions the content script never reached
   const pageFailed = outcomes.some((o) => !o.ok) || pageShort.length > 0;
   for (const action of pageShort) outcomes.push({ action: action.action, selector: action.selector ?? null, ok: false, error: NOT_EXECUTED, duration_ms: 0 });
-  if (tab) outcomes.push(pageFailed ? { action: tab.action, selector: null, ok: false, error: NOT_EXECUTED, duration_ms: 0 } : await runTabVerb(tabId, tab));
+  if (tab) outcomes.push(pageFailed ? { action: tab.action, selector: null, ok: false, error: 'not executed: earlier step failed', duration_ms: 0 } : await runTabVerb(tabId, tab));
   for (const action of dropped) outcomes.push({ action: action.action, selector: action.selector ?? null, ok: false, error: NOT_EXECUTED, duration_ms: 0 });
   return outcomes;
 }
@@ -398,7 +431,7 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
   }
 
   const started = performance.now();
-  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url);
+  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url, tokens.session_id);
   priorActions = [...priorActions, ...toHistory(plan.response.actions, outcomes)];
   return { outcomes, execute_ms: Math.round((performance.now() - started) * 100) / 100 };
 }
@@ -446,7 +479,7 @@ let runTokens: TokenRegistry | null = null;
 /** Runs `fn` and clears any stale stop request once the run reaches a terminal status. */
 async function runDrive(runId: string, fn: () => Promise<Run>): Promise<Run> {
   const result = await fn();
-  if (TERMINAL_STATUSES.has(result.status)) stopRequested.delete(runId);
+  if (TERMINAL_STATUSES.has(result.status)) { stopRequested.delete(runId); forgetTypedSecrets(runId); }
   return result;
 }
 
@@ -489,10 +522,10 @@ const loopDeps = {
     const response = await requestPlan(preview.request);
     return { preview, response };
   },
-  execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string) => {
+  execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string, runId: string) => {
     const tab = await api.tabs.get(tabId);
     if (!tab.url || originOf(tab.url) !== originOf(pageUrl)) throw new Error('The page changed since it was captured.');
-    return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl));
+    return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl, runId));
   },
   settle: async (tabId: number) => {
     const tab = await waitForTabComplete(tabId);
@@ -504,21 +537,17 @@ const loopDeps = {
     // `!run.needs_origin` branch in run-grant-and-resume stops the run instead
     // of leaving it stuck in needs_permission forever.
     if (!url || isRestrictedUrl(url) || !origin || origin === 'null') return { url: undefined, granted: false };
-    const granted = await api.permissions.contains({ origins: [`${originOf(url)}/*`] }).catch(() => false);
-    if (!granted) {
-      // activeTab may still cover this tab (same tab, user gesture earlier); probe by injecting.
-      try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
-      catch { return { url, granted: false }; }
-    } else {
-      // Same injection, granted path — an error page or a tab that closed mid-navigation
-      // fails the same way; treat it as not granted rather than failing the whole run.
-      try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
-      catch { return { url, granted: false }; }
-    }
+    // Injection is the probe either way: without a host grant activeTab may still
+    // cover this tab (same tab, earlier gesture); with one, an error page or a
+    // tab that closed mid-navigation fails the same way. A failure is not granted.
+    try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
+    catch { return { url, granted: false }; }
     try { await api.tabs.sendMessage(tabId, { type: 'athena:settle' }); } catch { /* page navigated again; the next capture will tell */ }
     return { url, granted: true };
   },
   save: async (run: Run) => {
+    // A drive still in flight after Stop must not overwrite the stopped record.
+    if (stopRequested.has(run.run_id) && run.status !== 'stopped') return;
     try { await api.storage.session.set({ [RUN_KEY]: run }); } catch { /* memory copy in flight */ }
     api.runtime.sendMessage({ type: 'athena:run-changed', run }).catch(() => { /* panel closed */ });
   },
@@ -581,6 +610,8 @@ api.runtime.onMessage.addListener(
           // actually still in flight for it does not keep going unnoticed.
           stopRequested.add(existing.run_id);
           await loopDeps.save(stop(existing));
+          stopRequested.delete(existing.run_id);
+          forgetTypedSecrets(existing.run_id);
         }
         const tab = await targetTab(message.tab_id);
         if (!tab?.id) throw new Error('No active tab.');
@@ -616,7 +647,15 @@ api.runtime.onMessage.addListener(
       return true;
     }
     if (message?.type === 'athena:run-get') {
-      loadRun().then(ok).catch(fail);
+      loadRun().then(async (run) => {
+        // Mid-step with no drive in flight: the worker restarted under it.
+        if (run && !driveLock && ['capturing', 'planning', 'executing', 'settling'].includes(run.status)) {
+          const failed: Run = { ...run, status: 'failed', pending: null, error: 'interrupted by a browser restart; start again' };
+          await loopDeps.save(failed);
+          return failed;
+        }
+        return run;
+      }).then(ok).catch(fail);
       return true;
     }
     if (message?.type === 'athena:run-grant-and-resume') {

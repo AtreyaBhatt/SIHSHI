@@ -95,6 +95,37 @@ console.log('unchanged v1 rules');
   check(r.requires_client_secret === true, 'requires_client_secret derived from actions');
 }
 
+console.log('value / value_ref only on type');
+{
+  const r = run({ ...base, actions: [
+    { action: 'click', selector: 'button#go', value: 'x' },
+    { action: 'select', selector: 'select#country', option: 'India', value_ref: 'user_saved:password' },
+  ] });
+  check(r.actions.length === 0 && r.guardrail_rejections.every((m) => /only apply to type/.test(m)), 'value on click and value_ref on select are rejected');
+}
+
+console.log('typed secrets (build-request)');
+{
+  await build({ entryPoints: ['src/redaction/build-request.ts', 'src/redaction/tokens.ts'], outdir: join(temp, 'br'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error', outExtension: { '.js': '.mjs' } });
+  const { buildAgentRequest, assertNoTypedSecrets } = await import(`file://${join(temp, 'br', 'build-request.mjs')}`);
+  const { TokenRegistry } = await import(`file://${join(temp, 'br', 'tokens.mjs')}`);
+  const attrs = { id: 'u', name: 'u', autocomplete: null, placeholder: null, aria_label: null, alt: null, title: null, inputmode: null, maxlength: null };
+  const node = { path: 'input#u', tag: 'input', role: 'textbox', label: 'Nickname', text: null, context_label: null, value: 'blue-heron-42', value_omitted: null, input_type: 'text', attrs, bbox: { x: 0, y: 0, width: 100, height: 20 }, interactive: true, media: null };
+  const snapshot = { schema_version: 1, captured_at: '', page_url: 'https://a.example/', page_title: '', viewport: { width: 800, height: 600, device_pixel_ratio: 1, scroll_x: 0, scroll_y: 0 }, nodes: [node], truncated: false, unscanned: [], timings: { dom_walk_ms: 0 } };
+  const opts = { snapshot, screenshotDataUrl: null, taskInstruction: 'g', tokens: new TokenRegistry('s') };
+  const plain = (await buildAgentRequest(opts)).request;
+  check(plain.dom_summary[0].value === 'blue-heron-42' && plain.redaction_manifest.length === 0, 'unforced field passes through');
+  let threw = null;
+  try { assertNoTypedSecrets(plain, ['blue-heron-42']); } catch (e) { threw = e; }
+  check(threw?.name === 'RawPiiLeakError' && !threw.message.includes('blue-heron-42'), 'egress check throws without quoting the value');
+  const forced = (await buildAgentRequest({ ...opts, tokens: new TokenRegistry('s2'), forceTier1Paths: new Set(['input#u']) })).request;
+  const entry = forced.redaction_manifest.find((e) => e.dom_path === 'input#u');
+  check(forced.dom_summary[0].value === '[REDACTED:PASSWORD]' && entry?.tier === 1 && entry.type === 'password' && entry.detector === 'agent:typed-secret' && entry.masking === 'blackbox', 'forced path is masked and declared Tier 1');
+  let ok = true;
+  try { assertNoTypedSecrets(forced, ['blue-heron-42']); } catch { ok = false; }
+  check(ok, 'egress check passes once the value is masked');
+}
+
 console.log('plan split');
 {
   await build({ entryPoints: ['src/shared/plan-split.ts'], outfile: join(temp, 'split.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error' });

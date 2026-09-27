@@ -68,6 +68,10 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
         if action.action == "navigate" and not (action.url and HTTP_URL.match(action.url)):
             rejected.append(f"{label}: requires an http(s) url"); continue
 
+        if action.action != "type" and (action.value is not None or action.value_ref is not None):
+            rejected.append(f"{label}: value / value_ref only apply to type")
+            continue
+
         if action.value is not None and CONTAINS_MARKER.search(action.value):
             rejected.append(f"{label}: value echoes a redaction marker")
             continue
