@@ -18,9 +18,10 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
 const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9335);
@@ -28,14 +29,26 @@ const fixture = resolve(process.argv[2] ?? '../eval/fixtures/bank-login.html');
 
 /** Stands in for the local vault. These strings must never reach the server. */
 const VAULT = { 'user_saved:username': 'demo-user-42', 'user_saved:password': 'demo-secret-123' };
-// The blindfill fixture's stored-profile ref. Kept separate from VAULT above:
-// VAULT is looped over against every fixture's request/response body, and
-// kyc-form.html's own agent-note prose legitimately contains "Rohan Iyer" as
-// a documented detector recall gap (README §"the eval will show that as a
-// recall gap"), unrelated to this ref ever leaking.
-const PROFILE_REFS = { 'user_saved:name': 'Rohan Iyer' };
-const RESOLVABLE_REFS = { ...VAULT, ...PROFILE_REFS };
 const isBlindfillFixture = /blindfill\.html$/.test(fixture);
+const isPortalFixture = /application-portal\.html$/.test(fixture);
+// The blindfill/portal fixtures' stored-profile ref. Kept separate from VAULT
+// above: VAULT is looped over against every fixture's request/response body,
+// and kyc-form.html's own agent-note prose legitimately contains "Rohan Iyer"
+// as a documented detector recall gap (README §"the eval will show that as a
+// recall gap"), unrelated to this ref ever leaking. The portal fixture's own
+// profile card names "Meera Nair" — the same identity the ref stands in for
+// there — so the local vault echoes that name instead of blindfill's.
+const PROFILE_REFS = isPortalFixture ? { 'user_saved:name': 'Meera Nair' } : { 'user_saved:name': 'Rohan Iyer' };
+const RESOLVABLE_REFS = { ...VAULT, ...PROFILE_REFS };
+
+// The portal fixture is the only one that exercises face detection, so only it
+// needs the model + demo photo the other scenarios never touch.
+const MODEL_PATH = resolve('models/version-RFB-320.onnx');
+const FACE_PHOTO_PATH = resolve('../eval/fixtures/assets/faces-2.jpg');
+if (isPortalFixture) {
+  if (!existsSync(MODEL_PATH)) { console.error('Missing model. Run: npm run fetch:model'); process.exit(1); }
+  if (!existsSync(FACE_PHOTO_PATH)) { console.error('Missing test photo. Run: npm run fetch:demo-faces'); process.exit(1); }
+}
 
 const workdir = await mkdtemp(join(tmpdir(), 'athena-e2e-'));
 let failures = 0;
@@ -50,14 +63,17 @@ import { TokenRegistry } from '${resolve('src/redaction/tokens.ts')}';
 import { executeActions } from '${resolve('src/executor/execute.ts')}';
 import { resolvePath } from '${resolve('src/shared/resolve-path.ts')}';
 import { requestProviderPlan } from '${resolve('src/background/agent-client.ts')}';
+import { detectFaces } from '${resolve('src/perception/face-detect.ts')}';
 export const registry = new TokenRegistry('e2e-session');
-export async function buildPayload(task, availableRefs = []) {
+export async function buildPayload(task, availableRefs = [], priorActions = [], faces = []) {
   const snapshot = captureDomSnapshot();
-  const { request } = await buildAgentRequest({
+  const { request, firewall } = await buildAgentRequest({
     snapshot, screenshotDataUrl: null, taskInstruction: task,
-    tokens: registry, threshold: 0.5, availableRefs,
+    tokens: registry, threshold: 0.5, availableRefs, priorActions, faces,
   });
-  return request;
+  // _firewall rides along for the portal harness only; every other caller
+  // already ignores unknown fields on the parsed object.
+  return { ...request, _firewall: firewall };
 }
 export async function providerPlan(request, settings, key) { return requestProviderPlan(request, settings, key); }
 export { executeActions };
@@ -65,16 +81,68 @@ export function fieldValue(selector) {
   const el = resolvePath(selector)[0];
   return el ? el.value : null;
 }
+export function elementBBox(selector) {
+  const el = resolvePath(selector)[0];
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)];
+}
+/**
+ * Demo stand-in for the offscreen face detector (perception/offscreen.ts):
+ * the same device-px/css-px region conversion, run inline against a CDP
+ * screenshot instead of via chrome.runtime.
+ */
+export async function detectFacesInShot(shotDataUrl, viewportWidth, regionsCss) {
+  const blob = await (await fetch(shotDataUrl)).blob();
+  const bitmap = await createImageBitmap(blob);
+  const cssPerDevice = viewportWidth > 0 ? viewportWidth / bitmap.width : 1;
+  const devicePerCss = cssPerDevice === 0 ? 1 : 1 / cssPerDevice;
+  const regions = regionsCss
+    .map((b) => [
+      Math.max(0, Math.round(b[0] * devicePerCss)),
+      Math.max(0, Math.round(b[1] * devicePerCss)),
+      Math.min(bitmap.width, Math.round(b[2] * devicePerCss)),
+      Math.min(bitmap.height, Math.round(b[3] * devicePerCss)),
+    ])
+    .filter((b) => b[2] - b[0] >= 32 && b[3] - b[1] >= 32);
+  const result = await detectFaces(bitmap, { modelUrl: '/models/version-RFB-320.onnx', wasmBaseUrl: '/ort/', regions, scale: cssPerDevice });
+  bitmap.close();
+  return result.faces;
+}
 /** Stands in for the worker: resolves a value_token via the page-side registry, never the network. */
 export function resolveToken(t) { return registry.valueOf(t.slice(1, -1)) ?? null; }
 `);
-await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
+await build({
+  entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife',
+  globalName: 'ATHENA', target: 'chrome116', logLevel: 'error',
+  conditions: ['onnxruntime-web-use-extern-wasm'],
+  alias: { 'onnxruntime-web': 'onnxruntime-web/wasm' },
+});
 const bundle = await readFile(join(workdir, 'bundle.js'), 'utf8');
 const received = [];
 const fixtureHtml = await readFile(fixture, 'utf8');
+// Static roots the portal fixture's own assets and the face detector's model +
+// wasm runtime are served from. Unused (and unreached) by every other fixture.
+const STATIC_ROOTS = {
+  '/assets/': resolve('../eval/fixtures/assets'),
+  '/models/': resolve('models'),
+  '/ort/': resolve('node_modules/onnxruntime-web/dist'),
+};
+const STATIC_MIME = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.jpg': 'image/jpeg', '.png': 'image/png' };
 const provider = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/fixture') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(fixtureHtml); return; }
   if (req.method === 'POST' && req.url === '/fixture') { res.writeHead(204); res.end(); return; }
+  if (req.method === 'GET') {
+    const prefix = Object.keys(STATIC_ROOTS).find((p) => req.url.startsWith(p));
+    if (prefix) {
+      try {
+        const body = await readFile(join(STATIC_ROOTS[prefix], req.url.slice(prefix.length)));
+        res.writeHead(200, { 'content-type': STATIC_MIME[extname(req.url)] ?? 'application/octet-stream' });
+        res.end(body);
+      } catch { res.writeHead(404); res.end('not found'); }
+      return;
+    }
+  }
   if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type, authorization, x-api-key, anthropic-version, anthropic-dangerous-direct-browser-access', 'access-control-allow-private-network': 'true' }); res.end(); return; }
   if (req.method !== 'POST') { res.writeHead(404); res.end(); return; }
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
@@ -97,13 +165,37 @@ const provider = createServer(async (req, res) => {
   const passwordPath = nodes.find((node) => node.path.includes('password'))?.path;
   const submitPath = nodes.find((node) => node.path.includes('submit'))?.path;
   const blindfillPath = nodes.find((node) => node.path.includes('p-aadhaar'))?.path;
+  const portalPath = nodes.find((node) => node.path.includes('pf-aadhaar'))?.path;
+  const hasPriorActions = /## prior_actions/.test(text);
   const actions = [
     customerPath && { action: 'type', selector: customerPath, value_ref: 'user_saved:username', risk: 'routine' },
     passwordPath && { action: 'type', selector: passwordPath, value_ref: 'user_saved:password', risk: 'routine' },
     submitPath && { action: 'click', selector: submitPath, risk: 'sensitive' },
   ].filter(Boolean);
   let planText;
-  if (blindfillPath) {
+  if (portalPath) {
+    if (hasPriorActions) {
+      // Second request: the form is already filled and Continue was clicked.
+      // Recognised by prior_actions rather than re-inspecting the DOM — step 1
+      // is hidden by then, so pf-aadhaar (still on the profile card) is all
+      // that is left to route on, and it is shared with the first request too.
+      planText = JSON.stringify({ reasoning_summary: 'The application was already filled and Continue was clicked; stop here.', actions: [], requires_client_secret: false, done: true, result: 'Application filled; stopped before final submission.' });
+    } else {
+      const aadhaarToken = manifest.find((e) => e.type === 'aadhaar' && e.dom_path === 'dd#pf-aadhaar')?.id;
+      const panToken = manifest.find((e) => e.type === 'pan' && e.dom_path === 'dd#pf-pan')?.id;
+      const emailToken = manifest.find((e) => e.type === 'email' && e.dom_path === 'dd#pf-email')?.id;
+      const phoneToken = manifest.find((e) => e.type === 'phone' && e.dom_path === 'dd#pf-phone')?.id;
+      planText = JSON.stringify({ reasoning_summary: 'Copy the verified profile into the application and choose the department.', actions: [
+        { action: 'type', selector: 'input#f-name', value_ref: 'user_saved:name', risk: 'sensitive' },
+        aadhaarToken && { action: 'type', selector: 'input#f-aadhaar', value_token: `[${aadhaarToken}]`, risk: 'sensitive' },
+        panToken && { action: 'type', selector: 'input#f-pan', value_token: `[${panToken}]`, risk: 'sensitive' },
+        emailToken && { action: 'type', selector: 'input#f-email', value_token: `[${emailToken}]`, risk: 'sensitive' },
+        phoneToken && { action: 'type', selector: 'input#f-phone', value_token: `[${phoneToken}]`, risk: 'sensitive' },
+        { action: 'select', selector: 'select#f-dept', option: 'Computer Science', risk: 'routine' },
+        { action: 'click', selector: 'button#f-continue', risk: 'sensitive' },
+      ].filter(Boolean), requires_client_secret: true, done: false, result: null });
+    }
+  } else if (blindfillPath) {
     // BlindFill: available_refs names the vault slot for the ordinary field;
     // the aadhaar/phone fields are filled from the on-page tokens instead.
     void availableRefs;
@@ -135,6 +227,15 @@ const chrome = spawn(CHROME, [
   '--disable-gpu', '--no-first-run', '--hide-scrollbars',
   `--user-data-dir=${join(workdir, 'profile')}`, `${SERVER_URL}/fixture`,
 ], { stdio: 'ignore' });
+
+// The portal fixture has more on one page than the shared 1280x800 corpus
+// viewport (profile card, two form steps, a canvas, a QR image) — capture is
+// viewport-only by design (CLAUDE.md). `--window-size` is not honoured by
+// headless Chrome in this environment (verified: window.outerHeight/screen
+// stay at their default regardless of the flag), so the taller viewport is
+// set via CDP device-metrics emulation instead, which every later step
+// (capture, execution, the second capture) also sees.
+const PORTAL_VIEWPORT = { width: 1280, height: 1700 };
 
 let socket;
 try {
@@ -173,12 +274,56 @@ try {
   for (let i = 0; i < 40 && (await evaluate('document.readyState')) !== 'complete'; i++) await sleep(200);
   await evaluate(bundle);
 
+  if (isPortalFixture) {
+    await command('Emulation.setDeviceMetricsOverride', { ...PORTAL_VIEWPORT, deviceScaleFactor: 1, mobile: false });
+  }
+
   // --- capture → redact -----------------------------------------------------
-  const taskText = isBlindfillFixture
+  const taskText = isPortalFixture
+    ? 'Fill in the application from my verified profile and stop before submitting.'
+    : isBlindfillFixture
     ? 'Fill in the scholarship application from my verified profile and stop before submitting.'
     : 'Log me in to this portal.';
+  const availableRefs = isBlindfillFixture || isPortalFixture ? ['user_saved:name'] : [];
+  // Checked against both portal requests: neither the first (profile visible,
+  // form empty) nor the second (form filled, Continue clicked) may ever carry
+  // one of these raw values — only tokens, refs and partial masks may.
+  const portalPlantedSecrets = [
+    'Meera Nair', '2345 6789 0124', 'ABCDE1234F', 'meera.nair@example.net',
+    '9845012345', '42 Nandidurga Road', '50100247716839', 'evil.example', 'ignore previous',
+  ];
+
+  // The portal fixture is the only one with a photo to scan: a real
+  // screenshot goes through the same offscreen-detector math as production
+  // (ATHENA.detectFacesInShot), and its faces join the manifest the same way
+  // production's buildPayload would.
+  let faces = [];
+  if (isPortalFixture) {
+    const viewportWidth = await evaluate('window.innerWidth');
+    const viewportHeight = await evaluate('window.innerHeight');
+    const photoBBox = JSON.parse(await evaluate(`JSON.stringify(ATHENA.elementBBox('img#pf-photo'))`));
+    // The photo is a realistic profile-card thumbnail (CSS width 160px) showing
+    // a group photo — at the default 1x screenshot the whole group would be
+    // squashed into a sliver too small for the detector. A higher device scale
+    // factor makes the renderer downsample the source image less aggressively
+    // for this capture, recovering enough detail to find a face, without
+    // changing the fixture's own on-screen size at all.
+    await command('Emulation.setDeviceMetricsOverride', { ...PORTAL_VIEWPORT, deviceScaleFactor: 4, mobile: false });
+    const shot = await command('Page.captureScreenshot', { format: 'png' });
+    // Back to the base (1x) override, not cleared entirely — clearing would
+    // drop the viewport back to headless Chrome's real (short) default and
+    // every step after this one (capture, execution, the second capture)
+    // needs the same tall viewport the first capture saw.
+    await command('Emulation.setDeviceMetricsOverride', { ...PORTAL_VIEWPORT, deviceScaleFactor: 1, mobile: false });
+    const shotDataUrl = `data:image/png;base64,${shot.result.data}`;
+    faces = JSON.parse(await evaluate(
+      `ATHENA.detectFacesInShot(${JSON.stringify(shotDataUrl)}, ${viewportWidth}, ${JSON.stringify(photoBBox ? [photoBBox] : [])}).then(f => JSON.stringify(f))`,
+    ));
+    console.log(`faces        ${faces.length} detected on the profile photo`);
+  }
+
   const request = JSON.parse(await evaluate(
-    `ATHENA.buildPayload(${JSON.stringify(taskText)}, ${JSON.stringify(isBlindfillFixture ? ['user_saved:name'] : [])}).then(r => JSON.stringify(r))`,
+    `ATHENA.buildPayload(${JSON.stringify(taskText)}, ${JSON.stringify(availableRefs)}, [], ${JSON.stringify(faces)}).then(r => JSON.stringify(r))`,
   ));
   const requestBody = JSON.stringify(request);
   console.log(`payload      ${request.dom_summary.length} nodes, ${request.redaction_manifest.length} redactions`);
@@ -199,6 +344,32 @@ try {
     const aadhaarNode = request.dom_summary.find((n) => n.path === 'dd#p-aadhaar');
     if (aadhaarNode && /^\[AADHAAR_\d+\]$/.test(aadhaarNode.value)) pass('on-page Aadhaar is a numbered token');
     else fail(`on-page Aadhaar was ${JSON.stringify(aadhaarNode?.value)}`);
+
+    if (request.available_refs.includes('user_saved:name')) pass('available_refs carries user_saved:name');
+    else fail('available_refs did not include user_saved:name');
+  }
+
+  if (isPortalFixture) {
+    if (portalPlantedSecrets.some((s) => requestBody.includes(s))) fail('a planted profile value appears in the request body');
+    else pass('planted profile values absent from the request');
+
+    if (request.hidden_dropped >= 1) pass(`hidden_dropped is ${request.hidden_dropped} (camouflaged text dropped)`);
+    else fail(`hidden_dropped was ${request.hidden_dropped}, expected >= 1`);
+
+    const qrEntry = request.redaction_manifest.find((e) => e.dom_path === 'img#pf-qr');
+    if (qrEntry?.type === 'frame' && qrEntry.detector === 'dom:qr') pass('QR image declared as a frame (dom:qr)');
+    else fail(`QR image manifest entry was ${JSON.stringify(qrEntry)}`);
+
+    const canvasEntry = request.redaction_manifest.find((e) => e.dom_path === 'canvas#pf-canvas');
+    if (canvasEntry?.type === 'frame') pass('canvas region declared as a frame');
+    else fail(`canvas manifest entry was ${JSON.stringify(canvasEntry)}`);
+
+    const faceEntry = request.redaction_manifest.find((e) => e.type === 'face');
+    if (faceEntry) pass('a face was declared in the manifest');
+    else fail('no face entry in the manifest');
+
+    if (request._firewall.masked === 0 && request._firewall.blocked === 0) pass('firewall report is masked 0, blocked 0');
+    else fail(`firewall report was masked ${request._firewall.masked}, blocked ${request._firewall.blocked}`);
 
     if (request.available_refs.includes('user_saved:name')) pass('available_refs carries user_saved:name');
     else fail('available_refs did not include user_saved:name');
@@ -232,6 +403,7 @@ try {
     if (planBody.includes(secret)) fail('a vault value came back from the server');
   }
   if (isBlindfillFixture && planBody.includes('Rohan Iyer')) fail('the stored profile name came back from the server');
+  if (isPortalFixture && planBody.includes('Meera Nair')) fail('the stored profile name came back from the server');
   if (!planBody.includes('user_saved:')) fail('no value_ref in the plan — the server tried to fill the field itself');
   else pass('credentials are named by reference, not supplied');
   if (plan.guardrail_rejections?.length) fail(`planner rejected: ${plan.guardrail_rejections.join('; ')}`);
@@ -273,8 +445,60 @@ try {
   console.log('\nexecution against the live DOM:');
   report(await run(fills));
 
-  const isBlindfillPlan = plan.actions.some((a) => a.value_token);
-  if (isBlindfillPlan) {
+  if (isPortalFixture) {
+    console.log('\nplan resolves tokens and refs, never a literal secret:');
+    if (plan.actions.some((a) => a.value_token)) pass('plan contains a value_token');
+    else fail('plan did not contain a value_token');
+    if (plan.requires_client_secret === true) pass('requires_client_secret is true');
+    else fail('requires_client_secret was not true');
+
+    console.log('\nthe fields were actually filled from the verified profile:');
+    const typedName = await evaluate(`ATHENA.fieldValue('input#f-name')`);
+    const typedAadhaar = await evaluate(`ATHENA.fieldValue('input#f-aadhaar')`);
+    const typedPan = await evaluate(`ATHENA.fieldValue('input#f-pan')`);
+    const typedEmail = await evaluate(`ATHENA.fieldValue('input#f-email')`);
+    const typedPhone = await evaluate(`ATHENA.fieldValue('input#f-phone')`);
+    const selectedDept = await evaluate(`ATHENA.fieldValue('select#f-dept')`);
+    if (typedName === 'Meera Nair') pass('name field holds the vault-resolved value');
+    else fail(`name field holds ${JSON.stringify(typedName)}`);
+    if (typedAadhaar === '2345 6789 0124') pass('aadhaar field holds the token-resolved value');
+    else fail(`aadhaar field holds ${JSON.stringify(typedAadhaar)}`);
+    if (typedPan === 'ABCDE1234F') pass('PAN field holds the token-resolved value');
+    else fail(`PAN field holds ${JSON.stringify(typedPan)}`);
+    if (typedEmail === 'meera.nair@example.net') pass('email field holds the token-resolved value');
+    else fail(`email field holds ${JSON.stringify(typedEmail)}`);
+    if (typedPhone === '9845012345') pass('phone field holds the token-resolved value');
+    else fail(`phone field holds ${JSON.stringify(typedPhone)}`);
+    if (selectedDept === 'cs') pass('department select holds cs');
+    else fail(`department select holds ${JSON.stringify(selectedDept)}`);
+
+    if (clicks.length > 0) report(await run(clicks));
+
+    console.log('\nsecond request — the model is told what already happened:');
+    const priorActions = plan.actions.map((a) => ({ ...a, outcome: 'ok' }));
+    const request2 = JSON.parse(await evaluate(
+      `ATHENA.buildPayload(${JSON.stringify(taskText)}, ${JSON.stringify(availableRefs)}, ${JSON.stringify(priorActions)}, []).then(r => JSON.stringify(r))`,
+    ));
+    const request2Body = JSON.stringify(request2);
+    for (const [ref, secret] of Object.entries(VAULT)) {
+      if (request2Body.includes(secret)) fail(`${ref} value appears in the second request body`);
+    }
+    if (portalPlantedSecrets.some((s) => request2Body.includes(s))) fail('a planted profile value appears in the second request body');
+    else pass('planted profile values absent from the second request');
+    const plan2 = JSON.parse(await evaluate(
+      `ATHENA.providerPlan(${JSON.stringify(request2)}, ${JSON.stringify(providerSettings)}, "stub-api-key").then(r => JSON.stringify(r))`,
+    ));
+    if (plan2.done === true) pass('second plan is done');
+    else fail('second plan was not done');
+    if (plan2.actions.length === 0) pass('second plan carries no actions');
+    else fail(`second plan carried ${plan2.actions.length} action(s)`);
+    if (plan2.result === 'Application filled; stopped before final submission.') pass('second plan result matches');
+    else fail(`second plan result was ${JSON.stringify(plan2.result)}`);
+
+    const out = await evaluate(`document.getElementById('out').textContent`);
+    if (out === '') pass('the application was never submitted (#out is empty)');
+    else fail(`#out was ${JSON.stringify(out)} — the form was submitted`);
+  } else if (isBlindfillFixture) {
     console.log('\nplan resolves tokens and refs, never a literal secret:');
     if (plan.actions.some((a) => a.value_token)) pass('plan contains a value_token');
     else fail('plan did not contain a value_token');

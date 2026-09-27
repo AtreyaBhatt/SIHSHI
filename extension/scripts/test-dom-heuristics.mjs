@@ -50,5 +50,12 @@ for (const [label, n] of negative) {
   check(!qrRule.test(n, ''), `${label} does NOT match dom:qr`);
 }
 
+const canvasRule = MEDIA_RULES.find((r) => r.detector === 'dom:canvas');
+check(!!canvasRule, 'dom:canvas rule exists in MEDIA_RULES');
+const media = (tag, bbox) => ({ tag, bbox, attrs: { alt: null, title: null, id: null, class: null, src_file: null } });
+check(canvasRule.test(media('canvas', [0, 0, 240, 40]), ''), 'a 240x40 canvas matches dom:canvas');
+check(!canvasRule.test(media('canvas', [0, 0, 20, 20]), ''), 'a 20x20 canvas does NOT match dom:canvas (too small)');
+check(!canvasRule.test(media('img', [0, 0, 240, 40]), ''), 'an img the same size does NOT match dom:canvas');
+
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} problem(s)`);
 process.exit(failures === 0 ? 0 : 1);

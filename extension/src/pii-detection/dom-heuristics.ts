@@ -182,4 +182,14 @@ export const MEDIA_RULES: DomRule[] = [
         (a) => !!a && /(^|[^a-z])qr([^a-z]|$)|\bqr[-_]?code\b|upi[-_ ]?qr|scan[-_ ]?to[-_ ]?pay/i.test(a),
       ),
   },
+  {
+    // A canvas can paint arbitrary text or an identifier as pixels, which the
+    // DOM walk never sees (audit item D4). Any canvas big enough to hold real
+    // content — bigger than a spinner or a sizing hack — is black-boxed and
+    // declared like a QR image or an iframe, whatever it was drawn to show.
+    type: 'frame',
+    detector: 'dom:canvas',
+    confidence: 0.85,
+    test: (n) => n.tag === 'canvas' && n.bbox[2] - n.bbox[0] > 32 && n.bbox[3] - n.bbox[1] > 32,
+  },
 ];
