@@ -15,9 +15,9 @@ import type { CaptureResult } from '../shared/schema';
 import type {
   ContentToWorker, ExecutionResult, HealthReport, PanelToWorker, PayloadPreview, PlanPreview, WorkerReply,
 } from '../shared/messages';
-import type { AgentRequest, AgentResponse, PriorAction } from '../shared/schema';
-import { TAB_VERBS } from '../shared/schema';
-import type { ExecutableAction, ExecutableVerb } from '../executor/execute';
+import type { AgentAction, AgentRequest, AgentResponse, PriorAction } from '../shared/schema';
+import type { ActionOutcome, ExecutableAction, ExecutableVerb } from '../executor/execute';
+import { splitAtTabVerb } from '../shared/plan-split';
 import { buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
@@ -301,6 +301,74 @@ async function requestPlanFlow(threshold: number, taskInstruction: string): Prom
   }
 }
 
+const NOT_EXECUTED = 'not executed: page changed';
+
+async function toExecutable(actions: AgentAction[]): Promise<ExecutableAction[]> {
+  const out: ExecutableAction[] = [];
+  for (const action of actions) {
+    const executable: ExecutableAction = { action: action.action as ExecutableVerb };
+    if (action.selector) executable.selector = action.selector;
+    if (action.option) executable.option = action.option;
+    if (action.key) executable.key = action.key;
+    if (action.direction) executable.direction = action.direction;
+    if (action.value_ref) {
+      executable.value = await resolveValueRef(action.value_ref);
+      executable.value_ref = action.value_ref;
+    } else if (typeof action.value === 'string') {
+      // JSON round-trips absence as null, not undefined.
+      executable.value = action.value;
+    }
+    out.push(executable);
+  }
+  return out;
+}
+
+async function runTabVerb(tabId: number, action: AgentAction): Promise<ActionOutcome> {
+  const started = performance.now();
+  try {
+    if (action.action === 'navigate') await api.tabs.update(tabId, { url: action.url! });
+    else await api.tabs.goBack(tabId);
+    return { action: action.action, selector: null, ok: true, duration_ms: Math.round((performance.now() - started) * 100) / 100 };
+  } catch (err) {
+    return { action: action.action, selector: null, ok: false, error: err instanceof Error ? err.message : String(err), duration_ms: Math.round((performance.now() - started) * 100) / 100 };
+  }
+}
+
+/**
+ * Executes one plan against one tab. Page verbs run in the content script up
+ * to the first tab verb; the tab verb runs here; the remainder is recorded as
+ * not executed. Returns one outcome per planned action, in order.
+ */
+async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelectors: string[], pageUrl: string): Promise<ActionOutcome[]> {
+  const { page, tab, dropped } = splitAtTabVerb(actions);
+  const outcomes: ActionOutcome[] = [];
+
+  if (page.length > 0) {
+    const executable = await toExecutable(page);
+    await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] });
+    const reply = (await api.tabs.sendMessage(tabId, {
+      type: 'athena:execute', actions: executable, allowed_selectors: allowedSelectors, expected_origin: originOf(pageUrl),
+    })) as ContentToWorker;
+    if (!reply?.ok || !('outcomes' in reply)) throw new Error(reply && 'error' in reply ? reply.error : 'Executor returned nothing.');
+    outcomes.push(...reply.outcomes);
+  }
+  const pageShort = page.slice(outcomes.length); // page actions the content script never reached
+  const pageFailed = outcomes.some((o) => !o.ok) || pageShort.length > 0;
+  for (const action of pageShort) outcomes.push({ action: action.action, selector: action.selector ?? null, ok: false, error: NOT_EXECUTED, duration_ms: 0 });
+  if (tab) outcomes.push(pageFailed ? { action: tab.action, selector: null, ok: false, error: NOT_EXECUTED, duration_ms: 0 } : await runTabVerb(tabId, tab));
+  for (const action of dropped) outcomes.push({ action: action.action, selector: action.selector ?? null, ok: false, error: NOT_EXECUTED, duration_ms: 0 });
+  return outcomes;
+}
+
+function toHistory(actions: AgentAction[], outcomes: ActionOutcome[]): PriorAction[] {
+  return actions.map((action, i) => {
+    const outcome = outcomes[i];
+    const entry: PriorAction = { ...action, outcome: outcome ? (outcome.ok ? 'ok' : 'failed') : 'skipped' };
+    if (outcome && !outcome.ok && outcome.error) entry.error = outcome.error;
+    return entry;
+  });
+}
+
 /**
  * Resolves value_refs locally, then hands concrete values to the content script.
  * This is the only moment a secret exists outside the vault, and it never leaves
@@ -319,48 +387,10 @@ async function executePlanFlow(tabId?: number): Promise<ExecutionResult> {
     throw new Error('The page changed since it was captured — capture and plan again before executing.');
   }
 
-  const actions: ExecutableAction[] = [];
-  for (const action of plan.response.actions) {
-    if (TAB_VERBS.has(action.action)) break; // Task 3 runs these in the worker; until then a plan stops here.
-    const executable: ExecutableAction = { action: action.action as ExecutableVerb };
-    if (action.selector) executable.selector = action.selector;
-    if (action.option) executable.option = action.option;
-    if (action.key) executable.key = action.key;
-    if (action.direction) executable.direction = action.direction;
-    if (action.value_ref) {
-      executable.value = await resolveValueRef(action.value_ref);
-      executable.value_ref = action.value_ref;
-    } else if (typeof action.value === 'string') {
-      // JSON round-trips absence as null, not undefined.
-      executable.value = action.value;
-    }
-    actions.push(executable);
-  }
-
-  await api.scripting.executeScript({ target: { tabId: tab.id }, files: ['capture/content-script.js'] });
-
   const started = performance.now();
-  const reply = (await api.tabs.sendMessage(tab.id, {
-    type: 'athena:execute',
-    actions,
-    allowed_selectors: plan.request.dom_summary.map((node) => node.path),
-    expected_origin: originOf(plan.page_url),
-  })) as ContentToWorker;
-
-  if (!reply?.ok || !('outcomes' in reply)) {
-    throw new Error(reply && 'error' in reply ? reply.error : 'Executor returned nothing.');
-  }
-
-  // Only what was attempted, never what was read or typed.
-  priorActions = [...priorActions, ...plan.response.actions.map((action, i): PriorAction => {
-    const outcome = reply.outcomes[i];
-    return { ...action, outcome: outcome ? (outcome.ok ? 'ok' : 'failed') : 'skipped', ...(outcome && !outcome.ok && outcome.error ? { error: outcome.error } : {}) };
-  })];
-
-  return {
-    outcomes: reply.outcomes,
-    execute_ms: Math.round((performance.now() - started) * 100) / 100,
-  };
+  const outcomes = await executeOnTab(tab.id, plan.response.actions, plan.request.dom_summary.map((n) => n.path), plan.page_url);
+  priorActions = [...priorActions, ...toHistory(plan.response.actions, outcomes)];
+  return { outcomes, execute_ms: Math.round((performance.now() - started) * 100) / 100 };
 }
 
 async function health(): Promise<HealthReport> {

@@ -95,6 +95,21 @@ console.log('unchanged v1 rules');
   check(r.requires_client_secret === true, 'requires_client_secret derived from actions');
 }
 
+console.log('plan split');
+{
+  await build({ entryPoints: ['src/shared/plan-split.ts'], outfile: join(temp, 'split.mjs'), bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error' });
+  const { splitAtTabVerb } = await import(`file://${join(temp, 'split.mjs')}`);
+  const a = { action: 'click', selector: 'button#go', risk: 'routine' };
+  const n = { action: 'navigate', url: 'https://example.com', risk: 'sensitive' };
+  const w = { action: 'wait', risk: 'routine' };
+  const s1 = splitAtTabVerb([a, n, w]);
+  check(s1.page.length === 1 && s1.tab === n && s1.dropped.length === 1, 'page verbs before the tab verb, the rest dropped');
+  const s2 = splitAtTabVerb([a, w]);
+  check(s2.page.length === 2 && s2.tab === null && s2.dropped.length === 0, 'no tab verb: everything is page');
+  const s3 = splitAtTabVerb([{ action: 'go_back', risk: 'routine' }]);
+  check(s3.page.length === 0 && s3.tab?.action === 'go_back', 'tab verb first');
+}
+
 await rm(temp, { recursive: true, force: true });
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} problem(s)`);
 process.exit(failures === 0 ? 0 : 1);

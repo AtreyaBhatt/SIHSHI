@@ -34,7 +34,7 @@ export interface ExecutableAction {
 }
 
 export interface ActionOutcome {
-  action: ExecutableVerb;
+  action: ActionVerb;
   selector: string | null;
   ok: boolean;
   error?: string;
@@ -126,7 +126,9 @@ function hover(element: Element): void {
 async function runOne(action: ExecutableAction, allowed: Set<string>): Promise<void> {
   if (NEEDS_SELECTOR.has(action.action) && !action.selector) throw new Error(`${action.action} requires a selector`);
   // Every selector, on every verb: the allowlist is the snapshot the client sent.
-  if (action.selector && allowed.size > 0 && !allowed.has(action.selector)) {
+  // An empty allowlist is not "no restriction" — it means the client sent no
+  // paths at all, so nothing can be in it. Fail closed.
+  if (action.selector && !allowed.has(action.selector)) {
     throw new Error(`Refusing ${action.selector} — it was not in the snapshot sent to the provider`);
   }
 

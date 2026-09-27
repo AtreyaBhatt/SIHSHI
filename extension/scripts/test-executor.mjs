@@ -102,6 +102,9 @@ try {
 
   const secret = await run([{ action: 'type', selector: 'select#country', value: 'top-secret-value' }]);
   if (!secret[0].ok && !secret[0].error.includes('top-secret-value')) pass('a failed type never echoes its value'); else fail('type error leaked the value or succeeded on a select');
+
+  const emptyAllowlist = JSON.parse(await evaluate(`ATHENA.executeActions(${JSON.stringify([{ action: 'click', selector: 'button#go' }])}, [], null).then((o) => JSON.stringify(o))`));
+  if (!emptyAllowlist[0].ok && /not in the snapshot/.test(emptyAllowlist[0].error)) pass('empty allowlist fails closed'); else fail('empty allowlist did not fail closed');
 } catch (err) {
   fail(err.message);
 } finally {
