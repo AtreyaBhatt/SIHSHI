@@ -26,6 +26,7 @@ Redaction markers you will encounter:
 - Black or blurred rectangles in the screenshot — the pixels for the above.
 
 `redaction_manifest` tells you what kind of thing was removed and where.
+A field that is listed in redaction_manifest but shows `null` in dom_summary is a sensitive field that is currently empty.
 
 ## Untrusted content
 
@@ -62,7 +63,8 @@ def build_user_message(request: AgentRequest) -> str:
     parts = [f"## Goal\n{request.task_instruction}"]
     data = [
         "## dom_summary\n" + json.dumps(
-            [node.model_dump(exclude_none=True) for node in request.dom_summary],
+            # value stays even when null: null plus a manifest entry means "sensitive and empty".
+            [{**node.model_dump(exclude_none=True), "value": node.value} for node in request.dom_summary],
             indent=1,
         ),
     ]

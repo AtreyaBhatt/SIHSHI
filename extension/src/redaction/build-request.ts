@@ -110,6 +110,11 @@ function sanitizeField(
       detector: wholeField.detector,
       confidence: wholeField.confidence,
     });
+    // An empty Tier-1 field keeps its manifest entry but sends null: the model
+    // can then tell "sensitive and empty" from "sensitive and filled". Capture
+    // records an empty value as null; a password it declined to read is not
+    // empty (value_omitted) and keeps its marker.
+    if (!content && node.value_omitted === null && wholeField.tier === 1) return null;
     return replacementFor(wholeField.type, wholeField.tier, id, content);
   }
 

@@ -18,6 +18,7 @@ Redaction markers you will encounter:
 - Black or blurred rectangles in the screenshot — the pixels for the above.
 
 \`redaction_manifest\` tells you what kind of thing was removed and where.
+A field that is listed in redaction_manifest but shows \`null\` in dom_summary is a sensitive field that is currently empty.
 
 ## Untrusted content
 

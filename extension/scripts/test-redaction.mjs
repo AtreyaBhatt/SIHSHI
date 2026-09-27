@@ -140,6 +140,19 @@ try {
       }
     }
 
+    if (spec.emptyTier1Fields?.length) {
+      console.log('\nempty sensitive fields send null and keep their manifest entry:');
+      const byPath = new Map(result.request.dom_summary.map((n) => [n.path, n]));
+      for (const [name, selector] of spec.emptyTier1Fields) {
+        const node = byPath.get(selector);
+        const entry = result.request.redaction_manifest.find((e) => e.dom_path === selector && e.tier === 1);
+        if (!node) fail(`${name} — ${selector} was not captured at all`);
+        else if (node.value !== null) fail(`${name} — ${selector} sent ${JSON.stringify(node.value)}, expected null`);
+        else if (!entry || entry.masking !== 'blackbox') fail(`${name} — ${selector} has no Tier-1 blackbox manifest entry`);
+        else pass(`${name} → null, declared as ${entry.type}`);
+      }
+    }
+
     if (spec.unredactedFields?.length) {
       console.log('\nstructure that names a PII type keeps its text:');
       const byPath = new Map(result.request.dom_summary.map((n) => [n.path, n]));

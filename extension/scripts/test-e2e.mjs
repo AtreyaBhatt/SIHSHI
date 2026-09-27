@@ -83,11 +83,9 @@ const provider = createServer(async (req, res) => {
   ].filter(Boolean);
   let planText;
   if (!passwordPath) {
-    // PAN/OTP fields are DOM-heuristic Tier 1 (dom-heuristics.ts: "an empty
-    // password or OTP field is still Tier 1"), so an empty one arrives on the
-    // wire as `[REDACTED:PAN]`/`[REDACTED:OTP]`, never `null` — match the
-    // redacted marker rather than a null value.
-    const empty = nodes.filter((n) => n.role === 'textbox' && /^\[REDACTED:(PAN|OTP)\]$/.test(n.value ?? '') && /\b(pan|otp)\b/i.test(n.label ?? '')).map((n) => (/otp/i.test(n.label) ? 'OTP' : 'PAN'));
+    // An empty sensitive field is listed in redaction_manifest and sends
+    // `null` in dom_summary; select by that plus the label.
+    const empty = nodes.filter((n) => n.role === 'textbox' && n.value === null && /\b(pan|otp)\b/i.test(n.label ?? '')).map((n) => (/otp/i.test(n.label) ? 'OTP' : 'PAN'));
     planText = JSON.stringify({ reasoning_summary: 'This is a KYC form; two required fields are empty.', actions: [], requires_client_secret: false, done: true, result: `Required fields still empty: ${[...new Set(empty)].join(', ')}.` });
   } else {
     planText = JSON.stringify({ reasoning_summary: 'The visible form can use local credential references.', actions, requires_client_secret: true, done: false, result: null });

@@ -6,7 +6,8 @@
  * and again in prose — where a known gap lets it through — the grep cannot tell
  * which copy it found. Use `redactedFields` for those: it asserts the specific
  * node's sanitized value is a marker, which is what "this field was redacted"
- * actually means.
+ * actually means. `emptyTier1Fields` are sensitive fields with nothing in
+ * them: they send `null` and must still carry a Tier-1 manifest entry.
  *
  * `knownGaps` are values this build is expected to MISS. They are reported, not
  * failed — the point is that the recall holes are written down and visible
@@ -63,10 +64,12 @@ export const FIXTURES = [
     redactedFields: [
       ['street address', 'input#street'],
       ['PIN code', 'input#pincode'],
-      ['empty PAN field', 'input#pan'],
-      ['empty OTP field', 'input#otp'],
       ['applicant name', 'input#applicant-name'],
       ['customer reference cell', 'td#cust-ref'],
+    ],
+    emptyTier1Fields: [
+      ['empty PAN field', 'input#pan'],
+      ['empty OTP field', 'input#otp'],
     ],
     mustAppear: [
       ['form heading', 'Complete your KYC'],
@@ -106,8 +109,10 @@ export const FIXTURES = [
       ['unlabelled name', 'input#unlabeled-name'],
       ['unlabelled account', 'input#unlabeled-acct'],
       ['unlabelled street', 'input#unlabeled-street'],
-      ['empty OTP field', 'input#otp-empty'],
       ['CVV field', 'input#cvv'],
+    ],
+    emptyTier1Fields: [
+      ['empty OTP field', 'input#otp-empty'],
     ],
     unredactedFields: [
       ['OTP heading', 'h1#h-otp'],
