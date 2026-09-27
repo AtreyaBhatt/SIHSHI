@@ -198,6 +198,7 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 | 11 | **Step cap only in `storage.local`, no UI control** | `athena:max-steps` (default 25) is set by writing to extension storage directly; the panel control lands with the Settings redesign in Phase 5. |
 | 12 | **Token registry for a run is recreated after a worker restart** | Session tokens live in worker memory (by design — CLAUDE.md says never persist them). A service-worker restart mid-run starts a fresh `TokenRegistry`, so token ids issued before the restart are not stable across it. |
 | 13 | **`go_back` is not gated in approve-sensitive mode** | Only `navigate` is always sensitive; `go_back` runs as routine even though it changes the page under approve-sensitive, same as `scroll`/`hover`/etc. |
+| 14 | **Typed-secret protection is worker-memory only** | Forced masking of fields the agent typed a credential into, and the credential egress check, are held in worker memory; after a service-worker restart (routine while a run waits for approval) a credential typed into a field no detector flags can be re-captured as plain text. Fix planned with the vault work: persist the paths (never the values) in storage.session keyed by tab and origin. |
 
 ---
 

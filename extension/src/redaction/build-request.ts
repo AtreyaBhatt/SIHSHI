@@ -54,7 +54,18 @@ export interface BuildOptions {
    * whatever the detectors think of the field.
    */
   forceTier1Paths?: Set<string>;
+  /**
+   * Values resolved for a credential typed via value_ref earlier in this run or
+   * session. A later page can echo one back verbatim — a "Signed in as ..."
+   * banner, a receipt line — in a node no detector flags as sensitive. Every
+   * dom_summary field and the task instruction is scanned for an exact
+   * occurrence and masked before the payload leaves this function.
+   */
+  typedSecretValues?: Iterable<string>;
 }
+
+/** Matches a value that is *entirely* a redaction marker, not one embedded in other text. */
+const WHOLE_FIELD_MARKER = /^\[(?:REDACTED:[^\]]+|[A-Z][A-Z0-9]*_\d+)\]$/;
 
 export interface BuildResult {
   request: AgentRequest;
@@ -236,10 +247,12 @@ export async function buildAgentRequest(
       value = "[REDACTED:PASSWORD]";
     }
 
-    if (
-      options.forceTier1Paths?.has(node.path) &&
-      !manifest.some((e) => e.dom_path === node.path && e.tier === 1)
-    ) {
+    // Skip only when the field is already wholly a marker (or empty) — a Tier-1
+    // entry already existing for this path is not enough to skip on, because a
+    // span-based detector can leave a Tier-1 entry behind while raw text
+    // (including the typed secret) still sits in the rest of the field.
+    const alreadyWholeFieldMasked = value === null || WHOLE_FIELD_MARKER.test(value);
+    if (options.forceTier1Paths?.has(node.path) && !alreadyWholeFieldMasked) {
       manifest.push({
         id: tokens.idFor("password", null, node.path),
         type: "password",
@@ -283,6 +296,53 @@ export async function buildAgentRequest(
     });
   }
 
+  // A credential typed via value_ref can be echoed back verbatim later in the
+  // same run/session (a confirmation banner, a receipt line) in a node no
+  // detector flags. Scan every dom_summary field and the task instruction for
+  // the exact typed value and mask it; each affected node gets its own
+  // manifest entry so the pixels are blacked out too — redaction is
+  // manifest-driven. assertNoTypedSecrets, run by the caller, is the final
+  // re-check after this pass, never a substitute for it.
+  const typedValues = [...(options.typedSecretValues ?? [])].filter(
+    (v): v is string => Boolean(v),
+  );
+  let maskedTaskInstruction = taskInstruction;
+  if (typedValues.length > 0) {
+    for (const value of typedValues) {
+      maskedTaskInstruction = maskedTaskInstruction
+        .split(value)
+        .join("[REDACTED:PASSWORD]");
+    }
+    domSummary.forEach((summaryNode, index) => {
+      const rawNode = snapshot.nodes[index]!;
+      let affected = false;
+      for (const field of ["label", "value"] as const) {
+        const original = summaryNode[field];
+        if (!original) continue;
+        let masked = original;
+        for (const value of typedValues) {
+          if (masked.includes(value)) {
+            masked = masked.split(value).join("[REDACTED:PASSWORD]");
+            affected = true;
+          }
+        }
+        summaryNode[field] = masked;
+      }
+      if (affected) {
+        manifest.push({
+          id: tokens.idFor("password", null, rawNode.path),
+          type: "password",
+          tier: TIER_BY_TYPE.password,
+          bbox: rawNode.bbox,
+          dom_path: rawNode.path,
+          masking: "blackbox",
+          detector: "agent:typed-secret-echo",
+          confidence: 1,
+        });
+      }
+    });
+  }
+
   for (const [index, face] of (options.faces ?? []).entries()) {
     manifest.push({
       id: tokens.idFor("face", null, `face:${index}`),
@@ -323,7 +383,7 @@ export async function buildAgentRequest(
 
   const request: AgentRequest = {
     session_id: tokens.session_id,
-    task_instruction: taskInstruction,
+    task_instruction: maskedTaskInstruction,
     screenshot_redacted: screenshotRedacted,
     dom_summary: domSummary,
     redaction_manifest: manifest,

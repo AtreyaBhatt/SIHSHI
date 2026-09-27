@@ -199,6 +199,7 @@ async function buildPayload(
       priorActions: history,
       faces,
       forceTier1Paths: typedSecretPaths.get(registry.session_id),
+      typedSecretValues: typedSecretValues.get(registry.session_id),
     });
     assertNoTypedSecrets(request, typedSecretValues.get(registry.session_id) ?? []);
     return {
@@ -271,7 +272,18 @@ async function runCapture(requestedTabId?: number): Promise<CaptureResult> {
     // in the background goes DOM-only for this step.
     const [visible] = await api.tabs.query({ active: true, windowId: tab.windowId });
     if (visible?.id !== tabId) screenshotError = 'Tab is not visible; screenshot skipped.';
-    else screenshotDataUrl = await api.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+    else {
+      screenshotDataUrl = await api.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      // The capture call itself awaits a round trip; the user can switch tabs
+      // during it. A screenshot of whatever is visible now, taken under this
+      // tab's DOM, is exactly the cross-tab leak the pre-check above exists to
+      // stop — re-check after the fact and discard it the same way.
+      const [visibleAfter] = await api.tabs.query({ active: true, windowId: tab.windowId });
+      if (visibleAfter?.id !== tabId) {
+        screenshotDataUrl = null;
+        screenshotError = 'Tab is not visible; screenshot skipped.';
+      }
+    }
   } catch (err) {
     screenshotError = err instanceof Error ? err.message : String(err);
   }
@@ -646,6 +658,11 @@ api.runtime.onMessage.addListener(
         stopRequested.add(run.run_id);
         const stopped = stop(run);
         await loopDeps.save(stopped);
+        // No drive may be in flight for this run (it may have been sitting at
+        // awaiting_approval/needs_permission/idle) — runDrive's own cleanup
+        // never runs in that case, so it happens here instead.
+        stopRequested.delete(run.run_id);
+        forgetTypedSecrets(run.run_id);
         return stopped;
       }).then(ok).catch(fail);
       return true;
@@ -653,7 +670,7 @@ api.runtime.onMessage.addListener(
     if (message?.type === 'athena:run-get') {
       loadRun().then(async (run) => {
         // Mid-step with no drive in flight: the worker restarted under it.
-        if (run && !driveLock && ['capturing', 'planning', 'executing', 'settling'].includes(run.status)) {
+        if (run && !driveLock && ['idle', 'capturing', 'planning', 'executing', 'settling'].includes(run.status)) {
           const failed: Run = { ...run, status: 'failed', pending: null, error: 'interrupted by a browser restart; start again' };
           await loopDeps.save(failed);
           return failed;

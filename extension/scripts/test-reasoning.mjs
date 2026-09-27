@@ -24,8 +24,13 @@ const request = {
     { path: 'input#password', role: 'textbox', label: 'Password', value: '[REDACTED:PASSWORD]' },
     { path: 'select#country', role: 'combobox', label: 'Country', value: null },
     { path: 'button#go', role: 'button', label: 'Sign in', value: null },
+    { path: 'a#home', role: 'link', label: 'Home', value: null },
+    { path: 'input#email', role: 'textbox', label: 'Email', value: '[EMAIL_1]' },
   ],
-  redaction_manifest: [{ id: 'PASSWORD_1', type: 'password', tier: 1, bbox: null, dom_path: 'input#password', masking: 'blackbox', detector: 't', confidence: 1 }],
+  redaction_manifest: [
+    { id: 'PASSWORD_1', type: 'password', tier: 1, bbox: null, dom_path: 'input#password', masking: 'blackbox', detector: 't', confidence: 1 },
+    { id: 'EMAIL_1', type: 'email', tier: 2, bbox: null, dom_path: 'input#email', masking: 'token', detector: 't', confidence: 1 },
+  ],
   prior_actions: [], truncated: false,
 };
 const openai = (plan) => ({ choices: [{ message: { content: JSON.stringify(plan) } }] });
@@ -103,11 +108,15 @@ console.log('risk floor');
     { action: 'type', selector: 'input#password', value_ref: 'user_saved:password', risk: 'routine' },
     { action: 'key', key: 'Tab', risk: 'routine' },
     { action: 'type', selector: 'input#user', value: 'abc', risk: 'routine' },
+    { action: 'click', selector: 'a#home', risk: 'routine' },
+    { action: 'type', selector: 'input#email', value: 'x', risk: 'routine' },
   ] });
   check(r.actions[0].risk === 'sensitive', 'key Enter is forced sensitive');
   check(r.actions[1].risk === 'sensitive', 'click on a button is forced sensitive');
   check(r.actions[2].risk === 'sensitive', 'type into a redacted field is forced sensitive');
   check(r.actions[3].risk === 'routine' && r.actions[4].risk === 'routine', 'Tab and typing into a plain field stay routine');
+  check(r.actions[5].risk === 'sensitive', 'click on a link is forced sensitive');
+  check(r.actions[6].risk === 'sensitive', 'type into a path with a Tier-2 manifest entry is forced sensitive');
 }
 
 console.log('value / value_ref only on type');
@@ -139,6 +148,37 @@ console.log('typed secrets (build-request)');
   let ok = true;
   try { assertNoTypedSecrets(forced, ['blue-heron-42']); } catch { ok = false; }
   check(ok, 'egress check passes once the value is masked');
+
+  // A later page can echo the typed value back in a node no detector flags
+  // (e.g. a "Signed in as ..." banner) — build-request must catch that itself,
+  // without needing the path to be in forceTier1Paths.
+  const bannerNode = { path: 'div#banner', tag: 'div', role: null, label: 'Signed in as blue-heron-42', text: null, context_label: null, value: null, value_omitted: null, input_type: null, attrs, bbox: { x: 0, y: 40, width: 200, height: 20 }, interactive: false, media: null };
+  const snapshotWithEcho = { ...snapshot, nodes: [node, bannerNode] };
+  const echoed = (await buildAgentRequest({ snapshot: snapshotWithEcho, screenshotDataUrl: null, taskInstruction: 'g', tokens: new TokenRegistry('s3'), typedSecretValues: ['blue-heron-42'] })).request;
+  const bannerOut = echoed.dom_summary.find((n) => n.path === 'div#banner');
+  const bannerEntry = echoed.redaction_manifest.find((e) => e.dom_path === 'div#banner');
+  check(
+    bannerOut?.label === 'Signed in as [REDACTED:PASSWORD]'
+      && bannerEntry?.type === 'password' && bannerEntry.tier === 1
+      && bannerEntry.masking === 'blackbox' && bannerEntry.detector === 'agent:typed-secret-echo',
+    'an echoed value elsewhere on the page is masked and declared',
+  );
+  let echoOk = true;
+  try { assertNoTypedSecrets(echoed, ['blue-heron-42']); } catch { echoOk = false; }
+  check(echoOk, 'egress check passes once the echo is masked');
+
+  // A Tier-1 entry already existing for a path must not be read as "already
+  // masked" — a span-based detector can leave raw text (including the typed
+  // secret) sitting next to its own redaction marker in the same field.
+  const mixedNode = { path: 'input#notes', tag: 'input', role: 'textbox', label: 'Notes', text: null, context_label: null, value: '4111111111111111 blue-heron-42', value_omitted: null, input_type: 'text', attrs, bbox: { x: 0, y: 60, width: 100, height: 20 }, interactive: true, media: null };
+  const snapshotMixed = { ...snapshot, nodes: [mixedNode] };
+  const mixed = (await buildAgentRequest({ snapshot: snapshotMixed, screenshotDataUrl: null, taskInstruction: 'g', tokens: new TokenRegistry('s4'), forceTier1Paths: new Set(['input#notes']) })).request;
+  const mixedOut = mixed.dom_summary.find((n) => n.path === 'input#notes');
+  const forcedEntry = mixed.redaction_manifest.find((e) => e.dom_path === 'input#notes' && e.detector === 'agent:typed-secret');
+  check(
+    mixedOut?.value === '[REDACTED:PASSWORD]' && Boolean(forcedEntry),
+    'forcing is skipped only for an already-whole-field marker, not whenever any Tier-1 entry exists for the path',
+  );
 }
 
 console.log('plan split');
