@@ -361,6 +361,7 @@ export async function buildAgentRequest(
     prior_actions: (options.priorActions ?? []).map((a) => structuredClone(a)),
     truncated: snapshot.truncated,
     available_refs: options.availableRefs ?? [],
+    hidden_dropped: snapshot.hidden_dropped,
   };
 
   // The firewall is the independent outbound scan that replaces the old

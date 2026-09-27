@@ -76,6 +76,10 @@ def build_user_message(request: AgentRequest) -> str:
             "The page had more elements than the capture budget; this view is partial. "
             "Prefer scrolling or acting on what is visible over assuming an element is absent."
         )
+    if request.hidden_dropped > 0:
+        data.append(
+            f"## note\n{request.hidden_dropped} hidden or camouflaged text element(s) were removed from this view."
+        )
     if request.redaction_manifest:
         data.append(
             "## redaction_manifest\n" + json.dumps(

@@ -93,6 +93,10 @@ class AgentRequest(Strict):
     truncated: bool = False
     #: 'user_saved:<slot>' names of credentials the vault holds — names only, never values.
     available_refs: list[str] = Field(default_factory=list)
+    #: Count of text nodes dropped by the client's camouflage rules (tiny font,
+    #: sub-pixel box, text colour matching the background) plus text already
+    #: dropped by opacity:0/visibility:hidden. Never the removed text itself.
+    hidden_dropped: int = 0
 
 
 class AgentResponse(Strict):

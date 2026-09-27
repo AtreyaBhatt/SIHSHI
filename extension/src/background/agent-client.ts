@@ -54,6 +54,7 @@ export function buildUserMessage(request: AgentRequest): string {
   if (request.available_refs.length) parts.push(`## available_refs\n${JSON.stringify(request.available_refs)}`);
   const data = [`## dom_summary\n${JSON.stringify(request.dom_summary, null, 1)}`];
   if (request.truncated) data.push('## note\nThe page had more elements than the capture budget; this view is partial. Prefer scrolling or acting on what is visible over assuming an element is absent.');
+  if (request.hidden_dropped > 0) data.push(`## note\n${request.hidden_dropped} hidden or camouflaged text element(s) were removed from this view.`);
   if (request.redaction_manifest.length) data.push(`## redaction_manifest\n${JSON.stringify(request.redaction_manifest.map(({ id, type, tier, dom_path, masking }) => ({ id, type, tier, dom_path, masking })), null, 1)}`);
   parts.push(`<page_data>\n${data.join('\n\n')}\n</page_data>`);
   if (request.prior_actions.length) parts.push(`## prior_actions (already executed, with outcomes)\n${JSON.stringify(request.prior_actions, null, 1)}`);

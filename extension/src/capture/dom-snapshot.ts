@@ -307,6 +307,61 @@ function digitGroup(
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Camouflaged text: legitimate-looking DOM that renders invisibly and exists
+// only to be read by something that isn't a human — prompt injection, mostly.
+// Interactive and media nodes are never subject to these checks; only plain
+// text-bearing elements are.
+// ---------------------------------------------------------------------------
+
+/** Sub-2px is the floor at which a font is unreadable rather than merely small. */
+const MIN_READABLE_FONT_PX = 2;
+/** A box under this on both axes is not a rendered text line. */
+const MIN_READABLE_BOX_PX = 2;
+/** Channels within this of each other read as visually identical. */
+const COLOR_MATCH_TOLERANCE = 8;
+
+function parseRgb(value: string): { r: number; g: number; b: number; a: number } | null {
+  const m = value.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/);
+  if (!m) return null;
+  return { r: Number(m[1]), g: Number(m[2]), b: Number(m[3]), a: m[4] !== undefined ? Number(m[4]) : 1 };
+}
+
+/**
+ * Walks from `el` itself up to `body`, returning the first background-color
+ * with alpha > 0. Starts at `el` because a node's own background paints
+ * directly behind its own text. Defaults to white — the same assumption a
+ * browser's default canvas makes when nothing in the ancestor chain sets one.
+ */
+function effectiveBackground(el: Element): { r: number; g: number; b: number } {
+  let cur: Element | null = el;
+  while (cur) {
+    const bg = parseRgb(getComputedStyle(cur).backgroundColor);
+    if (bg && bg.a > 0) return bg;
+    if (cur === document.body) break;
+    cur = cur.parentElement;
+  }
+  return { r: 255, g: 255, b: 255 };
+}
+
+/**
+ * The three capture-time camouflage rules (a fourth, screen-reader-only
+ * clip-path/clip text, is deliberately NOT a rule here: that text is kept
+ * unless one of these three also applies).
+ */
+function isCamouflaged(el: Element, style: CSSStyleDeclaration, rect: DOMRect): boolean {
+  if (parseFloat(style.fontSize || '16') < MIN_READABLE_FONT_PX) return true;
+  if (rect.width < MIN_READABLE_BOX_PX && rect.height < MIN_READABLE_BOX_PX) return true;
+  const fg = parseRgb(style.color);
+  if (!fg) return false;
+  const bg = effectiveBackground(el);
+  return (
+    Math.abs(fg.r - bg.r) < COLOR_MATCH_TOLERANCE &&
+    Math.abs(fg.g - bg.g) < COLOR_MATCH_TOLERANCE &&
+    Math.abs(fg.b - bg.b) < COLOR_MATCH_TOLERANCE
+  );
+}
+
 function srcFile(el: Element): string | null {
   const src = el.getAttribute('src');
   if (!src) return null;
@@ -361,6 +416,7 @@ export function captureDomSnapshot(): RawSnapshot {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   let truncated = false;
+  let hiddenDropped = 0;
   const digitGroupCache = new WeakMap<Element, string | null>();
 
   const visit = (el: Element, root: Root): void => {
@@ -387,6 +443,13 @@ export function captureDomSnapshot(): RawSnapshot {
           parseFloat(style.opacity || '1') > 0;
 
         if (shown) {
+          // Camouflage rules apply only to plain text — never to interactive
+          // controls or media regions, which the agent must still see and act on.
+          if (!interactive && !media && text && isCamouflaged(el, style, rect)) {
+            hiddenDropped++;
+            return;
+          }
+
           const inputType = tag === 'input' ? ((el as HTMLInputElement).type?.toLowerCase() ?? 'text') : null;
           const { value, omitted } = readValue(el, tag, inputType);
           const group = digitGroup(el, root, digitGroupCache);
@@ -419,6 +482,10 @@ export function captureDomSnapshot(): RawSnapshot {
             media,
             group_id: group?.id ?? null,
           });
+        } else if (directText(el)) {
+          // Already dropped by the pre-existing opacity:0/visibility:hidden
+          // check; counted here so the model knows this much text vanished.
+          hiddenDropped++;
         }
       }
     }
@@ -484,6 +551,7 @@ export function captureDomSnapshot(): RawSnapshot {
     nodes: kept,
     truncated,
     unscanned,
+    hidden_dropped: hiddenDropped,
     timings: { dom_walk_ms: Math.round((performance.now() - start) * 100) / 100 },
   };
 }

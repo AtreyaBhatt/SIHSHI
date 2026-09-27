@@ -187,6 +187,13 @@ export interface RawSnapshot {
   truncated: boolean;
   /** Boxes of nodes trimmed by the node budget. Never scanned, so never sent as pixels either — build-request masks and declares them. */
   unscanned: BBox[];
+  /**
+   * Count of text nodes dropped by the capture-time camouflage rules (tiny
+   * font, sub-pixel box, text colour matching the background) plus text
+   * nodes already dropped by the pre-existing opacity:0/visibility:hidden
+   * check. Never the text itself — just how many.
+   */
+  hidden_dropped: number;
   timings: { dom_walk_ms: number };
 }
 
@@ -230,6 +237,8 @@ export interface AgentRequest {
   truncated: boolean;
   /** 'user_saved:<slot>' names of credentials the vault holds — names only, never values. */
   available_refs: string[];
+  /** Copied from RawSnapshot.hidden_dropped — count only, never the removed text. */
+  hidden_dropped: number;
 }
 
 /**

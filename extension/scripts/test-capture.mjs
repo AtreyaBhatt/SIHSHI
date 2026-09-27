@@ -34,6 +34,7 @@ import { captureDomSnapshot } from '${resolve('src/capture/dom-snapshot.ts')}';
 import { resolvePath } from '${resolve('src/shared/resolve-path.ts')}';
 import { buildAgentRequest } from '${resolve('src/redaction/build-request.ts')}';
 import { TokenRegistry } from '${resolve('src/redaction/tokens.ts')}';
+import { buildUserMessage } from '${resolve('src/background/agent-client.ts')}';
 
 export async function run(shotDataUrl) {
   const snapshot = captureDomSnapshot();
@@ -42,6 +43,7 @@ export async function run(shotDataUrl) {
     snapshot, screenshotDataUrl: shotDataUrl, taskInstruction: 'Continue checkout.',
     tokens: new TokenRegistry('capture-test'), threshold: 0.5,
   });
+  const userMessage = buildUserMessage(request);
 
   // Sample the redacted PNG at the centre of the iframe's box.
   const frame = snapshot.nodes.find((n) => n.path === 'iframe#payment');
@@ -57,7 +59,11 @@ export async function run(shotDataUrl) {
     const px = ctx.getImageData(Math.round(((x1 + x2) / 2) * scale), Math.round(((y1 + y2) / 2) * scale), 1, 1).data;
     centre = [px[0], px[1], px[2]];
   }
-  return { nodes: snapshot.nodes, resolution, request, centre, truncated: snapshot.truncated, nodes_unscanned: snapshot.unscanned.length };
+  return {
+    nodes: snapshot.nodes, resolution, request, centre,
+    truncated: snapshot.truncated, nodes_unscanned: snapshot.unscanned.length,
+    hidden_dropped: snapshot.hidden_dropped, userMessage,
+  };
 }
 `);
 await build({ entryPoints: [entry], outfile: join(workdir, 'bundle.js'), bundle: true, format: 'iife', globalName: 'ATHENA', target: 'chrome116', logLevel: 'error' });
@@ -124,6 +130,30 @@ try {
   else fail(`iframe centre pixel is ${JSON.stringify(r.centre)} — the card number inside the frame is visible`);
   if (payload.includes('4539')) fail('card number from inside the iframe is in the payload text');
   else pass('nothing from inside the iframe is in the payload text');
+
+  console.log('\ncamouflaged text (hidden-text.html):');
+  await call('Page.navigate', { url: `file://${resolve('../eval/fixtures/hidden-text.html')}` });
+  for (let i = 0; i < 40; i++) {
+    await sleep(150);
+    if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('location.href')).includes('hidden-text')) break;
+  }
+  await evaluate(bundle);
+  const hidden = JSON.parse(await evaluate(`ATHENA.run(null).then((x) => JSON.stringify(x))`));
+  const hiddenPayload = JSON.stringify(hidden.request);
+  if (hidden.hidden_dropped === 4) pass(`snapshot.hidden_dropped === 4`);
+  else fail(`expected snapshot.hidden_dropped === 4, got ${hidden.hidden_dropped}`);
+  const leaked = hidden.nodes.some((n) => (n.text ?? '').includes('ignore') || (n.text ?? '').includes('SYSTEM'));
+  if (!leaked) pass('no node text in the snapshot contains "ignore" or "SYSTEM"');
+  else fail(`camouflaged text survived into the snapshot: ${JSON.stringify(hidden.nodes.filter((n) => (n.text ?? '').includes('ignore') || (n.text ?? '').includes('SYSTEM')))}`);
+  const goButton = hidden.nodes.find((n) => n.path === 'button#go');
+  if (goButton) pass('button#go is present');
+  else fail('button#go missing from the snapshot');
+  if (!hiddenPayload.includes('ignore') && !hiddenPayload.includes('SYSTEM')) pass('the built request contains none of the hidden strings');
+  else fail('the built request still contains a hidden string');
+  if (hidden.request.hidden_dropped === 4) pass('request.hidden_dropped === 4');
+  else fail(`expected request.hidden_dropped === 4, got ${hidden.request.hidden_dropped}`);
+  if (hidden.userMessage.includes('4 hidden or camouflaged text element(s)')) pass('user message reports "4 hidden or camouflaged text element(s)"');
+  else fail(`user message missing the hidden-text note: ${hidden.userMessage}`);
 
   console.log('\nnode budget (long-page.html):');
   await call('Page.navigate', { url: `file://${resolve('../eval/fixtures/long-page.html')}` });
