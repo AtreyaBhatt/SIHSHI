@@ -108,6 +108,12 @@ Write the reasoning in `notes` rather than guessing silently. Recurring ones:
 - **Partial values** (`•••• 4242`) — annotate. Last-four is still card data.
 - **Person's name in body prose** vs. **in a form label** — the value is Tier 2
   (`person_name`); the word "Name:" is Tier 3 and is not annotated.
+- **A bare `Name:`/`<dt>Name</dt>` label with no qualifying phrase** — known
+  detector gap, not just an annotation call. `dom-heuristics.ts`'s `person_name`
+  rule requires "full name", "your name", "account holder", etc.; a bare "Name"
+  label does not match, so the value next to it is Tier 3 (undetected) even
+  though a human reader would treat it as a name. Do not "fix" this by loosening
+  the rule to bare "Name" without discussing the precision trade-off (CLAUDE.md).
 - **A face in a decorative stock photo** — annotate as `face`. Tier 1 does not
   care whether the person is the user.
 

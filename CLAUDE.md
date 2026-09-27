@@ -100,6 +100,8 @@ a bug, not a shortcut to fix later.
   `account_id` (Tier 2 — customer/member/reference ids, usernames; tokenised).
   Snapshot paths may contain ` >>> ` for open shadow roots; resolve them only
   through `shared/resolve-path.ts`, never with a bare `querySelector`.
+- Tier-1 identifiers in `RESOLVABLE_TIER1` are tokenised, not fixed-marked; `value_token`
+  is resolved only in the worker.
 
 ### Server code
 - The ingress layer (`ingress.py`) must independently re-validate incoming payloads

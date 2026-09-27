@@ -73,19 +73,26 @@ npm run build           # -> extension/dist
 ### 4. Store demo credentials
 
 Scenario A types a password the server never sees. The executor resolves
-`value_ref` against a local vault, and **refuses rather than typing an empty
-string** if the slot is missing — so populate it first.
+`value_ref` against a local encrypted vault, and **refuses rather than typing
+an empty string** if the slot is missing — so populate it first.
 
-Extension **Details → Extension options**, then add two slots:
+Extension **Details → Extension options**:
 
-| slot | value |
-|---|---|
-| `username` | anything, e.g. `demo-user` |
-| `password` | anything, e.g. `demo-secret-123` |
+1. **First time**: no vault exists yet. Choose a passphrase (8+ characters),
+   confirm it, and press **Create vault**. This derives an AES-GCM-256 key
+   from the passphrase (PBKDF2-SHA256, 600k iterations) and encrypts
+   everything you add below it.
+2. **Add two slots**:
 
-> This vault is **not** a password manager. Chrome exposes no API for reading the
-> real one, so values sit unencrypted in `chrome.storage.local`. Use throwaway
-> test credentials. The options page says the same thing.
+   | slot | value |
+   |---|---|
+   | `username` | anything, e.g. `demo-user` |
+   | `password` | anything, e.g. `demo-secret-123` |
+
+3. On later sessions, **Unlock** with the same passphrase.
+
+> See [Vault](#vault) below for what this actually protects against — it is
+> **not** a password manager.
 
 ---
 
@@ -154,6 +161,116 @@ applies the plan.
 
 A rendered example is written to `eval/results/viewer.png` by
 `npm run preview:viewer`.
+
+---
+
+## BlindFill: acting on values the model never sees
+
+Two separate mechanisms let the model direct an action against a value it
+never received, so it can still fill a form field it can only see as a
+placeholder.
+
+- **On-page sensitive values → numbered tokens.** A Tier-1 value the local
+  cascade already found on the page (an Aadhaar number, a card number, a bank
+  account) is sent as an opaque token, e.g. `[AADHAAR_1]`, not just masked. If
+  the model's plan needs to move that value into another field, it types the
+  token itself: `{"action":"type","selector":"input#aadhaar","value_token":"[AADHAAR_1]"}`.
+  The worker resolves `value_token` locally against the run's `TokenRegistry`
+  for that one approved step and types the real value; the model only ever
+  saw and echoed the token text.
+- **Stored profile/credential values → `value_ref`.** For values that never
+  appeared on the page at all (a saved name, the vault's `username`/`password`
+  slots), the model names a slot with `value_ref` (e.g. `user_saved:name`).
+  It may only use a name the client listed under `## available_refs` in the
+  request — a section outside the redacted `<page_data>` fence that names
+  *which* refs exist, never their values. A `value_ref` naming anything else
+  is rejected by the guardrails, not executed.
+
+Both `value_ref` and `value_token` actions are forced to `risk: sensitive`
+regardless of what the model said, so under **Approve sensitive only** every
+BlindFill fill still stops for a click before it runs. `npm run
+test:e2e:blindfill` exercises the whole path end to end against a
+profile-to-form fixture: no profile value or vault secret ever appears in a
+request or response body, only the tokens/refs and the plan that resolves
+them locally.
+
+---
+
+## Vault
+
+An encrypted local store for the `value_ref` credential slots and the
+provider API key — PRD §7.2's indirection layer, so a secret named by the
+model is resolved on-device and never crosses the network.
+
+- **Passphrase-protected.** The vault is created with a passphrase (8+
+  characters, confirmed) and unlocked with the same passphrase thereafter.
+  The AES-GCM-256 key is derived with PBKDF2-SHA256 (600k iterations); only
+  ciphertext, salt, IV and a `api_key_present` flag sit in `chrome.storage.local`.
+- **Unlock survives the worker going to sleep.** Chrome routinely suspends the
+  MV3 service worker. To avoid re-prompting for the passphrase every time that
+  happens, the derived key's raw bytes are kept in `chrome.storage.session`
+  (memory-backed, cleared on browser exit) so a restarted worker can pick the
+  unlocked vault back up. This **supersedes** an earlier "key stays in worker
+  memory only" design. The in-memory operational key itself is non-extractable.
+  **Residual risk:** while unlocked, the raw key is readable by any extension
+  page (not by content scripts, i.e. not by the pages you visit) — this
+  protects against disk access and other extensions reading `storage.local`,
+  not against a compromised extension page. It is not a cryptographic vault
+  and not a password manager.
+- **15-minute idle relock**, enforced on every access, not just a timer: no
+  `value_ref` resolve, API-key read, or vault write in the last 15 minutes
+  locks it again and clears the session-stored key. **Lock** in the panel or
+  options page also locks it immediately and always wins over an access that
+  was already in flight.
+- **What's inside:** the named credential slots you add (e.g. `username`,
+  `password`) and, optionally, the provider API key — never a page value, a
+  redaction token, or a passphrase.
+- **Migration note:** on first unlock after an upgrade, the old plaintext v1
+  vault (and, where Chrome still has the old `cookies` permission cached, the
+  API key that used to live in a cookie) is imported and then deleted — but
+  only after the encrypted copy is safely persisted. If Chrome has already
+  dropped the `cookies` permission, the old API-key cookie cannot be read and
+  you re-enter the key once in Settings.
+
+---
+
+## Privacy firewall
+
+A second, independent layer that runs on the finished request payload, after
+the normal PII cascade and redaction — not instead of it. It is written
+without importing anything from `pii-detection/`, on purpose, so a bug in one
+does not defeat the other.
+
+- **Independent rules.** Its own email/card/Aadhaar/PAN/IFSC/SSN/UPI/phone
+  patterns (Luhn- and Verhoeff-checked, windowed against longer digit runs)
+  scan every outbound text field, regardless of what the cascade already
+  found or missed.
+- **Every hit is masked, including Tier 1.** A firewall hit — Tier 1 or
+  Tier 2 — is replaced with a numbered opaque token and given a manifest
+  entry (`detector: firewall:<rule>`), the same as any other redaction. It
+  does **not** fail the request; masking keeps the agent usable while still
+  keeping the raw value off the network.
+- **Fail-closed rescan blocks only on a residual match.** After masking (up
+  to three passes, since masking one hit can reveal another lurking behind
+  it), the firewall rescans its own output. Only if a match still survives
+  that rescan does the request block, tagged `firewall:residual` — which
+  means the firewall itself has a gap, not that the page contained something
+  ordinary.
+- **Precision trade-off, measured on random grouped numbers** (report this
+  plainly, per CLAUDE.md's bias toward over-redaction): about **3%** of random
+  16-digit, 4×4-grouped numbers are falsely masked as a card number, and about
+  **8%** of random 12-digit, 4-4-4-grouped numbers are falsely masked as an
+  Aadhaar number. Card windows require a card-network prefix (`4`, `51`–`55`,
+  `22`–`27`, `34`/`37`, `6`); **RuPay and Maestro prefixes are not covered** by
+  the firewall, so the PII-cascade detectors remain the primary line for
+  those. DOM paths and manifest `dom_path` strings are not scanned by the
+  firewall.
+- **Demo switch.** Settings/the Privacy card can disable named cascade
+  detectors (by their `dom:*`/`regex:*` name) for a session, so a screen still
+  gets masked by the firewall alone — proof the second layer actually works,
+  not a way to turn redaction off. The switch lives in `chrome.storage.session`
+  (gone on browser restart) and shows a red **"detectors off: …"** chip on
+  the Privacy card whenever it's non-empty.
 
 ---
 
@@ -235,19 +352,22 @@ npm run test:faces       # detector runs in a browser and finds faces
 npm run test:scenario-b  # 22 faces detected → 0 after blurring
 npm run test:e2e         # Scenario A end to end: no secret out, no secret back, field still filled
 npm run test:e2e:c       # Scenario C end to end: the model answers without acting
+npm run test:e2e:blindfill # BlindFill end to end: value_token + value_ref fill a form, no profile/vault value ever leaves the device
 npm run test:executor    # the nine verbs against a live DOM, incl. Enter→requestSubmit and Tab focus
-npm run test:reasoning   # guardrails (verbs, value/value_ref, risk floor, typed-secret masking) and the plan split
+npm run test:reasoning   # guardrails (verbs, value/value_ref/value_token, risk floor, typed-secret masking) and the plan split, incl. the privacy firewall
 npm run test:loop        # the agent loop state machine, in Node — no browser
+npm run test:vault       # the encrypted vault: create/unlock, idle relock, session-key restore across a worker restart, lock-wins-over-in-flight-access
 npm run preview:viewer   # renders the demo view with real data -> eval/results/viewer.png
 
-cd ../server && uv run pytest    # 43 tests: ingress, planner guardrails, endpoint, provider failure modes
+cd ../server && uv run pytest    # ingress, planner guardrails, endpoint, provider failure modes
 ```
 
 Each harness starts its own Chrome (and, where needed, its own server) and cleans
-up after itself. `test:e2e`, `test:e2e:c`, `test:scenario-b` and `preview:viewer` need
-`npm run fetch:model`; `test:scenario-b` also needs `fetch:demo-faces`. `test:capture`
-covers `shadow-iframe.html`, `long-page.html` and `many-controls.html`. `test:loop`
-runs the agent loop as a pure state machine with no browser at all.
+up after itself. `test:e2e`, `test:e2e:c`, `test:e2e:blindfill`, `test:scenario-b`
+and `preview:viewer` need `npm run fetch:model`; `test:scenario-b` also needs
+`fetch:demo-faces`. `test:capture` covers `shadow-iframe.html`, `long-page.html`
+and `many-controls.html`. `test:loop` and `test:vault` run as pure Node state
+machines with no browser at all.
 
 ## Eval
 
@@ -275,9 +395,10 @@ extension/
   src/capture/        DOM snapshot + screenshot (content script)
   src/perception/     UltraFace via ONNX Runtime Web, in an offscreen document
   src/pii-detection/  DOM heuristics → regex/checksums (the cascade)
-  src/redaction/      tokens, text masking, pixel compositing, manifest
+  src/redaction/      tokens, text masking, pixel compositing, manifest, privacy firewall
   src/executor/       acts on the real, unredacted DOM
   src/background/     service worker: orchestration + the only network call
+  src/shared/         schema, path resolution, encrypted vault
   src/viewer/         the side-by-side demo page
 server/app/
   ingress.py          independent PII re-check before anything is logged or sent
@@ -313,15 +434,16 @@ password into a real password field while the server only ever sees
 
 ## Results
 
-4 screens, 34 labelled items, threshold 0.5:
+4 screens, 35 labelled items, threshold 0.5:
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.941 | 0.970 |
+| overall | 1.000 | 0.943 | 0.971 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.895 | 0.944 |
+| tier 2 | 1.000 | 0.900 | 0.947 |
 
-Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.882, overall 0.938.
+Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.833, overall 0.909.
+The tier 2 figure dropped from 0.882 when a prose email was added to the corpus: text redaction is exact, but the pixel mask covers the whole paragraph box (over-redaction, never under-redaction).
 All three PRD §8 targets met.
 
 Latency p50/p95 ms — capture 1.0/2.0 · screenshot 39.5/55.4 · perception
@@ -356,7 +478,11 @@ Stated plainly, because overclaiming here is worse than underclaiming.
    and redaction-aware prompting add friction; they are not a cryptographic
    guarantee. This is a heuristic redaction pipeline, **not** a zero-trust
    system, and should not be described as one.
-6. **The credential vault is a demo, not a password manager.** See step 4.
+6. **The vault protects against disk access and other extensions, not a
+   compromised extension page.** It is encrypted at rest (PBKDF2 → AES-GCM),
+   but while unlocked the raw key sits in `chrome.storage.session`, which any
+   extension page (not a content script) can read. See [Vault](#vault). It is
+   a demo, not a password manager.
 7. **Face blurring covers vision only.** Voice, filenames and other non-visual
    identity leaks on the same page are out of scope.
 8. **The eval corpus is self-authored screens.** See above.

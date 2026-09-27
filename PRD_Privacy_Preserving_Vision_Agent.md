@@ -81,6 +81,11 @@ We define three tiers, since not everything needs the same treatment:
 | **Tier 2 — Mask but preserve shape** | Emails, phone numbers, physical addresses, names in form labels | Partially masked (e.g., `j***@***.com`) or tokenized (`[EMAIL_1]`) so the server can still reason about "this is a login form" without seeing the value |
 | **Tier 3 — Structural, not sensitive** | Button labels, field names/types, page layout, non-personal headings | Sent as-is |
 
+Tier-1 identifiers (Aadhaar, PAN, card, bank, passport, SSN, IFSC) are sent as
+numbered opaque tokens; the model may ask to type a token back and the browser
+resolves it locally for an approved step. Passwords, OTPs, CVVs and faces
+remain non-resolvable markers.
+
 ---
 
 ## 5. User Stories

@@ -24,6 +24,9 @@ late, or yourself the night before. Everything here is true of the code on
 If you only get one sentence: **the trust boundary is the network call, not
 the browser.**
 
+The wedge: **the server can understand and act on private workflows without
+ever receiving the user's identity or secrets.**
+
 ## 2. The problem, in the judges' terms
 
 - Agentic AI on screens is the next interface. Almost every product ships full
@@ -146,10 +149,10 @@ deliberate — PRD §9 — over-redact rather than leak."* Then the eval table.
 | Tier-1 detection recall | **1.000** | ≥ 0.90 |
 | Overall detection precision | **1.000** | ≥ 0.80 |
 | Tier-1 redaction precision (IoU ≥ 0.5) | **1.000** | ≥ 0.85 |
-| Overall recall | 0.941 (the two prose FNs) | — |
+| Overall recall | 0.943 (the two prose FNs) | — |
 | Local pipeline p50 | ~66 ms (capture 1 · screenshot ~40 · faces ~13 · redaction ~17) | < 300 ms |
 | Package | ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) | < 20 MB |
-| Tests | 9 browser/Node harnesses (capture, redaction, faces, scenario B, e2e A + C, executor, guardrails, loop) + 43 server tests | — |
+| Tests | 12 browser/Node harnesses (capture, redaction, faces, scenario B, e2e A + C + BlindFill, executor, guardrails + firewall, loop, vault, provider) + 46 server tests | — |
 
 The caveat, verbatim, because a judge will ask: *"These are on three fixture
 screens written by the same people who wrote the detectors, scored against
@@ -240,11 +243,13 @@ Approved design: `docs/superpowers/specs/2026-09-11-athena-real-product-design.m
 |---|---|---|---|
 | 1 | Any-site capture | **in progress** | Enable ATHENA per site (no more clicking the icon per tab); web components (shadow DOM) detected; iframes masked; customer/member IDs tokenised; big pages handled |
 | 2 | Serverless reasoning | next | No server needed. Bring your own key: OpenRouter (default), OpenAI, Ollama/vLLM, Anthropic. The redaction checks move on-device; your server stays as an optional relay |
-| 3 | Action grammar v2 | | `select`, `key`, `hover`, `go_back`, `navigate` + `done`/`result`, per-action risk |
-| 4 | Agent loop | | Give it a goal; it captures → plans → executes → re-captures until done. Two modes: approve every step, or only sensitive steps (credentials, navigation, anything the model flags) |
-| 5 | Encrypted vault | | Passphrase-protected credentials and API keys (PBKDF2 → AES-GCM), unlock once per session |
-| 6 | NER | | Names and addresses in prose caught by a local token-classification model — closes the last known recall gap |
-| 7 | Ship | | Store listing, icons, privacy policy, real-site eval corpus |
+| 3 | Action grammar v2 | **done** | `select`, `key`, `hover`, `go_back`, `navigate` + `done`/`result`, per-action risk |
+| 4 | Agent loop | **done** | Give it a goal; it captures → plans → executes → re-captures until done. Two modes: approve every step, or only sensitive steps (credentials, navigation, anything the model flags) |
+| 5 | Encrypted vault | **done** | Passphrase-protected credentials and API key (PBKDF2 600k → AES-GCM-256); unlock survives the worker being suspended, relocks after 15 idle minutes, on Lock, or on browser restart |
+| 6 | BlindFill tokens | **done** | On-page sensitive values become numbered tokens (`[AADHAAR_1]`) the model can direct back into a field by name, never by value; stored profile/credential values fill via `value_ref`, gated on a server-visible list of what's actually available |
+| 7 | Privacy firewall | **done** | A second, independently-written scan on the finished request masks anything the cascade missed (Tier 1 included) as a token instead of failing the request outright, and blocks only if a fail-closed rescan still finds a match — a demo switch proves it's a real second layer |
+| 8 | NER | | Names and addresses in prose caught by a local token-classification model — closes the last known recall gap |
+| 9 | Ship | | Store listing, icons, privacy policy, real-site eval corpus |
 
 ## 10. Glossary
 

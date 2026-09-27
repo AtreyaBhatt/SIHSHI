@@ -128,6 +128,9 @@ export const DOM_RULES: DomRule[] = [
     test: (n, c) => /street-address|address-line|postal-code/.test(ac(n)) || /address|street|\bpin[ -]?code\b|\bzip\b|postcode/.test(c),
   },
   {
+    // Known gap: a bare `<dt>Name</dt>` (no qualifying phrase) does not match this
+    // rule and is treated as Tier 3 structure, not `person_name`. See
+    // eval/corpus/README.md's borderline-calls note on "Name:" vs "Your name".
     type: 'person_name',
     detector: 'dom:person-name',
     confidence: 0.82,
