@@ -21,7 +21,9 @@ import { splitAtTabVerb } from '../shared/plan-split';
 import { assertNoTypedSecrets, buildAgentRequest } from '../redaction/build-request';
 import { TokenRegistry, newSessionId, type RegistryJSON } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
-import { resolveValueRef, vaultSlots } from '../shared/vault';
+import {
+  VaultLockedError, deleteSlot, lockVault, resolveValueRef, setProviderApiKey, setSlot, unlockVault, vaultSlotRefs, vaultStatus,
+} from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
 import {
@@ -153,11 +155,6 @@ async function dropRegistry(id: string): Promise<void> {
   }
 }
 
-/** 'user_saved:<slot>' names only — never values. Task 3 will replace this with vault.vaultSlotRefs(). */
-async function computeAvailableRefs(): Promise<string[]> {
-  return (await vaultSlots()).map((slot) => `user_saved:${slot}`);
-}
-
 function resetSession(): string {
   forgetTypedSecrets(tokens.session_id);
   void dropRegistry(tokens.session_id);
@@ -242,7 +239,7 @@ async function buildPayload(
       faces,
       forceTier1Paths: typedSecretPaths.get(registry.session_id),
       typedSecretValues: typedSecretValues.get(registry.session_id),
-      availableRefs: await computeAvailableRefs(),
+      availableRefs: await vaultSlotRefs(), // names only; [] while locked
     });
     await saveRegistry(registry);
     assertNoTypedSecrets(request, typedSecretValues.get(registry.session_id) ?? []);
@@ -453,6 +450,8 @@ async function executeOnTab(tabId: number, actions: AgentAction[], allowedSelect
     try {
       executable = await toExecutable(page, secretKey, registry);
     } catch (err) {
+      // Nothing has run yet; a locked vault pauses the run (needs_unlock) instead of failing the step.
+      if (err instanceof VaultLockedError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       outcomes.push({ action: page[0]!.action, selector: page[0]!.selector ?? null, ok: false, error: message, duration_ms: 0 });
       for (const action of page.slice(1)) outcomes.push({ action: action.action, selector: action.selector ?? null, ok: false, error: NOT_EXECUTED, duration_ms: 0 });
@@ -524,7 +523,7 @@ const MAX_STEPS_KEY = 'athena:max-steps';
 const stopRequested = new Set<string>();
 const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(['done', 'failed', 'stopped']);
 const RUN_IN_PROGRESS_STATUSES: ReadonlySet<RunStatus> = new Set([
-  'idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission',
+  'idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission', 'needs_unlock',
 ]);
 
 /**
@@ -676,6 +675,17 @@ api.runtime.onMessage.addListener(
       health().then(ok).catch(fail);
       return true;
     }
+    // Vault: values only travel panel → worker; every reply is a VaultStatus (slot names, flags).
+    if (message?.type === 'athena:vault-status') { vaultStatus().then(ok).catch(fail); return true; }
+    if (message?.type === 'athena:vault-unlock') {
+      (message.passphrase ? unlockVault(message.passphrase) : Promise.reject(new Error('Enter a passphrase.')))
+        .then(ok).catch((err) => fail(err instanceof Error && err.message === 'Wrong passphrase.' ? err : new Error('Could not unlock the vault.')));
+      return true;
+    }
+    if (message?.type === 'athena:vault-lock') { lockVault(); vaultStatus().then(ok).catch(fail); return true; }
+    if (message?.type === 'athena:vault-set') { setSlot(message.slot, message.value).then(ok).catch(fail); return true; }
+    if (message?.type === 'athena:vault-delete') { deleteSlot(message.slot).then(ok).catch(fail); return true; }
+    if (message?.type === 'athena:vault-set-api-key') { setProviderApiKey(message.value?.trim() || null).then(ok).catch(fail); return true; }
     if (message?.type === 'athena:run-start') {
       if (driveLock) { fail(new Error('The agent is busy. Wait for the current step or stop the run.')); return true; }
       driveLock = true;
@@ -707,7 +717,7 @@ api.runtime.onMessage.addListener(
       driveLock = true;
       loadRun().then((run) => {
         if (!run) throw new Error('No run in progress.');
-        if (run.step !== message.step || run.status !== 'awaiting_approval') {
+        if (run.step !== message.step || (run.status !== 'awaiting_approval' && run.status !== 'needs_unlock')) {
           throw new Error('That step is no longer awaiting approval.');
         }
         return runDrive(run.run_id, () => approve(run, loopDeps));

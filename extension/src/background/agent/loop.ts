@@ -6,12 +6,13 @@
  * | gate → awaiting_approval | executing → settling → capturing, step++.
  * step > max_steps → failed('step cap'). Any throw → failed(message).
  * After a navigation to an origin without host permission → needs_permission.
+ * Execution hits a locked vault → needs_unlock (plan kept; approve() resumes).
  */
 import type { AgentAction, AgentResponse, CaptureResult, PriorAction } from '../../shared/schema';
 import type { PayloadPreview } from '../../shared/messages';
 
 export type RunMode = 'approve-all' | 'approve-sensitive';
-export type RunStatus = 'idle' | 'capturing' | 'planning' | 'awaiting_approval' | 'executing' | 'settling' | 'needs_permission' | 'done' | 'failed' | 'stopped';
+export type RunStatus = 'idle' | 'capturing' | 'planning' | 'awaiting_approval' | 'executing' | 'settling' | 'needs_permission' | 'needs_unlock' | 'done' | 'failed' | 'stopped';
 
 export interface Run {
   run_id: string;
@@ -94,7 +95,15 @@ async function executePending(run: Run, deps: LoopDeps): Promise<Run> {
   const response = run.pending;
   run = await transition(run, { status: 'executing', pending: null }, deps);
   if (run.status === 'stopped') return run;
-  const executed = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '', run.run_id);
+  let executed: PriorAction[];
+  try {
+    executed = await deps.execute(run.tab_id, response.actions, run.allowed, run.page_url ?? '', run.run_id);
+  } catch (err) {
+    // Matched by name so this file stays free of the (worker-only) vault module.
+    // Values are resolved before anything runs, so nothing executed: keep the plan.
+    if ((err as Error | null)?.name === 'VaultLockedError') return transition(run, { status: 'needs_unlock', pending: response }, deps);
+    throw err;
+  }
   run = await transition(run, { history: [...run.history, ...executed], status: 'settling' }, deps);
   if (response.done) return transition(run, { status: 'done', result: response.result }, deps);
   const landed = await deps.settle(run.tab_id);
@@ -105,14 +114,14 @@ async function executePending(run: Run, deps: LoopDeps): Promise<Run> {
 }
 
 /**
- * Advances the run until it needs a human (awaiting_approval, needs_permission)
+ * Advances the run until it needs a human (awaiting_approval, needs_permission, needs_unlock)
  * or ends. Safe to call on any status: terminal runs return unchanged, an
  * awaiting run returns unchanged (use approve()).
  */
 export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
   try {
     if (run.status === 'idle') run = await transition(run, { status: 'capturing' }, deps);
-    while (!TERMINAL.has(run.status) && run.status !== 'awaiting_approval' && run.status !== 'needs_permission') {
+    while (!TERMINAL.has(run.status) && run.status !== 'awaiting_approval' && run.status !== 'needs_permission' && run.status !== 'needs_unlock') {
       if (deps.stopped(run.run_id)) return transition(run, { status: 'stopped', pending: null }, deps);
 
       if (run.status === 'capturing') {
@@ -148,6 +157,6 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
 }
 
 export async function approve(run: Run, deps: LoopDeps): Promise<Run> {
-  if (run.status !== 'awaiting_approval' || !run.pending) return run;
+  if ((run.status !== 'awaiting_approval' && run.status !== 'needs_unlock') || !run.pending) return run;
   return drive(await transition(run, { status: 'executing' }, deps), deps);
 }

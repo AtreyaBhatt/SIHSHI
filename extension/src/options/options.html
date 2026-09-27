@@ -5,13 +5,15 @@
 <div class="app" style="height:auto"><header><div class="brand"><span class="dot"></span><div><h1>ATHENA settings</h1><p class="sub">Direct provider and local credential vault</p></div></div></header>
 <main style="overflow:visible"><section class="pane active">
 <h3>Model provider</h3>
-<p class="note">Requests go directly from the extension service worker to this provider. Only locally redacted context is sent. The API key is stored as a provider-origin HttpOnly cookie and is never shown after saving.</p>
+<p class="note">Requests go directly from the extension service worker to this provider. Only locally redacted context is sent. The API key is kept in the encrypted local vault below and is never shown after saving.</p>
 <div class="row provider-row"><label class="checkbox"><input type="checkbox" id="anthropic-format"> Use Anthropic format</label></div>
 <div class="row provider-row"><input type="text" id="provider-base-url" class="text" placeholder="https://openrouter.ai/api/v1" aria-label="Provider base URL" autocomplete="off"><input type="text" id="provider-model" class="text" placeholder="openai/gpt-4o-mini" aria-label="Provider model" autocomplete="off"><button id="save-provider" class="btn sec sm" type="button">Save</button></div>
 <div class="row provider-row"><input type="password" id="provider-api-key" class="text" placeholder="Enter provider API key" aria-label="Provider API key" autocomplete="off"><button id="delete-api-key" class="btn ghost sm destructive" type="button" hidden>Delete API key</button></div>
 <div class="t3 status-line settings" id="provider-health" role="status" aria-live="polite"></div>
 <h3>Local credential vault</h3>
-<p class="note">Secrets stay local and are referenced in plans as user_saved:name.</p>
+<p class="note">Secrets stay local and are referenced in plans as user_saved:name. Values and the API key are encrypted (AES-GCM, key derived from your passphrase); the unlocked key lives only in extension memory and relocks after 15 idle minutes or a browser restart. A forgotten passphrase cannot be recovered. This is a demo vault, not a password manager.</p>
+<div class="row"><input id="vault-passphrase" class="text" type="password" placeholder="Vault passphrase" aria-label="Vault passphrase" autocomplete="off"><button id="vault-unlock" class="btn sec sm" type="button">Unlock</button><button id="vault-lock" class="btn ghost sm" type="button">Lock</button></div>
+<div id="vault-lock-state" class="t3 status-line" role="status"></div>
 <div class="row"><input id="new-slot" class="text" placeholder="slot name" aria-label="New vault slot"><input id="new-value" class="text" type="password" placeholder="value" aria-label="New vault value"><button id="add-slot" class="btn sec sm" type="button">Add</button></div>
 <div id="vault-status" class="t3 status-line" role="status"></div><div id="slots"></div>
 </section></main></div><script type="module" src="options.js"></script>

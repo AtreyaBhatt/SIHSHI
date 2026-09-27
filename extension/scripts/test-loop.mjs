@@ -201,6 +201,22 @@ console.log('stop before approval executes nothing');
   check(run.status === 'stopped' && !deps.log.some((l) => l.startsWith('execute')), `nothing executes after a stop (${deps.log.join(' ')})`);
 }
 
+console.log('needs_unlock');
+{
+  const deps = fakeDeps([plan(login, true, 'Logged in.')]);
+  const realExecute = deps.execute;
+  let locked = true;
+  deps.execute = async (...args) => {
+    if (locked) { locked = false; throw Object.assign(new Error('locked'), { name: 'VaultLockedError' }); }
+    return realExecute(...args);
+  };
+  let run = await drive(newRun('log in', 7, 'approve-all', 25), deps);
+  run = await approve(run, deps);
+  check(run.status === 'needs_unlock' && run.pending?.actions.length === 2 && run.history.length === 0, `a locked vault pauses with the plan kept (${run.status})`);
+  run = await approve(run, deps);
+  check(run.status === 'done' && run.history.length === 2, `approve after unlock resumes to done (${run.status})`);
+}
+
 console.log('resume guard');
 {
   const deps = fakeDeps([]);

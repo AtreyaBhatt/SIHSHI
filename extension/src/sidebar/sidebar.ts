@@ -27,8 +27,8 @@
  * badge and steps — and the activity log keeps the record either way.
  */
 import { api, isRestrictedUrl } from '../shared/browser';
-import { deleteProviderApiKey, getProviderSettings, saveProviderSettings, type ProviderSettings } from '../background/agent-client';
-import { readVault, writeVault, type Vault } from '../shared/vault';
+import { ensureProviderOriginPermission, readProviderSettings, saveProviderSettings, type ProviderSettings } from '../shared/provider-settings';
+import type { VaultStatus } from '../shared/vault'; // type only: the vault itself lives in the worker
 import type { CaptureResult, RedactionManifestEntry } from '../shared/schema';
 import type {
   ExecutionResult, PanelToWorker, PayloadPreview, PlanPreview, ResponseFor, WorkerReply,
@@ -78,7 +78,7 @@ function setMode(next: RunMode): void {
   $('mode-sensitive').setAttribute('aria-checked', String(next === 'approve-sensitive'));
 }
 
-const ACTIVE: ReadonlySet<Run['status']> = new Set(['idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission']);
+const ACTIVE: ReadonlySet<Run['status']> = new Set(['idle', 'capturing', 'planning', 'awaiting_approval', 'executing', 'settling', 'needs_permission', 'needs_unlock']);
 
 function describe(action: { action: string; selector?: string; option?: string; key?: string; url?: string; direction?: string; value?: string; value_ref?: string; value_token?: string }): string {
   const target = action.selector ? ` <code>${esc(action.selector)}</code>` : '';
@@ -102,7 +102,7 @@ function renderRun(): void {
   const status = $('run-status'); const startBtn = $<HTMLButtonElement>('run-start'); const stopBtn = $<HTMLButtonElement>('run-stop');
   const banner = $('run-banner'); const permission = $('run-permission'); const history = $('run-history');
   if (!run) {
-    status.hidden = true; startBtn.hidden = false; stopBtn.hidden = true; banner.hidden = true; permission.hidden = true;
+    status.hidden = true; startBtn.hidden = false; stopBtn.hidden = true; banner.hidden = true; permission.hidden = true; $('run-unlock').hidden = true;
     history.innerHTML = '<p class="empty">No steps yet.</p>';
     taskEl.disabled = false; askButton.disabled = false; analyzeButton.disabled = false; $<HTMLButtonElement>('reset-session').disabled = false;
     return;
@@ -124,6 +124,8 @@ function renderRun(): void {
   banner.className = `banner ${run.status === 'done' ? 'ok' : 'blocked'}`;
   banner.innerHTML = run.status === 'done' ? `<strong>Done.</strong> ${esc(run.result ?? '')}` : run.status === 'failed' ? `<strong>Failed.</strong> ${esc(run.error ?? '')}` : '<strong>Stopped.</strong>';
   permission.hidden = run.status !== 'needs_permission';
+  $('run-unlock').hidden = run.status !== 'needs_unlock';
+  if (run.status === 'needs_unlock') { banner.hidden = false; banner.className = 'banner blocked'; banner.innerHTML = '<strong>Vault locked.</strong> The approved step needs a saved credential. Unlock to continue; nothing has run yet.'; }
   if (run.status === 'needs_permission') { banner.hidden = false; banner.className = 'banner blocked'; banner.innerHTML = `<strong>Needs access.</strong> The page moved to ${esc(run.needs_origin ?? 'another site')}.`; }
 
   // The plan card shows the pending plan while a run waits for approval.
@@ -662,7 +664,15 @@ async function confirmExecution(): Promise<void> {
 
 // --- events -----------------------------------------------------------------
 
+/** Planning needs the API key, which lives in the vault. True (and a toast) when the vault is locked. */
+async function vaultBlocksPlanning(): Promise<boolean> {
+  try { if (!(await send({ type: 'athena:check-health' })).vault_locked) return false; } catch { return false; }
+  showToast('Unlock the vault first (Settings)', true);
+  return true;
+}
+
 askButton.addEventListener('click', async () => {
+  if (await vaultBlocksPlanning()) return;
   askButton.disabled = true;
   analyzeButton.disabled = true;
   try {
@@ -793,6 +803,7 @@ $('mode-sensitive').addEventListener('click', () => setMode('approve-sensitive')
 $('run-start').addEventListener('click', async () => {
   const goal = currentTaskInstruction();
   if (!goal) { showToast('Describe the goal first.', true); return; }
+  if (await vaultBlocksPlanning()) return;
   note(`Agent started: ${goal}`, 'info');
   execution = null; plan = null;
   try { run = await send({ type: 'athena:run-start', goal, mode }); renderRun(); }
@@ -812,6 +823,17 @@ $('approve').addEventListener('click', () => {
 $('cancel-plan').addEventListener('click', async () => {
   if (run?.status === 'awaiting_approval') { run = await send({ type: 'athena:run-stop' }); renderRun(); return; }
   plan = null; execution = null; renderPlan(); note('Plan discarded', 'info');
+});
+
+$('run-unlock-continue').addEventListener('click', async () => {
+  const input = $<HTMLInputElement>('run-passphrase');
+  if (!run || run.status !== 'needs_unlock') return;
+  try {
+    renderVault(await send({ type: 'athena:vault-unlock', passphrase: input.value }));
+    input.value = '';
+    note('Vault unlocked — resuming the approved step', 'ok');
+    run = await send({ type: 'athena:run-approve', step: run.step }); renderRun();
+  } catch (err) { showToast(err instanceof Error ? err.message : String(err), true); }
 });
 
 async function approveRunStep(): Promise<void> {
@@ -861,44 +883,56 @@ for (const [button, view] of tabs) {
 
 // --- settings ---------------------------------------------------------------
 
-function renderSlots(vault: Vault): void {
-  const slots = Object.keys(vault).sort();
-  $('slots').innerHTML = slots.length
-    ? `<table class="man"><thead><tr><th>value_ref</th><th>stored</th><th></th></tr></thead><tbody>${slots
-        .map((slot) => `<tr>
-            <td>user_saved:${esc(slot)}</td>
-            <td>${'•'.repeat(Math.min(vault[slot]!.length, 12))} (${vault[slot]!.length})</td>
-            <td><button class="link" data-remove="${esc(slot)}">remove</button></td>
-          </tr>`)
+let vault: VaultStatus | null = null;
+function renderVault(status: VaultStatus): void {
+  vault = status;
+  $('vault-lock-state').textContent = !status.has_vault
+    ? 'No vault yet. Choose a passphrase and press Unlock to create one.'
+    : status.locked ? 'Vault locked — unlock to view slot names or plan.' : `Unlocked${status.migrated_from_v1 ? ' · imported your earlier plaintext vault and removed it' : ''}.`;
+  $<HTMLButtonElement>('vault-lock').hidden = status.locked;
+  $('slots').innerHTML = status.locked ? '' : status.slots.length
+    ? `<table class="man"><thead><tr><th>value_ref</th><th></th></tr></thead><tbody>${status.slots
+        .map((slot) => `<tr><td>user_saved:${esc(slot)}</td><td><button class="link" data-remove="${esc(slot)}">remove</button></td></tr>`)
         .join('')}</tbody></table>`
     : '<p class="empty">No credentials stored. The executor will refuse any value_ref it cannot resolve.</p>';
-
   for (const button of $('slots').querySelectorAll<HTMLButtonElement>('[data-remove]')) {
     button.addEventListener('click', async () => {
-      const next: Vault = { ...(await readVault()) };
-      delete next[button.dataset.remove!];
-      await writeVault(next);
-      $('vault-status').textContent = `Removed ${button.dataset.remove}.`;
-      renderSlots(next);
+      try { renderVault(await send({ type: 'athena:vault-delete', slot: button.dataset.remove! })); $('vault-status').textContent = `Removed ${button.dataset.remove}.`; }
+      catch (err) { $('vault-status').textContent = err instanceof Error ? err.message : String(err); }
     });
   }
+  if (providerSettings) renderProvider(providerSettings);
 }
+$('vault-unlock').addEventListener('click', async () => {
+  const input = $<HTMLInputElement>('vault-passphrase');
+  try { renderVault(await send({ type: 'athena:vault-unlock', passphrase: input.value })); input.value = ''; }
+  catch (err) { $('vault-lock-state').textContent = err instanceof Error ? err.message : String(err); }
+});
+$('vault-lock').addEventListener('click', async () => { try { renderVault(await send({ type: 'athena:vault-lock' })); } catch { /* worker asleep: already locked */ } });
 
 let providerSettings: ProviderSettings | null = null;
 function renderProvider(settings: ProviderSettings): void {
   providerSettings = settings;
+  const present = Boolean(vault?.api_key_present);
   const format = $<HTMLInputElement>('anthropic-format'); const baseUrl = $<HTMLInputElement>('provider-base-url'); const model = $<HTMLInputElement>('provider-model'); const key = $<HTMLInputElement>('provider-api-key'); const del = $<HTMLButtonElement>('delete-api-key');
-  format.checked = settings.anthropic_format; baseUrl.value = settings.base_url; model.value = settings.model; key.value = ''; key.placeholder = settings.api_key_present ? 'API key stored — leave blank to keep it' : 'Enter provider API key'; del.hidden = !settings.api_key_present;
-  $('provider-health').textContent = settings.api_key_present ? `Configured · ${settings.anthropic_format ? 'anthropic' : 'openai'} · ${settings.base_url}` : 'Not configured · add an API key to enable planning.';
+  format.checked = settings.anthropic_format; baseUrl.value = settings.base_url; model.value = settings.model; key.value = ''; key.placeholder = present ? 'API key stored — leave blank to keep it' : 'Enter provider API key'; del.hidden = !present;
+  $('provider-health').textContent = present ? `Configured · ${settings.anthropic_format ? 'anthropic' : 'openai'} · ${settings.base_url}${vault?.locked ? ' · vault locked' : ''}` : 'Not configured · unlock the vault and add an API key to enable planning.';
 }
-async function refreshProvider(): Promise<void> { renderProvider(await getProviderSettings()); }
-$('save-provider').addEventListener('click', async () => { const baseUrl = $<HTMLInputElement>('provider-base-url'); const model = $<HTMLInputElement>('provider-model'); const format = $<HTMLInputElement>('anthropic-format'); const key = $<HTMLInputElement>('provider-api-key'); try { const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked, api_key: key.value }, providerSettings?.base_url); renderProvider(saved); } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not save provider settings.'; } });
-$('delete-api-key').addEventListener('click', async () => { if (!providerSettings) return; try { await deleteProviderApiKey(providerSettings.base_url); await refreshProvider(); $('provider-health').textContent = 'API key deleted.'; } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not delete the API key.'; } });
+$('save-provider').addEventListener('click', async () => {
+  const baseUrl = $<HTMLInputElement>('provider-base-url'); const model = $<HTMLInputElement>('provider-model'); const format = $<HTMLInputElement>('anthropic-format'); const key = $<HTMLInputElement>('provider-api-key');
+  try {
+    await ensureProviderOriginPermission(baseUrl.value);
+    const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked });
+    if (key.value.trim()) vault = await send({ type: 'athena:vault-set-api-key', value: key.value });
+    renderProvider(saved);
+  } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not save provider settings.'; }
+});
+$('delete-api-key').addEventListener('click', async () => { try { renderVault(await send({ type: 'athena:vault-set-api-key', value: null })); $('provider-health').textContent = 'API key deleted.'; } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not delete the API key.'; } });
 $('add-slot').addEventListener('click', async () => {
   const slotInput = $<HTMLInputElement>('new-slot'); const valueInput = $<HTMLInputElement>('new-value'); const slot = slotInput.value.trim();
   if (!/^[A-Za-z0-9_.-]{1,64}$/.test(slot)) { $('vault-status').textContent = 'Slot names may contain letters, digits, dot, dash and underscore.'; return; }
-  const next = { ...(await readVault()), [slot]: valueInput.value };
-  await writeVault(next); slotInput.value = ''; valueInput.value = ''; $('vault-status').textContent = `Stored user_saved:${slot}.`; renderSlots(next);
+  try { renderVault(await send({ type: 'athena:vault-set', slot, value: valueInput.value })); slotInput.value = ''; valueInput.value = ''; $('vault-status').textContent = `Stored user_saved:${slot}.`; }
+  catch (err) { $('vault-status').textContent = err instanceof Error ? err.message : String(err); }
 });
 
 $('open-options').addEventListener('click', () => {
@@ -920,7 +954,7 @@ api.tabs.onUpdated.addListener((_tabId, info) => {
 
 void (async () => {
   renderActivity();
-  try { await refreshProvider(); renderSlots(await readVault()); }
+  try { renderVault(await send({ type: 'athena:vault-status' })); renderProvider(await readProviderSettings()); }
   catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not read local settings.'; }
   await refreshPageContext();
   try {

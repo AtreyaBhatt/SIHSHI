@@ -3,6 +3,7 @@ import type { AgentRequest, AgentResponse, CaptureResult, RawSnapshot } from './
 import type { Detection } from '../pii-detection/types';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
 import type { Run, RunMode } from '../background/agent/loop';
+import type { VaultStatus } from './vault';
 
 export type PanelToWorker =
   | { type: 'athena:run-capture'; tab_id?: number }
@@ -16,7 +17,13 @@ export type PanelToWorker =
   | { type: 'athena:run-approve'; step: number }
   | { type: 'athena:run-stop' }
   | { type: 'athena:run-get' }
-  | { type: 'athena:run-grant-and-resume' };
+  | { type: 'athena:run-grant-and-resume' }
+  | { type: 'athena:vault-status' }
+  | { type: 'athena:vault-unlock'; passphrase: string }
+  | { type: 'athena:vault-lock' }
+  | { type: 'athena:vault-set'; slot: string; value: string }
+  | { type: 'athena:vault-delete'; slot: string }
+  | { type: 'athena:vault-set-api-key'; value: string | null };
 
 export type WorkerToContent =
   | { type: 'athena:capture-dom' }
@@ -58,6 +65,7 @@ export interface HealthReport {
   model: string;
   format: 'openai' | 'anthropic';
   api_key_set: boolean;
+  vault_locked: boolean;
 }
 
 export type WorkerReply<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -75,4 +83,5 @@ export type ResponseFor<M extends PanelToWorker> =
   : M extends { type: 'athena:run-stop' } ? Run
   : M extends { type: 'athena:run-get' } ? Run | null
   : M extends { type: 'athena:run-grant-and-resume' } ? Run
+  : M extends { type: `athena:vault-${string}` } ? VaultStatus
   : never;

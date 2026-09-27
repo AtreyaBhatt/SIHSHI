@@ -167,6 +167,10 @@
           <div class="btns" id="run-permission" hidden>
             <button id="run-grant" class="btn sec sm" type="button">Enable on this site and continue</button>
           </div>
+          <div class="field-row" id="run-unlock" hidden>
+            <input type="password" id="run-passphrase" class="text" placeholder="Vault passphrase" aria-label="Vault passphrase" autocomplete="off" />
+            <button id="run-unlock-continue" class="btn sec sm" type="button">Unlock and continue</button>
+          </div>
           <div class="lbl" style="margin-top:10px">History</div>
           <div class="steps" id="run-history"><p class="empty">No steps yet.</p></div>
         </div>
@@ -193,7 +197,7 @@
       <div id="view-settings" class="body view" role="tabpanel" aria-labelledby="tab-settings" hidden>
         <div class="card">
           <span class="lbl">Model provider</span>
-          <div class="t3" style="margin-top:6px;">Requests go directly from the extension service worker to the configured provider. The API key stays in a provider-origin HttpOnly cookie.</div>
+          <div class="t3" style="margin-top:6px;">Requests go directly from the extension service worker to the configured provider. The API key is kept in the encrypted local vault below.</div>
           <div class="field-row"><label class="t3"><input type="checkbox" id="anthropic-format" /> Use Anthropic format</label></div>
           <div class="field-row"><input type="text" id="provider-base-url" class="text" placeholder="https://openrouter.ai/api/v1" aria-label="Provider base URL" autocomplete="off" /><input type="text" id="provider-model" class="text" placeholder="openai/gpt-4o-mini" aria-label="Provider model" autocomplete="off" /><button id="save-provider" class="btn sec sm" type="button">Save</button></div>
           <div class="field-row"><input type="password" id="provider-api-key" class="text" placeholder="Enter provider API key" aria-label="Provider API key" autocomplete="off" /><button id="delete-api-key" class="btn ghost sm destructive" type="button" hidden>Delete API key</button></div>
@@ -201,12 +205,18 @@
         </div>
         <div class="card">
           <span class="lbl">Local credential vault</span>
-          <div class="callout"><strong>Demo vault, not a password manager.</strong> Values are stored unencrypted in <code>chrome.storage.local</code>, readable by anything with storage access to this profile. Use throwaway credentials.</div>
+          <div class="callout"><strong>Demo vault, not a password manager.</strong> Values and the API key are encrypted (AES-GCM, key derived from your passphrase) in <code>chrome.storage.local</code>. While unlocked, the key sits in the extension's memory; it relocks after 15 idle minutes or a browser restart. A forgotten passphrase cannot be recovered. Use throwaway credentials.</div>
+          <div class="field-row">
+            <input type="password" id="vault-passphrase" class="text" placeholder="Vault passphrase" aria-label="Vault passphrase" autocomplete="off" />
+            <button id="vault-unlock" class="btn sec sm" type="button">Unlock</button>
+            <button id="vault-lock" class="btn ghost sm" type="button">Lock</button>
+          </div>
+          <div class="t3 status-line settings" id="vault-lock-state" role="status" aria-live="polite"></div>
           <div class="t3" style="margin-top:9px;">The provider sees only <code>value_ref</code>; the slot is resolved here, at execution time.</div>
           <div id="slots" class="list"></div>
           <div class="field-row">
             <input type="text" id="new-slot" class="text short" placeholder="slot (e.g. username)" aria-label="New slot name" />
-            <input type="text" id="new-value" class="text" placeholder="value" aria-label="New slot value" />
+            <input type="password" id="new-value" class="text" placeholder="value" aria-label="New slot value" autocomplete="off" />
             <button id="add-slot" class="btn pri sm" type="button">Add</button>
           </div>
           <div class="t3 status-line settings" id="vault-status"></div>

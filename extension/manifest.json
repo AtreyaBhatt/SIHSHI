@@ -8,12 +8,8 @@
     "activeTab",
     "scripting",
     "storage",
-    "cookies",
     "offscreen",
     "sidePanel"
-  ],
-  "host_permissions": [
-    "https://openrouter.ai/*"
   ],
   "optional_host_permissions": [
     "https://*/*",

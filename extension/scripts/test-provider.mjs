@@ -6,8 +6,6 @@ import { join } from 'node:path';
 const temp = await mkdtemp(join(tmpdir(), 'athena-provider-'));
 const bundle = join(temp, 'agent-client.mjs');
 const permissions = new Set(['https://openrouter.ai/*', 'https://provider.example/*']);
-const cookies = new Map();
-const removed = [];
 const storage = {};
 
 globalThis.chrome = {
@@ -15,11 +13,6 @@ globalThis.chrome = {
   permissions: {
     contains: async ({ origins }) => origins.every((origin) => permissions.has(origin)),
     request: async ({ origins }) => { origins.forEach((origin) => permissions.add(origin)); return true; },
-  },
-  cookies: {
-    get: async ({ url, name }) => cookies.get(`${new URL(url).origin}:${name}`) ?? null,
-    set: async (details) => { cookies.set(`${new URL(details.url).origin}:${details.name}`, { ...details, domain: new URL(details.url).hostname }); return { ...details, value: details.value, domain: new URL(details.url).hostname }; },
-    remove: async ({ url, name }) => { const key = `${new URL(url).origin}:${name}`; cookies.delete(key); removed.push(key); return { url, name }; },
   },
 };
 
@@ -42,13 +35,9 @@ const defaults = await readProviderSettings();
 assert(defaults.base_url === 'https://openrouter.ai/api/v1', 'default provider URL');
 assert(defaults.model === 'openai/gpt-4o-mini', 'default provider model');
 assert(defaults.anthropic_format === false, 'Anthropic format defaults unchecked');
-assert(defaults.api_key_present === false, 'default has no API key');
-const saved = await saveProviderSettings({ base_url: defaults.base_url, model: defaults.model, anthropic_format: false, api_key: 'secret-provider-key' });
-assert(saved.api_key_present && !JSON.stringify(saved).includes('secret-provider-key'), 'key is absent from returned settings');
-const cookie = cookies.get('https://openrouter.ai:athena_api_key');
-assert(cookie.httpOnly && cookie.sameSite === 'strict' && cookie.path === '/__athena_config/', 'cookie security attributes');
-const changed = await saveProviderSettings({ base_url: 'https://provider.example/v1', model: 'stub-model', anthropic_format: false }, defaults.base_url);
-assert(!changed.api_key_present && removed.includes('https://openrouter.ai:athena_api_key'), 'old provider cookie removed on base URL change');
+assert(!('api_key_present' in defaults), 'provider settings no longer report the API key (it lives in the vault)');
+const changed = await saveProviderSettings({ base_url: 'https://provider.example/v1', model: 'stub-model', anthropic_format: false });
+assert(changed.base_url === 'https://provider.example/v1' && changed.model === 'stub-model' && !('api_key_present' in changed), 'settings save round trip without a key');
 
 let observed;
 const openai = await requestProviderPlan(request, { base_url: 'https://provider.example/v1', model: 'stub-model', anthropic_format: false }, 'openai-secret', async (url, options) => {
@@ -70,5 +59,5 @@ assert(anthropic.actions.length === 0, 'valid Anthropic empty plan');
 const rejected = await requestProviderPlan(request, { base_url: 'https://provider.example/v1', model: 'stub-model', anthropic_format: false }, 'safe-key', async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reasoning_summary: 'Bad output.', actions: [{ action: 'click', selector: 'button#invented' }, { action: 'type', selector: 'input#password', value: '[REDACTED:PASSWORD]' }], requires_client_secret: false }) } }] }), { status: 200 }));
 assert(rejected.actions.length === 0 && (rejected.guardrail_rejections?.length ?? 0) === 2, 'guardrails reject invented and Tier-1 literal actions');
 
-console.log('PASS provider settings, cookie lifecycle, direct formats, and response guardrails');
+console.log('PASS provider settings, direct formats, and response guardrails');
 await rm(temp, { recursive: true, force: true });

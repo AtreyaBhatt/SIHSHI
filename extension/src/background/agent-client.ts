@@ -1,6 +1,7 @@
 import type { HealthReport } from '../shared/messages';
 import type { AgentRequest, AgentResponse } from '../shared/schema';
-import { DEFAULT_PROVIDER_BASE_URL, DEFAULT_PROVIDER_MODEL, ensureProviderOriginPermission, getApiKey, normalizeProviderBaseUrl, readProviderSettings, saveProviderSettings as saveSettings, deleteApiKey, type ProviderSettings, type SaveProviderSettings } from '../shared/provider-settings';
+import { DEFAULT_PROVIDER_BASE_URL, DEFAULT_PROVIDER_MODEL, normalizeProviderBaseUrl, readProviderSettings, type ProviderSettings } from '../shared/provider-settings';
+import { getProviderApiKey, vaultStatus } from '../shared/vault';
 import { emptyProviderResponse, normalizeProviderResponse } from './direct-provider-response';
 
 export { DEFAULT_PROVIDER_BASE_URL as DEFAULT_BASE_URL, DEFAULT_PROVIDER_MODEL as DEFAULT_MODEL };
@@ -98,15 +99,12 @@ export async function requestProviderPlan(request: AgentRequest, settings: Provi
 
 export async function requestPlan(request: AgentRequest): Promise<AgentResponse> {
   const settings = await readProviderSettings();
-  const key = await getApiKey(settings.base_url);
+  const key = await getProviderApiKey(); // throws VaultLockedError while locked
   if (!key) throw new Error('Provider API key is not configured.');
   return requestProviderPlan(request, settings, key);
 }
 
-export async function getProviderSettings(): Promise<ProviderSettings> { return readProviderSettings(); }
-export async function saveProviderSettings(settings: SaveProviderSettings, previousBaseUrl?: string): Promise<ProviderSettings> { await ensureProviderOriginPermission(settings.base_url); return saveSettings(settings, previousBaseUrl); }
-export async function deleteProviderApiKey(baseUrl: string): Promise<void> { return deleteApiKey(baseUrl); }
 export async function getProviderStatus(): Promise<HealthReport> {
-  const settings = await readProviderSettings();
-  return { base_url: settings.base_url, model: settings.model, format: settings.anthropic_format ? 'anthropic' : 'openai', api_key_set: Boolean(settings.api_key_present) };
+  const [settings, status] = await Promise.all([readProviderSettings(), vaultStatus()]);
+  return { base_url: settings.base_url, model: settings.model, format: settings.anthropic_format ? 'anthropic' : 'openai', api_key_set: status.api_key_present, vault_locked: status.locked };
 }
