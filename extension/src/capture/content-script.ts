@@ -42,6 +42,17 @@ if (!window.__ATHENA_INSTALLED__) {
         return true; // async
       }
 
+      if (message?.type === 'athena:settle') {
+        // Quiet for 500 ms or 3 s hard cap — enough for SPA re-renders after a click.
+        const QUIET_MS = 500; const MAX_MS = 3000;
+        let timer = window.setTimeout(finish, QUIET_MS);
+        const hard = window.setTimeout(finish, MAX_MS);
+        const observer = new MutationObserver(() => { window.clearTimeout(timer); timer = window.setTimeout(finish, QUIET_MS); });
+        observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+        function finish(): void { observer.disconnect(); window.clearTimeout(timer); window.clearTimeout(hard); sendResponse({ ok: true, settled: true }); }
+        return true;
+      }
+
       return false;
     },
   );

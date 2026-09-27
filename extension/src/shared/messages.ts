@@ -2,6 +2,7 @@
 import type { AgentRequest, AgentResponse, CaptureResult, RawSnapshot } from './schema';
 import type { Detection } from '../pii-detection/types';
 import type { ActionOutcome, ExecutableAction } from '../executor/execute';
+import type { Run, RunMode } from '../background/agent/loop';
 
 export type PanelToWorker =
   | { type: 'athena:run-capture'; tab_id?: number }
@@ -10,16 +11,26 @@ export type PanelToWorker =
   | { type: 'athena:reset-session' }
   | { type: 'athena:request-plan'; threshold: number; task_instruction: string; tab_id?: number }
   | { type: 'athena:execute-plan'; tab_id?: number }
-  | { type: 'athena:check-health' };
+  | { type: 'athena:check-health' }
+  | { type: 'athena:run-start'; goal: string; mode: RunMode; tab_id?: number }
+  | { type: 'athena:run-approve' }
+  | { type: 'athena:run-stop' }
+  | { type: 'athena:run-get' }
+  | { type: 'athena:run-grant-and-resume' };
 
 export type WorkerToContent =
   | { type: 'athena:capture-dom' }
-  | { type: 'athena:execute'; actions: ExecutableAction[]; allowed_selectors: string[]; expected_origin: string };
+  | { type: 'athena:execute'; actions: ExecutableAction[]; allowed_selectors: string[]; expected_origin: string }
+  | { type: 'athena:settle' };
 
 export type ContentToWorker =
   | { ok: true; snapshot: RawSnapshot }
   | { ok: true; outcomes: ActionOutcome[] }
+  | { ok: true; settled: true }
   | { ok: false; error: string };
+
+/** Pushed from the worker whenever a run transitions, so the panel can render without polling. */
+export type WorkerToPanel = { type: 'athena:run-changed'; run: Run };
 
 export interface PayloadPreview {
   session_id: string;
@@ -59,4 +70,9 @@ export type ResponseFor<M extends PanelToWorker> =
   : M extends { type: 'athena:request-plan' } ? PlanPreview
   : M extends { type: 'athena:execute-plan' } ? ExecutionResult
   : M extends { type: 'athena:check-health' } ? HealthReport
+  : M extends { type: 'athena:run-start' } ? Run
+  : M extends { type: 'athena:run-approve' } ? Run
+  : M extends { type: 'athena:run-stop' } ? Run
+  : M extends { type: 'athena:run-get' } ? Run
+  : M extends { type: 'athena:run-grant-and-resume' } ? Run
   : never;

@@ -24,6 +24,8 @@ import { getProviderStatus, requestPlan } from './agent-client';
 import { resolveValueRef } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
+import { approve, drive, newRun, stop, type Run } from './agent/loop';
+import { DEFAULT_THRESHOLD } from '../pii-detection/detect';
 
 /**
  * The cached capture holds a raw snapshot with real values. chrome.storage.session
@@ -397,6 +399,75 @@ async function health(): Promise<HealthReport> {
   return getProviderStatus();
 }
 
+// ---------------------------------------------------------------------------
+// Agent loop (Task 5). loop.ts is a pure state machine with no chrome.*
+// import; loopDeps below is the only place that binds it to the worker's
+// real capture/plan/execute/settle primitives. The run itself is persisted
+// to chrome.storage.session so the panel can reattach after the worker is
+// suspended and woken back up.
+// ---------------------------------------------------------------------------
+
+const RUN_KEY = 'athena:run';
+const MAX_STEPS_KEY = 'athena:max-steps';
+const stopRequested = new Set<string>();
+
+async function loadRun(): Promise<Run | null> {
+  try { return ((await api.storage.session.get(RUN_KEY))?.[RUN_KEY] as Run | undefined) ?? null; } catch { return null; }
+}
+
+async function maxSteps(): Promise<number> {
+  const stored = (await api.storage.local.get(MAX_STEPS_KEY))?.[MAX_STEPS_KEY];
+  return typeof stored === 'number' && stored >= 1 && stored <= 200 ? stored : 25;
+}
+
+async function waitForTabComplete(tabId: number): Promise<chrome.tabs.Tab> {
+  const deadline = Date.now() + 10_000;
+  let tab = await api.tabs.get(tabId);
+  while (tab.status !== 'complete' && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 100));
+    tab = await api.tabs.get(tabId);
+  }
+  return tab;
+}
+
+const loopDeps = {
+  capture: (tabId: number) => runCapture(tabId),
+  plan: async (capture: CaptureResult, goal: string, history: PriorAction[], runId: string) => {
+    if (tokens.session_id !== runId) tokens = new TokenRegistry(runId);
+    priorActions = history;
+    const preview = await buildPayload(capture, DEFAULT_THRESHOLD, goal);
+    if (!preview.request) throw new Error(preview.error ?? 'No payload was built.');
+    const response = await requestPlan(preview.request);
+    await setLastPlan({ request: preview.request, response, tab_id: capture.tab_id, page_url: capture.snapshot.page_url });
+    return { preview, response };
+  },
+  execute: async (tabId: number, actions: AgentAction[], allowed: string[], pageUrl: string) => {
+    const tab = await api.tabs.get(tabId);
+    if (!tab.url || originOf(tab.url) !== originOf(pageUrl)) throw new Error('The page changed since it was captured.');
+    return toHistory(actions, await executeOnTab(tabId, actions, allowed, pageUrl));
+  },
+  settle: async (tabId: number) => {
+    const tab = await waitForTabComplete(tabId);
+    const url = tab.url;
+    if (!url || isRestrictedUrl(url)) return { url, granted: false };
+    const granted = await api.permissions.contains({ origins: [`${originOf(url)}/*`] }).catch(() => false);
+    if (!granted) {
+      // activeTab may still cover this tab (same tab, user gesture earlier); probe by injecting.
+      try { await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] }); }
+      catch { return { url, granted: false }; }
+    } else {
+      await api.scripting.executeScript({ target: { tabId }, files: ['capture/content-script.js'] });
+    }
+    try { await api.tabs.sendMessage(tabId, { type: 'athena:settle' }); } catch { /* page navigated again; the next capture will tell */ }
+    return { url, granted: true };
+  },
+  save: async (run: Run) => {
+    try { await api.storage.session.set({ [RUN_KEY]: run }); } catch { /* memory copy in flight */ }
+    api.runtime.sendMessage({ type: 'athena:run-changed', run }).catch(() => { /* panel closed */ });
+  },
+  stopped: (runId: string) => stopRequested.has(runId),
+};
+
 api.runtime.onMessage.addListener(
   (message: PanelToWorker, _sender, sendResponse: (r: WorkerReply<never>) => void) => {
     const fail = (err: unknown) =>
@@ -436,6 +507,47 @@ api.runtime.onMessage.addListener(
     }
     if (message?.type === 'athena:check-health') {
       health().then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'athena:run-start') {
+      (async () => {
+        const tab = await targetTab(message.tab_id);
+        if (!tab?.id) throw new Error('No active tab.');
+        const run = newRun(message.goal, tab.id, message.mode, await maxSteps());
+        await loopDeps.save(run);
+        return drive(run, loopDeps);
+      })().then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'athena:run-approve') {
+      loadRun().then((run) => { if (!run) throw new Error('No run in progress.'); return approve(run, loopDeps); }).then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'athena:run-stop') {
+      loadRun().then(async (run) => {
+        if (!run) throw new Error('No run in progress.');
+        stopRequested.add(run.run_id);
+        const stopped = stop(run);
+        await loopDeps.save(stopped);
+        return stopped;
+      }).then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'athena:run-get') {
+      loadRun().then(ok).catch(fail);
+      return true;
+    }
+    if (message?.type === 'athena:run-grant-and-resume') {
+      loadRun().then(async (run) => {
+        if (!run || run.status !== 'needs_permission' || !run.needs_origin) throw new Error('Nothing is waiting for permission.');
+        // Panel-first: the panel calls api.permissions.request itself (needs a
+        // user gesture) before sending this message; the worker only checks
+        // whether the grant landed.
+        const granted = await api.permissions.contains({ origins: [`${run.needs_origin}/*`] });
+        if (!granted) return run;
+        const { needs_origin: _drop, ...rest } = run;
+        return drive({ ...rest, status: 'capturing' }, loopDeps);
+      }).then(ok).catch(fail);
       return true;
     }
     return false;
