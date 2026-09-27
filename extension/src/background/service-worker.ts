@@ -22,7 +22,7 @@ import { assertNoTypedSecrets, buildAgentRequest } from '../redaction/build-requ
 import { TokenRegistry, newSessionId, type RegistryJSON } from '../redaction/tokens';
 import { getProviderStatus, requestPlan } from './agent-client';
 import {
-  VaultLockedError, deleteSlot, lockVault, resolveValueRef, setProviderApiKey, setSlot, unlockVault, vaultSlotRefs, vaultStatus,
+  VaultError, VaultLockedError, createVault, deleteSlot, lockVault, resolveValueRef, setProviderApiKey, setSlot, unlockVault, vaultSlotRefs, vaultStatus,
 } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
@@ -632,11 +632,19 @@ const loopDeps = {
 };
 
 api.runtime.onMessage.addListener(
-  (message: PanelToWorker, _sender, sendResponse: (r: WorkerReply<never>) => void) => {
+  (message: PanelToWorker, sender, sendResponse: (r: WorkerReply<never>) => void) => {
     const fail = (err: unknown) =>
       sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
 
     const ok = (data: unknown) => sendResponse({ ok: true, data } as WorkerReply<never>);
+
+    // Content scripts run in page renderers; vault messages come only from our own
+    // extension pages (panel, options — the options page may sit in a tab, so no !sender.tab test).
+    if (typeof message?.type === 'string' && message.type.startsWith('athena:vault-')
+      && !(sender.id === api.runtime.id && typeof sender.url === 'string' && sender.url.startsWith(api.runtime.getURL('')))) {
+      fail(new Error('Refused: vault messages are accepted from extension pages only.'));
+      return true;
+    }
 
     if (message?.type === 'athena:run-capture') {
       runCapture(message.tab_id).then(ok).catch(fail);
@@ -677,12 +685,18 @@ api.runtime.onMessage.addListener(
     }
     // Vault: values only travel panel → worker; every reply is a VaultStatus (slot names, flags).
     if (message?.type === 'athena:vault-status') { vaultStatus().then(ok).catch(fail); return true; }
-    if (message?.type === 'athena:vault-unlock') {
-      (message.passphrase ? unlockVault(message.passphrase) : Promise.reject(new Error('Enter a passphrase.')))
-        .then(ok).catch((err) => fail(err instanceof Error && err.message === 'Wrong passphrase.' ? err : new Error('Could not unlock the vault.')));
+    // Only VaultError messages (wrong passphrase, mismatch, no vault) reach the panel verbatim.
+    const failVault = (fallback: string) => (err: unknown) => fail(err instanceof VaultError ? err : new Error(fallback));
+    if (message?.type === 'athena:vault-create') {
+      createVault(message.passphrase ?? '', message.confirm ?? '').then(ok).catch(failVault('Could not create the vault.'));
       return true;
     }
-    if (message?.type === 'athena:vault-lock') { lockVault(); vaultStatus().then(ok).catch(fail); return true; }
+    if (message?.type === 'athena:vault-unlock') {
+      (message.passphrase ? unlockVault(message.passphrase) : Promise.reject(new VaultError('Enter a passphrase.')))
+        .then(ok).catch(failVault('Could not unlock the vault.'));
+      return true;
+    }
+    if (message?.type === 'athena:vault-lock') { lockVault().then(vaultStatus).then(ok).catch(fail); return true; }
     if (message?.type === 'athena:vault-set') { setSlot(message.slot, message.value).then(ok).catch(fail); return true; }
     if (message?.type === 'athena:vault-delete') { deleteSlot(message.slot).then(ok).catch(fail); return true; }
     if (message?.type === 'athena:vault-set-api-key') { setProviderApiKey(message.value?.trim() || null).then(ok).catch(fail); return true; }

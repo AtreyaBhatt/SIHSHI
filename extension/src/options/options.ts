@@ -32,16 +32,18 @@ function renderProvider(settings: ProviderSettings): void {
 }
 function renderVault(status: VaultStatus): void {
   vault = status;
-  lockState.textContent = !status.has_vault ? 'No vault yet. Choose a passphrase and press Unlock to create one.'
+  lockState.textContent = !status.has_vault ? 'No vault yet. Choose a passphrase (8+ characters), confirm it, and press Create vault.'
     : status.locked ? 'Vault locked — unlock to view slot names or plan.' : `Unlocked${status.migrated_from_v1 ? ' · imported your earlier plaintext vault and removed it' : ''}.`;
   $<HTMLButtonElement>('vault-lock').hidden = status.locked;
+  $('vault-confirm').hidden = $('vault-create').hidden = status.has_vault; $('vault-unlock').hidden = !status.has_vault;
   slots.innerHTML = status.locked ? '' : status.slots.length ? `<table class="man"><thead><tr><th>value_ref</th><th></th></tr></thead><tbody>${status.slots.map((name) => `<tr><td>user_saved:${esc(name)}</td><td><button class="link" data-remove="${esc(name)}">remove</button></td></tr>`).join('')}</tbody></table>` : '<p class="empty">No local credentials saved.</p>';
   slots.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((button) => button.addEventListener('click', () => { send({ type: 'athena:vault-delete', slot: button.dataset.remove! }).then(renderVault).catch(say(vaultStatus)); }));
   if (current) renderProvider(current);
 }
 $('vault-unlock').addEventListener('click', () => { const input = $<HTMLInputElement>('vault-passphrase'); send({ type: 'athena:vault-unlock', passphrase: input.value }).then((s) => { input.value = ''; renderVault(s); }).catch(say(lockState)); });
+$('vault-create').addEventListener('click', () => { const input = $<HTMLInputElement>('vault-passphrase'); const confirm = $<HTMLInputElement>('vault-confirm'); send({ type: 'athena:vault-create', passphrase: input.value, confirm: confirm.value }).then((s) => { input.value = ''; confirm.value = ''; renderVault(s); }).catch(say(lockState)); });
 $('vault-lock').addEventListener('click', () => { send({ type: 'athena:vault-lock' }).then(renderVault).catch(say(lockState)); });
-$('save-provider').addEventListener('click', async () => { try { await ensureProviderOriginPermission(baseUrl.value); const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked }); if (key.value.trim()) vault = await send({ type: 'athena:vault-set-api-key', value: key.value }); renderProvider(saved); health.textContent = `Saved. ${health.textContent}`; } catch (err) { say(health)(err); } });
+$('save-provider').addEventListener('click', async () => { try { await ensureProviderOriginPermission(baseUrl.value); const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked }); if (key.value.trim()) vault = await send({ type: 'athena:vault-set-api-key', value: key.value }); renderProvider(saved); health.textContent = `Saved. ${health.textContent}`; } catch (err) { key.value = ''; say(health)(err); } });
 del.addEventListener('click', () => { send({ type: 'athena:vault-set-api-key', value: null }).then((s) => { renderVault(s); health.textContent = 'API key deleted.'; }).catch(say(health)); });
 $('add-slot').addEventListener('click', () => { const nameInput = $<HTMLInputElement>('new-slot'); const valueInput = $<HTMLInputElement>('new-value'); const name = nameInput.value.trim(); if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name)) { vaultStatus.textContent = 'Slot names may contain letters, digits, dot, dash and underscore.'; return; } send({ type: 'athena:vault-set', slot: name, value: valueInput.value }).then((s) => { nameInput.value = ''; valueInput.value = ''; vaultStatus.textContent = `Stored user_saved:${name}`; renderVault(s); }).catch(say(vaultStatus)); });
 void (async () => { try { renderVault(await send({ type: 'athena:vault-status' })); renderProvider(await readProviderSettings()); } catch (err) { say(health)(err); } })();

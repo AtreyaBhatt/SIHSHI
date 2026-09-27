@@ -125,7 +125,15 @@ function renderRun(): void {
   banner.innerHTML = run.status === 'done' ? `<strong>Done.</strong> ${esc(run.result ?? '')}` : run.status === 'failed' ? `<strong>Failed.</strong> ${esc(run.error ?? '')}` : '<strong>Stopped.</strong>';
   permission.hidden = run.status !== 'needs_permission';
   $('run-unlock').hidden = run.status !== 'needs_unlock';
-  if (run.status === 'needs_unlock') { banner.hidden = false; banner.className = 'banner blocked'; banner.innerHTML = '<strong>Vault locked.</strong> The approved step needs a saved credential. Unlock to continue; nothing has run yet.'; }
+  if (run.status === 'needs_unlock') {
+    banner.hidden = false; banner.className = 'banner blocked';
+    banner.innerHTML = run.pending
+      ? '<strong>Vault locked.</strong> The approved step needs a saved credential. Unlock to run it; nothing has run yet.'
+      : '<strong>Vault locked.</strong> Planning needs the vault (API key). Unlock to continue.';
+    const creating = vault ? !vault.has_vault : false;
+    $('run-confirm').hidden = !creating;
+    $('run-unlock-continue').textContent = creating ? 'Create vault and continue' : 'Unlock and continue';
+  }
   if (run.status === 'needs_permission') { banner.hidden = false; banner.className = 'banner blocked'; banner.innerHTML = `<strong>Needs access.</strong> The page moved to ${esc(run.needs_origin ?? 'another site')}.`; }
 
   // The plan card shows the pending plan while a run waits for approval.
@@ -826,14 +834,19 @@ $('cancel-plan').addEventListener('click', async () => {
 });
 
 $('run-unlock-continue').addEventListener('click', async () => {
-  const input = $<HTMLInputElement>('run-passphrase');
+  const input = $<HTMLInputElement>('run-passphrase'); const confirm = $<HTMLInputElement>('run-confirm');
   if (!run || run.status !== 'needs_unlock') return;
   try {
-    renderVault(await send({ type: 'athena:vault-unlock', passphrase: input.value }));
-    input.value = '';
+    renderVault(await send(vault && !vault.has_vault
+      ? { type: 'athena:vault-create', passphrase: input.value, confirm: confirm.value }
+      : { type: 'athena:vault-unlock', passphrase: input.value }));
+    input.value = ''; confirm.value = '';
     note('Vault unlocked — resuming the approved step', 'ok');
     run = await send({ type: 'athena:run-approve', step: run.step }); renderRun();
-  } catch (err) { showToast(err instanceof Error ? err.message : String(err), true); }
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : String(err), true);
+    try { renderVault(await send({ type: 'athena:vault-status' })); if (run) renderRun(); } catch { /* keep the last known state */ }
+  }
 });
 
 async function approveRunStep(): Promise<void> {
@@ -887,9 +900,11 @@ let vault: VaultStatus | null = null;
 function renderVault(status: VaultStatus): void {
   vault = status;
   $('vault-lock-state').textContent = !status.has_vault
-    ? 'No vault yet. Choose a passphrase and press Unlock to create one.'
+    ? 'No vault yet. Choose a passphrase (8+ characters), confirm it, and press Create vault.'
     : status.locked ? 'Vault locked — unlock to view slot names or plan.' : `Unlocked${status.migrated_from_v1 ? ' · imported your earlier plaintext vault and removed it' : ''}.`;
   $<HTMLButtonElement>('vault-lock').hidden = status.locked;
+  $('vault-confirm').hidden = $('vault-create').hidden = status.has_vault;
+  $('vault-unlock').hidden = !status.has_vault;
   $('slots').innerHTML = status.locked ? '' : status.slots.length
     ? `<table class="man"><thead><tr><th>value_ref</th><th></th></tr></thead><tbody>${status.slots
         .map((slot) => `<tr><td>user_saved:${esc(slot)}</td><td><button class="link" data-remove="${esc(slot)}">remove</button></td></tr>`)
@@ -906,6 +921,11 @@ function renderVault(status: VaultStatus): void {
 $('vault-unlock').addEventListener('click', async () => {
   const input = $<HTMLInputElement>('vault-passphrase');
   try { renderVault(await send({ type: 'athena:vault-unlock', passphrase: input.value })); input.value = ''; }
+  catch (err) { $('vault-lock-state').textContent = err instanceof Error ? err.message : String(err); }
+});
+$('vault-create').addEventListener('click', async () => {
+  const input = $<HTMLInputElement>('vault-passphrase'); const confirm = $<HTMLInputElement>('vault-confirm');
+  try { renderVault(await send({ type: 'athena:vault-create', passphrase: input.value, confirm: confirm.value })); input.value = ''; confirm.value = ''; }
   catch (err) { $('vault-lock-state').textContent = err instanceof Error ? err.message : String(err); }
 });
 $('vault-lock').addEventListener('click', async () => { try { renderVault(await send({ type: 'athena:vault-lock' })); } catch { /* worker asleep: already locked */ } });
@@ -925,7 +945,7 @@ $('save-provider').addEventListener('click', async () => {
     const saved = await saveProviderSettings({ base_url: baseUrl.value, model: model.value, anthropic_format: format.checked });
     if (key.value.trim()) vault = await send({ type: 'athena:vault-set-api-key', value: key.value });
     renderProvider(saved);
-  } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not save provider settings.'; }
+  } catch (err) { key.value = ''; $('provider-health').textContent = err instanceof Error ? err.message : 'Could not save provider settings.'; }
 });
 $('delete-api-key').addEventListener('click', async () => { try { renderVault(await send({ type: 'athena:vault-set-api-key', value: null })); $('provider-health').textContent = 'API key deleted.'; } catch (err) { $('provider-health').textContent = err instanceof Error ? err.message : 'Could not delete the API key.'; } });
 $('add-slot').addEventListener('click', async () => {

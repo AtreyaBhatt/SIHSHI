@@ -7,6 +7,8 @@
  * step > max_steps → failed('step cap'). Any throw → failed(message).
  * After a navigation to an origin without host permission → needs_permission.
  * Execution hits a locked vault → needs_unlock (plan kept; approve() resumes).
+ * Planning hits a locked vault (API key) → needs_unlock with no plan; the step
+ * is not counted, and approve() re-captures.
  */
 import type { AgentAction, AgentResponse, CaptureResult, PriorAction } from '../../shared/schema';
 import type { PayloadPreview } from '../../shared/messages';
@@ -130,7 +132,15 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
         run = await transition(run, {
           step: run.step + 1, status: 'planning', page_url: capture.snapshot.page_url,
         }, deps);
-        const { preview, response } = await deps.plan(capture, run.goal, run.history, run.run_id);
+        let planned: Awaited<ReturnType<LoopDeps['plan']>>;
+        try {
+          planned = await deps.plan(capture, run.goal, run.history, run.run_id);
+        } catch (err) {
+          // Matched by name (see executePending). The step did not happen.
+          if ((err as Error | null)?.name === 'VaultLockedError') return transition(run, { status: 'needs_unlock', pending: null, step: run.step - 1 }, deps);
+          throw err;
+        }
+        const { preview, response } = planned;
         run = await transition(run, {
           // The panel never reads the screenshot; keep the stored run small.
           last_preview: preview.request ? { ...preview, request: { ...preview.request, screenshot_redacted: null } } : preview,
@@ -157,6 +167,8 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
 }
 
 export async function approve(run: Run, deps: LoopDeps): Promise<Run> {
+  // needs_unlock without a plan: planning was blocked, so resume from a fresh capture.
+  if (run.status === 'needs_unlock' && !run.pending) return drive(await transition(run, { status: 'capturing' }, deps), deps);
   if ((run.status !== 'awaiting_approval' && run.status !== 'needs_unlock') || !run.pending) return run;
   return drive(await transition(run, { status: 'executing' }, deps), deps);
 }

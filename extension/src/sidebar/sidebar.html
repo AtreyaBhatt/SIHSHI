@@ -169,6 +169,7 @@
           </div>
           <div class="field-row" id="run-unlock" hidden>
             <input type="password" id="run-passphrase" class="text" placeholder="Vault passphrase" aria-label="Vault passphrase" autocomplete="off" />
+            <input type="password" id="run-confirm" class="text" placeholder="Confirm passphrase" aria-label="Confirm vault passphrase" autocomplete="off" hidden />
             <button id="run-unlock-continue" class="btn sec sm" type="button">Unlock and continue</button>
           </div>
           <div class="lbl" style="margin-top:10px">History</div>
@@ -205,9 +206,11 @@
         </div>
         <div class="card">
           <span class="lbl">Local credential vault</span>
-          <div class="callout"><strong>Demo vault, not a password manager.</strong> Values and the API key are encrypted (AES-GCM, key derived from your passphrase) in <code>chrome.storage.local</code>. While unlocked, the key sits in the extension's memory; it relocks after 15 idle minutes or a browser restart. A forgotten passphrase cannot be recovered. Use throwaway credentials.</div>
+          <div class="callout"><strong>Demo vault, not a password manager.</strong> Values and the API key are encrypted (AES-GCM, key derived from your passphrase) in <code>chrome.storage.local</code>. While unlocked, the key is held in the browser's in-memory session storage, readable by this extension's own pages; it relocks after 15 idle minutes, on Lock, on extension reload or when the browser closes. A forgotten passphrase cannot be recovered. Use throwaway credentials.</div>
           <div class="field-row">
             <input type="password" id="vault-passphrase" class="text" placeholder="Vault passphrase" aria-label="Vault passphrase" autocomplete="off" />
+            <input type="password" id="vault-confirm" class="text" placeholder="Confirm passphrase" aria-label="Confirm vault passphrase" autocomplete="off" hidden />
+            <button id="vault-create" class="btn sec sm" type="button" hidden>Create vault</button>
             <button id="vault-unlock" class="btn sec sm" type="button">Unlock</button>
             <button id="vault-lock" class="btn ghost sm" type="button">Lock</button>
           </div>

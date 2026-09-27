@@ -19,6 +19,7 @@ export type PanelToWorker =
   | { type: 'athena:run-get' }
   | { type: 'athena:run-grant-and-resume' }
   | { type: 'athena:vault-status' }
+  | { type: 'athena:vault-create'; passphrase: string; confirm: string }
   | { type: 'athena:vault-unlock'; passphrase: string }
   | { type: 'athena:vault-lock' }
   | { type: 'athena:vault-set'; slot: string; value: string }

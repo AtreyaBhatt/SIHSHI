@@ -217,6 +217,22 @@ console.log('needs_unlock');
   check(run.status === 'done' && run.history.length === 2, `approve after unlock resumes to done (${run.status})`);
 }
 
+console.log('needs_unlock while planning');
+{
+  const deps = fakeDeps([plan([], true, 'Done.')]);
+  const realPlan = deps.plan;
+  let locked = true;
+  deps.plan = async (...args) => {
+    if (locked) { locked = false; deps.log.push('plan-locked'); throw Object.assign(new Error('locked'), { name: 'VaultLockedError' }); }
+    return realPlan(...args);
+  };
+  let run = await drive(newRun('g', 7, 'approve-all', 25), deps);
+  check(run.status === 'needs_unlock' && run.pending === null && run.step === 0, `a locked vault during planning pauses with no plan, step not counted (${run.status}, step ${run.step})`);
+  run = await approve(run, deps);
+  check(run.status === 'done' && run.step === 1, `approve re-captures and finishes (${run.status}, step ${run.step})`);
+  check(deps.log.join(' ') === 'capture plan-locked capture plan(0)', `order: ${deps.log.join(' ')}`);
+}
+
 console.log('resume guard');
 {
   const deps = fakeDeps([]);
