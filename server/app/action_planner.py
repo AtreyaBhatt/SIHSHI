@@ -14,12 +14,17 @@ direct-provider-response.ts:
 4. **No marker echo.** `[EMAIL_1]` typed into a form is both wrong and a sign the
    model is treating placeholders as data.
 5. **value_ref is a `user_saved:` reference.**
-6. **No secret injection.** A Tier 1 field must be filled via `value_ref`, never
-   a literal. If the server can put a literal into a password box, the server is
-   back in the business of handling secrets.
-7. **Risk floor.** navigate, the Enter key, clicks on buttons and links, and
-   typing into any field with a manifest entry are forced `sensitive`, so
-   approve-sensitive pauses on them whatever the model said.
+6. **No secret injection.** A Tier 1 field must be filled via `value_ref` or
+   `value_token`, never a literal. If the server can put a literal into a
+   password box, the server is back in the business of handling secrets.
+7. **value_token** names a token from this request's manifest (not one the
+   firewall minted), of a resolvable Tier-1 or a Tier-2 type (tier read from the
+   type, not the client's entry), and the target field must carry a manifest
+   entry of the same type.
+8. **Risk floor.** navigate, the Enter key, clicks on buttons and links,
+   typing into any field with a manifest entry, and every value_ref/value_token
+   are forced `sensitive`, so approve-sensitive pauses on them whatever the
+   model said.
 
 Violations are dropped, not raised. One bad action should not lose a good plan,
 and the rejections are reported back so the refusal is visible rather than silent.
@@ -42,6 +47,15 @@ RESOLVABLE_TIER1: frozenset[PiiType] = frozenset({
     "aadhaar", "pan", "card_number", "card_expiry", "ssn", "passport", "bank_account", "ifsc",
 })
 
+# Mirrors extension/src/shared/schema.ts TIER_BY_TYPE. A token's tier is read
+# from its type here, never from the client-sent entry.tier.
+TIER_BY_TYPE: dict[PiiType, int] = {
+    "password": 1, "otp": 1, "card_number": 1, "card_expiry": 1, "cvv": 1,
+    "aadhaar": 1, "pan": 1, "ssn": 1, "passport": 1, "bank_account": 1, "ifsc": 1,
+    "face": 1, "frame": 1,
+    "email": 2, "phone": 2, "address": 2, "person_name": 2, "date_of_birth": 2, "account_id": 2,
+}
+
 NEEDS_SELECTOR = frozenset({"click", "type", "select", "hover"})
 HTTP_URL = re.compile(r"^https?://\S+$")
 
@@ -60,7 +74,12 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
     tier1 = _tier1_paths(request)
     roles = {node.path: node.role for node in request.dom_summary}
     redacted = {e.dom_path for e in request.redaction_manifest if e.dom_path}
-    token_entries: dict[str, RedactionManifestEntry] = {e.id: e for e in request.redaction_manifest}
+    # Firewall-minted tokens mark values the cascade missed; they are masked, never typeable.
+    token_entries: dict[str, RedactionManifestEntry] = {
+        e.id: e for e in request.redaction_manifest if not e.detector.startswith("firewall:")
+    }
+    # A token may only fill a field the client declared as holding that same type.
+    target_types = {(e.dom_path, e.type) for e in request.redaction_manifest if e.dom_path}
     available_refs = set(request.available_refs)
 
     kept: list[AgentAction] = []
@@ -109,8 +128,11 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
                 continue
             token_id = action.value_token[1:-1]
             entry = token_entries.get(token_id)
-            if entry is None or not (entry.type in RESOLVABLE_TIER1 or entry.tier == 2):
+            if entry is None or not (entry.type in RESOLVABLE_TIER1 or TIER_BY_TYPE[entry.type] == 2):
                 rejected.append(f"{label}: value_token is not a token from this request")
+                continue
+            if (action.selector, entry.type) not in target_types:
+                rejected.append(f"{label}: value_token type does not match the target field")
                 continue
 
         if action.value_ref is not None and available_refs and action.value_ref not in available_refs:

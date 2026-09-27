@@ -72,7 +72,7 @@ export interface BuildOptions {
 }
 
 /** Matches a value that is *entirely* a redaction marker, not one embedded in other text. */
-const WHOLE_FIELD_MARKER = /^\[(?:REDACTED:[^\]]+|[A-Z][A-Z0-9]*_\d+)\]$/;
+const WHOLE_FIELD_MARKER = /^\[(?:REDACTED:[^\]]+|[A-Z][A-Z0-9_]*_\d+)\]$/;
 
 export interface BuildResult {
   request: AgentRequest;

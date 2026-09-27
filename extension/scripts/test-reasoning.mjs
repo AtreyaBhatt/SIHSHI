@@ -134,14 +134,21 @@ console.log('value_token');
     ...request.redaction_manifest,
     { id: 'AADHAAR_1', type: 'aadhaar', tier: 1, bbox: null, dom_path: 'td#alt', masking: 'token', detector: 't', confidence: 1 },
     { id: 'PHONE_1', type: 'phone', tier: 2, bbox: null, dom_path: 'td#ph', masking: 'token', detector: 't', confidence: 1 },
-  ], dom_summary: [...request.dom_summary, { path: 'input#aadhaar', role: 'textbox', label: 'Aadhaar', value: null }] };
+    { id: 'AADHAAR_2', type: 'aadhaar', tier: 1, bbox: null, dom_path: 'input#aadhaar', masking: 'token', detector: 't', confidence: 1 },
+    { id: 'PHONE_2', type: 'phone', tier: 2, bbox: null, dom_path: 'input#mobile', masking: 'token', detector: 't', confidence: 1 },
+    { id: 'EMAIL_2', type: 'email', tier: 2, bbox: null, dom_path: 'td#fw', masking: 'token', detector: 'firewall:email', confidence: 1 },
+  ], dom_summary: [...request.dom_summary,
+    { path: 'input#aadhaar', role: 'textbox', label: 'Aadhaar', value: null },
+    { path: 'input#mobile', role: 'textbox', label: 'Mobile', value: null },
+  ] };
   const run2 = (plan) => normalizeProviderResponse(openai(plan), false, req2);
   const ok = run2({ ...base, actions: [
     { action: 'type', selector: 'input#aadhaar', value_token: '[AADHAAR_1]' },
-    { action: 'type', selector: 'input#user', value_token: '[PHONE_1]', risk: 'routine' },
+    { action: 'type', selector: 'input#mobile', value_token: '[PHONE_1]', risk: 'routine' },
     { action: 'type', selector: 'input#user', value_ref: 'user_saved:username', risk: 'routine' },
+    { action: 'type', selector: 'input#email', value_token: '[EMAIL_1]', risk: 'routine' },
   ] });
-  check(ok.actions.length === 3, `three valid token/ref types survive (${ok.guardrail_rejections?.join('; ')})`);
+  check(ok.actions.length === 4, `four valid token/ref types survive (${ok.guardrail_rejections?.join('; ')})`);
   check(ok.actions.every((a) => a.risk === 'sensitive'), 'value_token and value_ref are forced sensitive');
   check(ok.requires_client_secret === true, 'requires_client_secret covers tokens too');
   const bad = run2({ ...base, actions: [
@@ -157,6 +164,29 @@ console.log('value_token');
   check(bad.guardrail_rejections.some((m) => /slot the user has not stored/.test(m)), 'value_ref outside available_refs names the rule');
   const noRefs = normalizeProviderResponse(openai({ ...base, actions: [{ action: 'type', selector: 'input#user', value_ref: 'user_saved:anything' }] }), false, { ...req2, available_refs: [] });
   check(noRefs.actions.length === 1, 'empty available_refs does not gate value_ref (backwards compatible)');
+
+  // W3d: a token only fills a field declared as holding that same type.
+  const mismatch = run2({ ...base, actions: [
+    { action: 'type', selector: 'input#user', value_token: '[AADHAAR_1]' },
+    { action: 'type', selector: 'input#aadhaar', value_token: '[PHONE_1]' },
+    { action: 'type', selector: 'input#email', value_token: '[PHONE_1]' },
+  ] });
+  check(mismatch.actions.length === 0 && mismatch.guardrail_rejections.length === 3 && mismatch.guardrail_rejections.every((m) => /value_token type does not match the target field/.test(m)), `token into an undeclared or other-type field is rejected (${mismatch.guardrail_rejections?.join('; ')})`);
+
+  // X4: a firewall-minted token is masked, never typeable; a cascade token of the same type is.
+  const fw = run2({ ...base, actions: [{ action: 'type', selector: 'input#email', value_token: '[EMAIL_2]' }] });
+  check(fw.actions.length === 0 && /not a token from this request/.test(fw.guardrail_rejections?.[0] ?? ''), `firewall-minted token rejected (${fw.guardrail_rejections?.join('; ')})`);
+  const cascade = run2({ ...base, actions: [{ action: 'type', selector: 'input#email', value_token: '[EMAIL_1]' }] });
+  check(cascade.actions.length === 1 && !cascade.guardrail_rejections, 'cascade token of the same type into the same field survives');
+}
+
+console.log('multi-word marker echo');
+{
+  const r = run({ ...base, actions: [
+    { action: 'type', selector: 'input#user', value: '[CARD_NUMBER_1]' },
+    { action: 'type', selector: 'input#user', value: 'card [BANK_ACCOUNT_12] please' },
+  ] });
+  check(r.actions.length === 0 && r.guardrail_rejections.length === 2 && r.guardrail_rejections.every((m) => /echoes a redaction marker/.test(m)), `[CARD_NUMBER_1] is rejected as a marker echo (${r.guardrail_rejections?.join('; ')})`);
 }
 
 console.log('typed secrets (build-request)');

@@ -250,3 +250,52 @@ def test_value_ref_outside_available_refs_is_dropped(bank_login_payload):
     )
     assert rejected_backwards == []
     assert backwards_compatible[0].value_ref == "user_saved:anything"
+
+
+def test_value_token_type_must_match_the_target_field(bank_login_payload):
+    """A token only fills a field declared (in the manifest) as holding that same
+    type — PAN_1 into the customer-id box, or into the email field, is refused."""
+    request = AgentRequest.model_validate(bank_login_payload)
+    for selector in ("input#customer-id", "input#reg-email"):
+        kept, rejected = constrain(
+            _plan(AgentAction(action="type", selector=selector, value_token="[PAN_1]")), request
+        )
+        assert kept == []
+        assert "value_token type does not match the target field" in rejected[0]
+
+
+def test_value_token_tier_comes_from_the_type_not_the_client(bank_login_payload):
+    """The client's entry.tier is not trusted: a password entry claiming Tier 2 is
+    still not typeable, and an email entry claiming Tier 1 still is."""
+    payload = {**bank_login_payload, "redaction_manifest": [
+        {**e, "tier": 2} if e["type"] == "password" else {**e, "tier": 1} if e["type"] == "email" else e
+        for e in bank_login_payload["redaction_manifest"]
+    ]}
+    request = AgentRequest.model_validate(payload)
+    password_path = next(e["dom_path"] for e in payload["redaction_manifest"] if e["type"] == "password")
+    lied, rejected_lied = constrain(
+        _plan(AgentAction(action="type", selector=password_path, value_token="[PASSWORD_1]")), request
+    )
+    email, rejected_email = constrain(
+        _plan(AgentAction(action="type", selector="input#reg-email", value_token="[EMAIL_1]")), request
+    )
+    assert lied == [] and "not a token from this request" in rejected_lied[0]
+    assert rejected_email == [] and email[0].value_token == "[EMAIL_1]"
+
+
+def test_firewall_minted_token_is_not_typeable(bank_login_payload):
+    payload = {**bank_login_payload, "redaction_manifest": [
+        {**e, "detector": "firewall:pan"} if e["id"] == "PAN_1" else e
+        for e in bank_login_payload["redaction_manifest"]
+    ]}
+    kept, rejected = constrain(
+        _plan(AgentAction(action="type", selector="input#pan", value_token="[PAN_1]")),
+        AgentRequest.model_validate(payload),
+    )
+    assert kept == []
+    assert "not a token from this request" in rejected[0]
+    ok, rejected_ok = constrain(
+        _plan(AgentAction(action="type", selector="input#pan", value_token="[PAN_1]")),
+        AgentRequest.model_validate(bank_login_payload),
+    )
+    assert rejected_ok == [] and ok[0].value_token == "[PAN_1]"

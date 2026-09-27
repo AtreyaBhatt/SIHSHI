@@ -4,7 +4,7 @@ import { ACTION_VERBS, KEY_NAMES, NEEDS_SELECTOR, RESOLVABLE_TIER1, TIER_BY_TYPE
 const ACTION_FIELDS = new Set(['action', 'selector', 'value', 'value_ref', 'value_token', 'option', 'key', 'direction', 'url', 'risk']);
 const PLAN_FIELDS = new Set(['reasoning_summary', 'actions', 'requires_client_secret', 'done', 'result']);
 const VALUE_REF = /^user_saved:[A-Za-z0-9_.-]{1,64}$/;
-const MARKER = /\[(?:REDACTED:[^\]]+|[A-Z][A-Z0-9]*_\d+)\]/;
+const MARKER = /\[(?:REDACTED:[^\]]+|[A-Z][A-Z0-9_]*_\d+)\]/;
 const HTTP_URL = /^https?:\/\/\S+$/;
 const TOKEN = /^\[[A-Z][A-Z0-9_]*_\d+\]$/;
 
@@ -37,7 +37,7 @@ function optionalString(value: unknown): value is string | undefined {
  * dropped, not thrown: one bad action must not lose a good plan, and the
  * reasons travel back so the refusal is visible in the panel.
  */
-function constrainAction(candidate: unknown, index: number, allowedPaths: Set<string>, tier1Paths: Set<string>, roles: Map<string, string | null>, redactedPaths: Set<string>, tokenIds: Map<string, PiiType>, availableRefs: Set<string>): { action?: AgentAction; rejection?: string } {
+function constrainAction(candidate: unknown, index: number, allowedPaths: Set<string>, tier1Paths: Set<string>, roles: Map<string, string | null>, redactedPaths: Set<string>, tokenIds: Map<string, PiiType>, targetTypes: Set<string>, availableRefs: Set<string>): { action?: AgentAction; rejection?: string } {
   const label = `action[${index}]`;
   if (!isRecord(candidate) || !hasOnlyFields(candidate, ACTION_FIELDS)) return { rejection: `${label}: action has an unsupported shape` };
   if (typeof candidate.action !== 'string' || !ACTION_VERBS.has(candidate.action)) return { rejection: `${label}: unknown action verb ${JSON.stringify(candidate.action)}` };
@@ -67,6 +67,7 @@ function constrainAction(candidate: unknown, index: number, allowedPaths: Set<st
     const id = valueToken.slice(1, -1);
     const type = tokenIds.get(id);
     if (!type || !(RESOLVABLE_TIER1.has(type) || TIER_BY_TYPE[type] === 2)) return { rejection: `${tag}: value_token is not a token from this request` };
+    if (!targetTypes.has(`${selector}\n${type}`)) return { rejection: `${tag}: value_token type does not match the target field` };
   }
   if (valueRef !== undefined && availableRefs.size > 0 && !availableRefs.has(valueRef)) return { rejection: `${tag}: value_ref names a slot the user has not stored` };
   if (verb === 'type') {
@@ -108,12 +109,15 @@ function parsePlan(raw: unknown, request: AgentRequest): AgentResponse {
   const tier1Paths = new Set(request.redaction_manifest.filter((e) => e.tier === 1 && e.dom_path).map((e) => e.dom_path!));
   const roles = new Map(request.dom_summary.map((node) => [node.path, node.role]));
   const redactedPaths = new Set(request.redaction_manifest.filter((e) => e.dom_path).map((e) => e.dom_path!));
-  const tokenIds = new Map(request.redaction_manifest.map((e) => [e.id, e.type]));
+  // Firewall-minted tokens mark values the cascade missed; they are masked, never typeable.
+  const tokenIds = new Map(request.redaction_manifest.filter((e) => !e.detector.startsWith('firewall:')).map((e) => [e.id, e.type]));
+  // A token may only fill a field the client declared as holding that same type.
+  const targetTypes = new Set(request.redaction_manifest.filter((e) => e.dom_path).map((e) => `${e.dom_path}\n${e.type}`));
   const availableRefs = new Set(request.available_refs ?? []);
   const actions: AgentAction[] = [];
   const rejected: string[] = [];
   raw.actions.forEach((candidate, index) => {
-    const { action, rejection } = constrainAction(candidate, index, allowedPaths, tier1Paths, roles, redactedPaths, tokenIds, availableRefs);
+    const { action, rejection } = constrainAction(candidate, index, allowedPaths, tier1Paths, roles, redactedPaths, tokenIds, targetTypes, availableRefs);
     if (action) actions.push(action);
     if (rejection) rejected.push(rejection);
   });
