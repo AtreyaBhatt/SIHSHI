@@ -268,7 +268,9 @@ does not defeat the other.
 - **Demo switch.** Settings/the Privacy card can disable named cascade
   detectors (by their `dom:*`/`regex:*` name) for a session, so a screen still
   gets masked by the firewall alone — proof the second layer actually works,
-  not a way to turn redaction off. The switch lives in `chrome.storage.session`
+  not a way to turn redaction off. Only detectors for a type the firewall also
+  covers (email, card number, Aadhaar, PAN, IFSC, SSN, phone, and `account_id`
+  for UPI ids) can be switched off; any other name is rejected. The switch lives in `chrome.storage.session`
   (gone on browser restart) and shows a red **"detectors off: …"** chip on
   the Privacy card whenever it's non-empty.
 

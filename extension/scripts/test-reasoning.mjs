@@ -419,7 +419,13 @@ console.log('demo detector switch');
   check(!('athena:debug-disabled-detectors' in local) && (await readDisabledDetectors()) === undefined, 'a switch left in storage.local by an earlier build is dropped');
   check(JSON.stringify(await setDisabledDetectors(['regex:email', 'dom:email'])) === '["regex:email","dom:email"]' && session['athena:debug-disabled-detectors'].length === 2, 'known names are stored in storage.session');
   let err = null; try { await setDisabledDetectors(['regex:email', 'regex:nope']); } catch (e) { err = e; }
-  check(/not detector names/.test(err?.message ?? '') && !err.message.includes('regex:nope') && session['athena:debug-disabled-detectors'].length === 2, 'an unknown name is rejected and nothing changes');
+  check(/cannot be switched off/.test(err?.message ?? '') && !err.message.includes('regex:nope') && session['athena:debug-disabled-detectors'].length === 2, 'an unknown name is rejected and nothing changes');
+  for (const name of ['dom:input-type-password', 'regex:otp(context)', 'regex:bank_account(context)', 'dom:person-name']) {
+    err = null; try { await setDisabledDetectors([name]); } catch (e) { err = e; }
+    check(/cannot be switched off/.test(err?.message ?? '') && session['athena:debug-disabled-detectors'].length === 2, `${name} (a type the firewall does not cover) is rejected`);
+  }
+  check((await setDisabledDetectors(['regex:phone-intl', 'dom:phone', 'regex:card_number+luhn', 'regex:aadhaar+verhoeff', 'regex:pan', 'regex:ifsc', 'regex:ssn'])).length === 7, 'every firewall-covered type can be switched off');
+  await setDisabledDetectors(['regex:email', 'dom:email']);
   check((await setDisabledDetectors([])).length === 0 && (await readDisabledDetectors()) === undefined, 'an empty list clears the switch');
   await setDisabledDetectors(['regex:email']);
   check((await setDisabledDetectors('regex:email')).length === 0 && (await readDisabledDetectors()) === undefined, 'a non-array names value is treated as an empty list');

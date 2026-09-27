@@ -9,8 +9,14 @@ import { PATTERNS } from '../pii-detection/patterns';
  * proof it works, not a way to make it optional. Never read by the firewall.
  */
 export const DEBUG_DISABLED_DETECTORS_KEY = 'athena:debug-disabled-detectors';
-/** Every name the cascade can report; anything else is rejected, never stored. */
-const KNOWN_DETECTORS = new Set([...DOM_RULES, ...PATTERNS].map((rule) => rule.detector));
+/**
+ * Only detectors whose type the firewall also catches (its email, card, Aadhaar,
+ * PAN, IFSC, SSN, phone rules, and UPI as account_id) may be switched off —
+ * turning off, say, dom:input-type-password would leave nothing behind it.
+ * Every other name is rejected, never stored.
+ */
+const FIREWALL_TYPES = new Set(['email', 'card_number', 'aadhaar', 'pan', 'ifsc', 'ssn', 'phone', 'account_id']);
+const SWITCHABLE_DETECTORS = new Set([...DOM_RULES, ...PATTERNS].filter((rule) => FIREWALL_TYPES.has(rule.type)).map((rule) => rule.detector));
 
 export async function readDisabledDetectors(): Promise<Set<string> | undefined> {
   try {
@@ -28,8 +34,8 @@ export async function readDisabledDetectors(): Promise<Set<string> | undefined> 
 export async function setDisabledDetectors(input: string[] | undefined): Promise<string[]> {
   if (input !== undefined) {
     const names = Array.isArray(input) ? input : []; // a malformed message clears rather than throws
-    const unknown = names.filter((name) => !KNOWN_DETECTORS.has(name));
-    if (unknown.length > 0) throw new Error(`${unknown.length} name(s) are not detector names (use the names shown against each finding, e.g. regex:email). Nothing was changed.`);
+    const refused = names.filter((name) => !SWITCHABLE_DETECTORS.has(name));
+    if (refused.length > 0) throw new Error(`${refused.length} name(s) cannot be switched off: only detectors for a type the firewall also covers (email, card number, Aadhaar, PAN, IFSC, SSN, phone, account id), e.g. regex:email. Nothing was changed.`);
     await api.storage.session.set({ [DEBUG_DISABLED_DETECTORS_KEY]: [...new Set(names)] });
   }
   return [...((await readDisabledDetectors()) ?? [])];
