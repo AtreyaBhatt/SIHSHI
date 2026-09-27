@@ -228,6 +228,22 @@ console.log('typed secrets (build-request)');
   try { assertNoTypedSecrets(echoed, ['blue-heron-42']); } catch { echoOk = false; }
   check(echoOk, 'egress check passes once the echo is masked');
 
+  // X5: a value under four characters is neither masked nor treated as a leak.
+  const accessNode = { ...bannerNode, path: 'div#access', label: 'Request access' };
+  const short = (await buildAgentRequest({ snapshot: { ...snapshot, nodes: [accessNode] }, screenshotDataUrl: null, taskInstruction: 'g', tokens: new TokenRegistry('s5'), typedSecretValues: ['cs'] })).request;
+  let shortOk = true;
+  try { assertNoTypedSecrets(short, ['cs']); } catch { shortOk = false; }
+  check(short.dom_summary[0].label === 'Request access' && short.redaction_manifest.length === 0 && shortOk, 'slot value "cs" does not mask "access" and does not trip the egress check');
+  let idOk = true;
+  try { assertNoTypedSecrets({ ...plain, session_id: 'blue-heron-42-session' }, ['blue-heron-42']); } catch { idOk = false; }
+  check(idOk === false, 'sanity: the plain request still carries the value in dom_summary');
+  let onlyId = true;
+  try { assertNoTypedSecrets({ ...forced, session_id: 'blue-heron-42-session' }, ['blue-heron-42']); } catch { onlyId = false; }
+  check(onlyId, 'egress check ignores fields outside dom_summary, task_instruction and prior_actions (session_id)');
+  let inHistory = null;
+  try { assertNoTypedSecrets({ ...forced, prior_actions: [{ action: 'type', selector: 'input#u', value: 'blue-heron-42', outcome: 'ok' }] }, ['blue-heron-42']); } catch (e) { inHistory = e; }
+  check(inHistory?.name === 'RawPiiLeakError', 'egress check covers prior_actions values');
+
   const history = [{ verb: 'type', selector: 'input#u', value: 'mail abcd@gmail.com', outcome: 'ok' }];
   const withHistory = (await buildAgentRequest({ ...opts, tokens: new TokenRegistry('s4'), priorActions: history })).request;
   check(withHistory.prior_actions[0].value === 'mail [EMAIL_1]' && history[0].value === 'mail abcd@gmail.com', 'prior actions are masked in a copy; run history is untouched');

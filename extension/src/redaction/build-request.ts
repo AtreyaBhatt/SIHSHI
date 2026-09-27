@@ -154,17 +154,29 @@ function sanitizeField(
 }
 
 /**
- * Exact-match egress check for credentials this extension typed itself. The
- * screenshot is left out: pixels cannot carry the string, and a short secret
- * would match base64 by chance. Never quotes the value.
+ * Values shorter than this are not scanned for: a two-letter slot value ("cs")
+ * would otherwise mask every "access" on the page.
+ */
+const MIN_TYPED_SECRET_LENGTH = 4;
+
+/**
+ * Exact-match egress check for credentials this extension typed itself. Only
+ * the text fields a page or the user can put a value into are searched —
+ * dom_summary label/value, task_instruction and prior_actions values; ids,
+ * paths and the screenshot are left out (pixels cannot carry the string, and a
+ * short secret would match base64 by chance). Never quotes the value.
  */
 export function assertNoTypedSecrets(
   request: AgentRequest,
   values: Iterable<string>,
 ): void {
-  const text = JSON.stringify({ ...request, screenshot_redacted: null });
+  const fields = [
+    request.task_instruction,
+    ...request.dom_summary.flatMap((n) => [n.label, n.value]),
+    ...request.prior_actions.map((a) => a.value),
+  ].filter((f): f is string => typeof f === "string");
   for (const value of values) {
-    if (value && text.includes(JSON.stringify(value).slice(1, -1)))
+    if (value.length >= MIN_TYPED_SECRET_LENGTH && fields.some((f) => f.includes(value)))
       throw new RawPiiLeakError(["a resolved credential appears in the payload"]);
   }
 }
@@ -274,7 +286,7 @@ export async function buildAgentRequest(
   // manifest-driven. assertNoTypedSecrets, run by the caller, is the final
   // re-check after this pass, never a substitute for it.
   const typedValues = [...(options.typedSecretValues ?? [])].filter(
-    (v): v is string => Boolean(v),
+    (v) => typeof v === "string" && v.length >= MIN_TYPED_SECRET_LENGTH,
   );
   let maskedTaskInstruction = taskInstruction;
   if (typedValues.length > 0) {
