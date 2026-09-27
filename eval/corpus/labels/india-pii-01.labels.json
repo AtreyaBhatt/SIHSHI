@@ -1,0 +1,155 @@
+{
+  "screen_id": "india-pii-01",
+  "page": "fixtures/india-pii.html",
+  "source": "fixture",
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "India-specific shapes: bare Name label, UPI handles, IBAN, Devanagari-digit Aadhaar, split card and OTP inputs, UPI QR image. dd#f1 (File name), dd#b1 (Bank name) and p#t1 (20-digit tracking number) are deliberately NOT annotated: they are controls, and a detector that boxes them is over-redacting.",
+  "items": [
+    {
+      "id": "n1",
+      "selector": "dd#n1",
+      "type": "person_name",
+      "tier": 2,
+      "modality": "text",
+      "value_present": true,
+      "notes": "Value under a bare <dt>Name</dt> label."
+    },
+    {
+      "id": "u1",
+      "selector": "dd#u1",
+      "type": "account_id",
+      "tier": 2,
+      "modality": "text",
+      "value_present": true,
+      "notes": "UPI handle under <dt>UPI</dt>."
+    },
+    {
+      "id": "p1",
+      "selector": "p#p1",
+      "text": "meera.n@oksbi",
+      "type": "account_id",
+      "tier": 2,
+      "modality": "text",
+      "value_present": true,
+      "notes": "UPI handle loose in prose."
+    },
+    {
+      "id": "i1",
+      "selector": "p#i1",
+      "text": "GB29 NWBK 6016 1331 9268 19",
+      "type": "bank_account",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true
+    },
+    {
+      "id": "d1",
+      "selector": "p#d1",
+      "text": "२३४५ ६७८९ ०१२४",
+      "type": "aadhaar",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "Aadhaar written in Devanagari digits."
+    },
+    {
+      "id": "c1",
+      "selector": "input#c1",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "c2",
+      "selector": "input#c2",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "c3",
+      "selector": "input#c3",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "c4",
+      "selector": "input#c4",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "o1",
+      "selector": "input#o1",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o2",
+      "selector": "input#o2",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o3",
+      "selector": "input#o3",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o4",
+      "selector": "input#o4",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o5",
+      "selector": "input#o5",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o6",
+      "selector": "input#o6",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "q1",
+      "selector": "img#q1",
+      "type": "frame",
+      "tier": 1,
+      "modality": "pixel",
+      "value_present": true,
+      "notes": "UPI QR code image; the whole image is boxed as a frame region (encodes a payee handle)."
+    }
+  ]
+}

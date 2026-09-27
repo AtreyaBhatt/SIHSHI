@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>India PII — bare labels, UPI, IBAN, native digits, split inputs, QR</title>
+<!--
+  Corpus fixture. Every value is synthetic. It plants the shapes Indian
+  payment and KYC pages have and the other fixtures do not:
+
+    - a value under a bare <dt>Name</dt> label
+    - UPI handles (name@bank), labelled and loose in prose
+    - an IBAN in prose
+    - an Aadhaar number written in Devanagari digits
+    - a card number split across four inputs, and an OTP across six
+    - a UPI QR code image
+
+  Controls that must NOT be redacted: f1 (File name), b1 (Bank name) and t1
+  (a 20-digit tracking number).
+-->
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #1b1d21; background: #fff; padding: 32px; }
+  dl { display: grid; grid-template-columns: 140px 320px; gap: 6px 12px; margin: 0 0 16px; }
+  dt { font-weight: 600; } dd { margin: 0; }
+  .split input { width: 56px; padding: 6px; margin-right: 8px; font: inherit; text-align: center; }
+  .otp input { width: 28px; }
+  h3 { margin: 16px 0 6px; font-size: 16px; }
+  p { margin: 8px 0; }
+</style>
+</head>
+<body>
+  <dl>
+    <dt>Name</dt><dd id="n1">Meera Nair</dd>
+    <dt>UPI</dt><dd id="u1">meera.nair@okhdfc</dd>
+    <dt>File name</dt><dd id="f1">report.pdf</dd>
+    <dt>Bank name</dt><dd id="b1">Meridian Bank</dd>
+  </dl>
+  <p id="p1">Refunds go to meera.n@oksbi within 3 days.</p>
+  <p id="i1">IBAN GB29 NWBK 6016 1331 9268 19</p>
+  <p id="d1">Aadhaar २३४५ ६७८९ ०१२४</p>
+  <p id="t1">Tracking 1234 5678 9012 3456 7890</p>
+
+  <div class="split">
+    <input id="c1" maxlength="4" value="4539" /><input id="c2" maxlength="4" value="1488" /><input id="c3" maxlength="4" value="0343" /><input id="c4" maxlength="4" value="6467" />
+  </div>
+
+  <h3>Enter OTP</h3>
+  <div class="split otp">
+    <input id="o1" maxlength="1" value="4" /><input id="o2" maxlength="1" value="8" /><input id="o3" maxlength="1" value="2" /><input id="o4" maxlength="1" value="9" /><input id="o5" maxlength="1" value="1" /><input id="o6" maxlength="1" value="7" />
+  </div>
+
+  <p><img id="q1" alt="UPI QR" src="assets/qr.png" width="120" height="120" /></p>
+</body>
+</html>

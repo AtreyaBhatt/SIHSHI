@@ -22,8 +22,9 @@
 import type { RawDomNode, RawSnapshot } from '../shared/schema';
 import { TIER_BY_TYPE } from '../shared/schema';
 import type { Detection, DetectionField } from './types';
-import { DOM_RULES, contextString } from './dom-heuristics';
-import { PATTERNS } from './patterns';
+import { DOM_RULES, MEDIA_RULES, contextString } from './dom-heuristics';
+import { PATTERNS, foldDigits } from './patterns';
+import { isAadhaar, isPaymentCard } from './validators';
 
 /**
  * Conservative by default: bias toward over-redaction (PRD §9, §13 Q3). Lower
@@ -91,10 +92,55 @@ function resolveOverlaps(detections: Detection[]): Detection[] {
   return kept;
 }
 
+const OTP_RULE = DOM_RULES.find((r) => r.detector === 'dom:otp')!;
+const GROUP_CONFIDENCE = 0.9;
+
+/**
+ * A card or OTP split across sibling boxes (capture's `group_id`): no single
+ * box holds a checkable number, so the members' contents are joined in
+ * document order and validated as one. A hit marks every member whole-field.
+ */
+function groupHits(snapshot: RawSnapshot, threshold: number, disabled?: Set<string>): Map<string, Detection> {
+  const hits = new Map<string, Detection>();
+  if (GROUP_CONFIDENCE < threshold) return hits;
+  const groups = new Map<string, RawDomNode[]>();
+  for (const node of snapshot.nodes) {
+    if (!node.group_id) continue;
+    const members = groups.get(node.group_id) ?? [];
+    members.push(node);
+    groups.set(node.group_id, members);
+  }
+  for (const members of groups.values()) {
+    const joined = foldDigits(members.map((m) => (m.value ?? m.text ?? '').trim()).join(''));
+    let found: [Detection['type'], string] | null = null;
+    if (isPaymentCard(joined)) found = ['card_number', 'group:card'];
+    else if (isAadhaar(joined)) found = ['aadhaar', 'group:aadhaar'];
+    else if (
+      members.length >= 4 && members.length <= 8 &&
+      members.every((m) => m.attrs.maxlength === '1' && OTP_RULE.test(m, contextString(m)))
+    ) found = ['otp', 'group:otp'];
+    if (!found || disabled?.has(found[1])) continue;
+    for (const m of members) {
+      hits.set(m.path, {
+        node_path: m.path,
+        field: dataFieldOf(m),
+        type: found[0],
+        tier: TIER_BY_TYPE[found[0]],
+        detector: found[1],
+        confidence: GROUP_CONFIDENCE,
+        span: null,
+        bbox: m.bbox,
+      });
+    }
+  }
+  return hits;
+}
+
 export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): Detection[] {
   const threshold = options.threshold ?? DEFAULT_THRESHOLD;
   const disabled = options.disabledDetectors;
   const out: Detection[] = [];
+  const grouped = groupHits(snapshot, threshold, disabled);
 
   for (const node of snapshot.nodes) {
     const context = contextString(node);
@@ -109,7 +155,9 @@ export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): D
     // or link — whose text is never captured — has nothing a rule could redact,
     // and flagging it paints a black box over "Resend OTP".
     const structural = dataField === 'text' && (STRUCTURAL_TAGS.has(node.tag) || !node.text);
-    for (const rule of structural ? [] : DOM_RULES) {
+    // Image regions have no text; only the media rules (QR) apply to them.
+    const rules = node.media && node.media !== 'iframe' ? MEDIA_RULES : structural ? [] : DOM_RULES;
+    for (const rule of rules) {
       if (disabled?.has(rule.detector)) continue;
       if (rule.confidence < threshold) continue;
       if (!rule.test(node, context)) continue;
@@ -125,6 +173,9 @@ export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): D
       };
       best = best ? better(best, hit) : hit;
     }
+    // A split-box group is judged as a whole; only a stricter tier overrides it.
+    const group = grouped.get(node.path);
+    if (group && (!best || group.tier <= best.tier)) best = group;
     if (best) {
       out.push(best);
       claimed.add(dataField);
@@ -140,13 +191,15 @@ export function detectPii(snapshot: RawSnapshot, options: DetectOptions = {}): D
     for (const [field, content] of scannable) {
       if (!content || claimed.has(field)) continue;
       const found: Detection[] = [];
+      // Native-script digits folded to ASCII, length-preserving: spans index `content`.
+      const folded = foldDigits(content);
 
       for (const pattern of PATTERNS) {
         if (disabled?.has(pattern.detector)) continue;
         if (pattern.confidence < threshold) continue;
         if (pattern.requires_context && !pattern.requires_context.test(context)) continue;
 
-        for (const match of content.matchAll(pattern.regex)) {
+        for (const match of folded.matchAll(pattern.regex)) {
           const text = match[0];
           const start = match.index ?? 0;
           if (!text.trim()) continue;

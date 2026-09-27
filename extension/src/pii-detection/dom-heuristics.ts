@@ -38,6 +38,11 @@ export function contextString(node: RawDomNode): string {
 
 const ac = (node: RawDomNode): string => (node.attrs.autocomplete ?? '').toLowerCase();
 
+const BARE_NAME_LABELS = new Set([
+  'name', 'applicant name', "applicant's name", 'candidate name', 'student name',
+  'patient name', 'nominee name', "father's name", "mother's name", 'guardian name',
+]);
+
 export const DOM_RULES: DomRule[] = [
   {
     type: 'password',
@@ -128,15 +133,16 @@ export const DOM_RULES: DomRule[] = [
     test: (n, c) => /street-address|address-line|postal-code/.test(ac(n)) || /address|street|\bpin[ -]?code\b|\bzip\b|postcode/.test(c),
   },
   {
-    // Known gap: a bare `<dt>Name</dt>` (no qualifying phrase) does not match this
-    // rule and is treated as Tier 3 structure, not `person_name`. See
-    // eval/corpus/README.md's borderline-calls note on "Name:" vs "Your name".
+    // A label that is exactly one of BARE_NAME_LABELS ("Name", "Applicant name",
+    // "Father's name", ...) also counts. Exact match only, so "File name" and
+    // "Bank name" stay Tier 3.
     type: 'person_name',
     detector: 'dom:person-name',
     confidence: 0.82,
     test: (n, c) =>
       /(^|\s)(name|given-name|family-name|additional-name)($|\s)/.test(ac(n)) ||
-      /full[ -]?name|first[ -]?name|last[ -]?name|surname|account[ -]?holder|cardholder|your[ -]?name|customer[ -]?name/.test(c),
+      /full[ -]?name|first[ -]?name|last[ -]?name|surname|account[ -]?holder|cardholder|your[ -]?name|customer[ -]?name/.test(c) ||
+      [n.label, n.context_label].some((l) => l !== null && BARE_NAME_LABELS.has(l.trim().toLowerCase().replace(/[:*\s]+$/, ''))),
   },
   {
     type: 'date_of_birth',
@@ -154,5 +160,23 @@ export const DOM_RULES: DomRule[] = [
     test: (n, c) =>
       /(^|\s)username($|\s)/.test(ac(n)) ||
       /\b(customer|member(ship)?|subscriber|policy|client|user|login|account)[ -_]?(id|number|no|handle)\b|\breference[ -_]?(number|no|id)\b|\bcust(omer)?[ -_]?ref(erence)?\b|\bcrn\b|\buser[ -_]?name\b/.test(c),
+  },
+];
+
+/**
+ * Rules for image regions (img, canvas, svg), which carry no text of their own.
+ * A QR code encodes a payee handle or a URL the pixels would hand to anyone who
+ * scans the screenshot, so a named QR image is black-boxed and declared as a
+ * `frame`, like an iframe.
+ */
+export const MEDIA_RULES: DomRule[] = [
+  {
+    type: 'frame',
+    detector: 'dom:qr',
+    confidence: 0.85,
+    test: (n) =>
+      [n.attrs.alt, n.attrs.title, n.attrs.id, n.attrs.class, n.attrs.src_file].some(
+        (a) => !!a && /(^|[^a-z])qr([^a-z]|$)|upi[-_ ]?qr|scan[-_ ]?to[-_ ]?pay/i.test(a),
+      ),
   },
 ];

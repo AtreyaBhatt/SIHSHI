@@ -139,4 +139,32 @@ export const FIXTURES = [
     // make the independent firewall (redaction/firewall.ts) the sole catcher.
     firewallCatches: ['prose email caught only by regex:email', 'p#contact', 'support.desk@example.org'],
   },
+  {
+    name: 'india-pii (bare labels, UPI, IBAN, native digits, split inputs, QR)',
+    file: '../eval/fixtures/india-pii.html',
+    mustNotAppear: [
+      ['name under a bare Name label', 'Meera Nair'],
+      ['labelled UPI handle', 'meera.nair@okhdfc'],
+      ['UPI handle in prose', 'meera.n@oksbi'],
+      ['IBAN', 'GB29 NWBK 6016 1331 9268 19'],
+      ['Aadhaar in Devanagari digits', '२३४५ ६७८९ ०१२४'],
+    ],
+    // Four digits or one digit are not unique strings on a page; assert the
+    // fields themselves.
+    redactedFields: [
+      ...[1, 2, 3, 4].map((i) => [`split card part ${i}`, `input#c${i}`]),
+      ...[1, 2, 3, 4, 5, 6].map((i) => [`split OTP digit ${i}`, `input#o${i}`]),
+    ],
+    mustAppear: [
+      ['File name control', 'report.pdf'],
+      ['Bank name control', 'Meridian Bank'],
+      ['tracking number control', 'Tracking 1234 5678 9012 3456 7890'],
+    ],
+    unredactedFields: [
+      ['File name value', 'dd#f1'],
+      ['Bank name value', 'dd#b1'],
+      ['tracking number', 'p#t1'],
+    ],
+    manifestTypes: ['person_name', 'account_id', 'bank_account', 'aadhaar', 'card_number', 'otp', 'frame'],
+  },
 ];

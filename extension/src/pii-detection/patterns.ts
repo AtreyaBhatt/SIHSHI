@@ -28,12 +28,56 @@ export interface PatternRule {
   requires_context?: RegExp;
 }
 
+/** ISO 13616 mod-97 check. */
+export function isIban(raw: string): boolean {
+  const s = raw.replace(/ /g, '');
+  if (s.length < 15 || s.length > 34) return false;
+  const moved = s.slice(4) + s.slice(0, 4);
+  let rem = 0;
+  for (const ch of moved) {
+    const v = parseInt(ch, 36);
+    rem = (v > 9 ? rem * 100 + v : rem * 10 + v) % 97;
+  }
+  return rem === 1;
+}
+
+/** Zero code points of the BMP decimal-digit blocks (Arabic-Indic through fullwidth). */
+const DIGIT_ZEROS = [0x0660, 0x06f0, 0x0966, 0x09e6, 0x0a66, 0x0ae6, 0x0b66, 0x0be6, 0x0c66, 0x0ce6, 0x0d66, 0x0e50, 0xff10];
+
+/**
+ * Maps non-ASCII decimal digits (Devanagari, Bengali, Tamil, fullwidth, ...) to
+ * ASCII one code unit for one, so a span found in the folded string indexes
+ * the original unchanged.
+ */
+export function foldDigits(s: string): string {
+  return s.replace(/[\u0660-\u0669\u06f0-\u06f9\u0966-\u096f\u09e6-\u09ef\u0a66-\u0a6f\u0ae6-\u0aef\u0b66-\u0b6f\u0be6-\u0bef\u0c66-\u0c6f\u0ce6-\u0cef\u0d66-\u0d6f\u0e50-\u0e59\uff10-\uff19]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    const zero = DIGIT_ZEROS.find((z) => code >= z && code <= z + 9)!;
+    return String(code - zero);
+  });
+}
+
 export const PATTERNS: PatternRule[] = [
   {
     type: 'email',
     detector: 'regex:email',
     regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
     confidence: 0.95,
+  },
+  {
+    // UPI handle (name@bank). After email and at lower confidence, so an email
+    // address overlapping it wins in resolveOverlaps.
+    type: 'account_id',
+    detector: 'regex:upi',
+    regex: /\b[A-Za-z0-9._-]{2,256}@[A-Za-z]{2,64}\b(?!\.?\w)/g,
+    confidence: 0.85,
+  },
+  {
+    type: 'bank_account',
+    detector: 'regex:iban+mod97',
+    regex: /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?\b/g,
+    confidence: 0.9,
+    validate: isIban,
   },
   {
     type: 'card_number',

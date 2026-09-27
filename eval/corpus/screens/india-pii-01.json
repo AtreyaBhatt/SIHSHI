@@ -1,0 +1,254 @@
+{
+  "screen_id": "india-pii-01",
+  "source": "fixture",
+  "page_url": "fixtures/india-pii.html",
+  "viewport": {
+    "width": 1280,
+    "height": 713,
+    "device_pixel_ratio": 1
+  },
+  "annotator": "authored from the fixture's planted values, independently of the detectors",
+  "notes": "India-specific shapes: bare Name label, UPI handles, IBAN, Devanagari-digit Aadhaar, split card and OTP inputs, UPI QR image. dd#f1 (File name), dd#b1 (Bank name) and p#t1 (20-digit tracking number) are deliberately NOT annotated: they are controls, and a detector that boxes them is over-redacting.",
+  "annotations": [
+    {
+      "id": "n1",
+      "type": "person_name",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        184,
+        32,
+        504,
+        54.5
+      ],
+      "dom_path": "dd#n1",
+      "value_present": true,
+      "notes": "Value under a bare <dt>Name</dt> label."
+    },
+    {
+      "id": "u1",
+      "type": "account_id",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        184,
+        60.5,
+        504,
+        83
+      ],
+      "dom_path": "dd#u1",
+      "value_present": true,
+      "notes": "UPI handle under <dt>UPI</dt>."
+    },
+    {
+      "id": "p1",
+      "type": "account_id",
+      "tier": 2,
+      "modality": "text",
+      "bbox": [
+        134.39,
+        157,
+        243.8,
+        177
+      ],
+      "dom_path": "p#p1",
+      "value_present": true,
+      "notes": "UPI handle loose in prose. Measured as a text range inside p#p1."
+    },
+    {
+      "id": "i1",
+      "type": "bank_account",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        71.72,
+        187.5,
+        293.56,
+        207.5
+      ],
+      "dom_path": "p#i1",
+      "value_present": true,
+      "notes": "Measured as a text range inside p#i1."
+    },
+    {
+      "id": "d1",
+      "type": "aadhaar",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        95.41,
+        218,
+        196.83,
+        238
+      ],
+      "dom_path": "p#d1",
+      "value_present": true,
+      "notes": "Aadhaar written in Devanagari digits. Measured as a text range inside p#d1."
+    },
+    {
+      "id": "c1",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        32,
+        278,
+        104,
+        316.5
+      ],
+      "dom_path": "input#c1",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "c2",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        112,
+        278,
+        184,
+        316.5
+      ],
+      "dom_path": "input#c2",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "c3",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        192,
+        278,
+        264,
+        316.5
+      ],
+      "dom_path": "input#c3",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "c4",
+      "type": "card_number",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        272,
+        278,
+        344,
+        316.5
+      ],
+      "dom_path": "input#c4",
+      "value_present": true,
+      "notes": "One of four inputs that together hold one card number."
+    },
+    {
+      "id": "o1",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        32,
+        362.5,
+        76,
+        401
+      ],
+      "dom_path": "input#o1",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o2",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        84,
+        362.5,
+        128,
+        401
+      ],
+      "dom_path": "input#o2",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o3",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        136,
+        362.5,
+        180,
+        401
+      ],
+      "dom_path": "input#o3",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o4",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        188,
+        362.5,
+        232,
+        401
+      ],
+      "dom_path": "input#o4",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o5",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        240,
+        362.5,
+        284,
+        401
+      ],
+      "dom_path": "input#o5",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "o6",
+      "type": "otp",
+      "tier": 1,
+      "modality": "text",
+      "bbox": [
+        292,
+        362.5,
+        336,
+        401
+      ],
+      "dom_path": "input#o6",
+      "value_present": true,
+      "notes": "One of six single-digit OTP inputs under <h3>Enter OTP</h3>."
+    },
+    {
+      "id": "q1",
+      "type": "frame",
+      "tier": 1,
+      "modality": "pixel",
+      "bbox": [
+        32,
+        409,
+        152,
+        529
+      ],
+      "dom_path": "img#q1",
+      "value_present": true,
+      "notes": "UPI QR code image; the whole image is boxed as a frame region (encodes a payee handle)."
+    }
+  ]
+}

@@ -60,6 +60,16 @@ contains no detection logic.
 `<screen_id>` is lowercase kebab-case and stable: `bank-login-01`, `kyc-form-03`,
 `video-grid-02`. The `.png` and `.json` basenames must match.
 
+### Screens
+
+| screen_id | fixture | what it plants |
+|---|---|---|
+| `bank-login-01` | `fixtures/bank-login.html` | Scenario A: password, PAN, account, IFSC, card, contact details |
+| `kyc-form-01` | `fixtures/kyc-form.html` | Scenario C: Aadhaar, PAN, OTP, refund account, prose name/address (known gaps) |
+| `edge-cases-01` | `fixtures/edge-cases.html` | unlabelled fields, empty Tier-1 field, PII-naming headings, prose email |
+| `shadow-iframe-01` | `fixtures/shadow-iframe.html` | values in an open shadow root, an unwalked iframe |
+| `india-pii-01` | `fixtures/india-pii.html` | bare `Name` label, UPI handles, IBAN, Devanagari-digit Aadhaar, split card and OTP inputs, UPI QR image; controls `File name`, `Bank name`, a 20-digit tracking number |
+
 ## The one hard rule
 
 **Never put a real PII value in an annotation file.** This directory is committed
@@ -108,12 +118,13 @@ Write the reasoning in `notes` rather than guessing silently. Recurring ones:
 - **Partial values** (`•••• 4242`) — annotate. Last-four is still card data.
 - **Person's name in body prose** vs. **in a form label** — the value is Tier 2
   (`person_name`); the word "Name:" is Tier 3 and is not annotated.
-- **A bare `Name:`/`<dt>Name</dt>` label with no qualifying phrase** — known
-  detector gap, not just an annotation call. `dom-heuristics.ts`'s `person_name`
-  rule requires "full name", "your name", "account holder", etc.; a bare "Name"
-  label does not match, so the value next to it is Tier 3 (undetected) even
-  though a human reader would treat it as a name. Do not "fix" this by loosening
-  the rule to bare "Name" without discussing the precision trade-off (CLAUDE.md).
+- **A bare `Name:`/`<dt>Name</dt>` label** — the value is `person_name`.
+  `dom-heuristics.ts`'s `person_name` rule matches a label that is *exactly*
+  one of `name`, `applicant name`, `applicant's name`, `candidate name`,
+  `student name`, `patient name`, `nominee name`, `father's name`,
+  `mother's name`, `guardian name` (trimmed, lowercased, trailing `:`/`*`
+  removed). "File name" and "Bank name" do not match and stay Tier 3;
+  `india-pii-01` carries both as controls.
 - **A face in a decorative stock photo** — annotate as `face`. Tier 1 does not
   care whether the person is the user.
 

@@ -152,11 +152,21 @@ export interface RawDomNode {
     title: string | null;
     inputmode: string | null;
     maxlength: string | null;
+    /** Clipped to 80 chars. Media nodes only matter here (QR heuristic). */
+    class: string | null;
+    /** File name of an img's src (no path, no query), clipped to 80 chars. */
+    src_file: string | null;
   };
   bbox: BBox;
   interactive: boolean;
   /** Non-null for image/video/canvas/svg/picture (regions the face detector scans) and for iframe/frame/object/embed ('iframe' — masked whole, never scanned). */
   media: 'img' | 'video' | 'canvas' | 'svg' | 'picture' | 'iframe' | null;
+  /**
+   * Selector of the parent when this node is one of 3-8 sibling inputs or spans
+   * that each hold 1-6 digits (a card or OTP split across boxes). Detection
+   * joins the members' values to check them as one number.
+   */
+  group_id: string | null;
 }
 
 export interface RawSnapshot {

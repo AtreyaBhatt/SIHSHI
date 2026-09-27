@@ -259,6 +259,45 @@ function siblingLabel(el: Element): string | null {
   return text || null;
 }
 
+const GROUPABLE_INPUT = new Set(['text', 'tel', 'number']);
+
+/** One box of a split card/OTP/Aadhaar entry: a short input, or a span of 1-6 digits. */
+function isDigitBox(el: Element): boolean {
+  if (el.tagName === 'SPAN') return /^\d{1,6}$/.test((el.textContent ?? '').trim());
+  if (el.tagName !== 'INPUT' || !GROUPABLE_INPUT.has((el as HTMLInputElement).type)) return false;
+  const max = Number(el.getAttribute('maxlength'));
+  return max >= 1 && max <= 6;
+}
+
+/**
+ * Groups 3-8 same-tag digit boxes under one parent (`group_id` = the parent's
+ * path). Single-character groups of 4+ are OTP-shaped: they borrow the
+ * parent's own text and the nearest preceding heading/label as context.
+ */
+function digitGroup(el: Element, root: Root): { id: string; context: string | null } | null {
+  const parent = el.parentElement;
+  if (!parent || (el.tagName !== 'INPUT' && el.tagName !== 'SPAN')) return null;
+  const members = Array.from(parent.children).filter((c) => c.tagName === el.tagName);
+  if (members.length < 3 || members.length > 8 || !members.every(isDigitBox)) return null;
+  let context: string | null = null;
+  if (members.length >= 4 && members.every((m) => m.getAttribute('maxlength') === '1')) {
+    let heading: Element | null = parent.previousElementSibling;
+    for (let hops = 0; heading && hops < 3 && !/^(H[1-6]|LABEL|LEGEND)$/.test(heading.tagName); hops++) {
+      heading = heading.previousElementSibling;
+    }
+    const near = heading && /^(H[1-6]|LABEL|LEGEND)$/.test(heading.tagName) ? heading.textContent ?? '' : '';
+    context = clip(`${directText(parent)} ${near}`) || null;
+  }
+  return { id: cssPath(parent, root), context };
+}
+
+function srcFile(el: Element): string | null {
+  const src = el.getAttribute('src');
+  if (!src) return null;
+  const name = src.split(/[?#]/)[0]!.split('/').pop() ?? '';
+  return name ? name.slice(0, 80) : null;
+}
+
 // ---------------------------------------------------------------------------
 // The walk
 // ---------------------------------------------------------------------------
@@ -333,6 +372,7 @@ export function captureDomSnapshot(): RawSnapshot {
         if (shown) {
           const inputType = tag === 'input' ? ((el as HTMLInputElement).type?.toLowerCase() ?? 'text') : null;
           const { value, omitted } = readValue(el, tag, inputType);
+          const group = digitGroup(el, root);
 
           nodes.push({
             path: cssPath(el, root),
@@ -340,7 +380,7 @@ export function captureDomSnapshot(): RawSnapshot {
             role: elRole,
             label: accessibleName(el, tag),
             text: text || null,
-            context_label: siblingLabel(el),
+            context_label: siblingLabel(el) ?? group?.context ?? null,
             value,
             value_omitted: omitted,
             input_type: inputType,
@@ -354,10 +394,13 @@ export function captureDomSnapshot(): RawSnapshot {
               title: el.getAttribute('title'),
               inputmode: el.getAttribute('inputmode'),
               maxlength: el.getAttribute('maxlength'),
+              class: el.getAttribute('class')?.slice(0, 80) ?? null,
+              src_file: media ? srcFile(el) : null,
             },
             bbox: toBBox(rect),
             interactive,
             media,
+            group_id: group?.id ?? null,
           });
         }
       }
