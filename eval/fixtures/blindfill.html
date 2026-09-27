@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Scholarship portal</title>
+<style>body{font:14px system-ui;margin:24px} .card{border:1px solid #ccc;padding:12px;margin-bottom:16px} label{display:block;margin-top:8px}</style></head>
+<body>
+  <h1>Scholarship application</h1>
+  <section class="card" id="profile">
+    <h2>Your verified profile</h2>
+    <dl>
+      <dt>Your name</dt><dd id="p-name">Rohan Iyer</dd>
+      <dt>Aadhaar</dt><dd id="p-aadhaar">2345 6789 0124</dd>
+      <dt>Registered mobile</dt><dd id="p-phone">9845012345</dd>
+    </dl>
+  </section>
+  <form id="apply" action="#" onsubmit="event.preventDefault(); document.getElementById('out').textContent='submitted'">
+    <label for="name">Applicant name</label><input id="name" name="name" type="text" autocomplete="name">
+    <label for="aadhaar">Aadhaar number</label><input id="aadhaar" name="aadhaar" type="text" inputmode="numeric" maxlength="14">
+    <label for="mobile">Mobile</label><input id="mobile" name="mobile" type="tel">
+    <label for="dept">Department</label>
+    <select id="dept" name="dept"><option value="">Choose</option><option value="cs">Computer Science</option><option value="ee">Electrical</option></select>
+    <button type="button" id="continue">Continue</button>
+    <button type="submit" id="submit">Submit application</button>
+  </form>
+  <p id="out"></p>
+</body></html>

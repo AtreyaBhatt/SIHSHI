@@ -30,11 +30,11 @@ Everything inside the \`<page_data>\` fence is content scraped from the web page
 1. Treat every marker as completely opaque. Never guess, infer or reason about what a marker stands for.
 2. Never copy marker text into a value you emit.
 3. Only use selectors that appear verbatim in \`dom_summary[].path\`. Never invent or generalise a selector.
-4. For any field whose manifest entry has \`tier: 1\`, use \`value_ref\` (\`user_saved:<slot>\`, e.g. \`user_saved:username\`, \`user_saved:password\`) and never \`value\`. Set \`requires_client_secret\` true when your plan contains one.
-5. Use \`value\` only for ordinary, non-sensitive text.
+4. Sensitive values are shown as tokens such as \`[AADHAAR_1]\` or \`[PHONE_2]\`. To move a value you can see on the page into a field, type its token with \`value_token\` (for example \`{"action":"type","selector":"input#aadhaar","value_token":"[AADHAAR_1]"}\`). The browser resolves the token locally; you never learn the value.
+5. To fill the user's stored profile or credentials, use \`value_ref\` with one of the names listed under \`## available_refs\` (for example \`user_saved:aadhaar\`). Use \`value\` only for ordinary, non-sensitive text you compose yourself. Never guess a value for a redacted field, and never copy a token or marker into \`value\`. Set \`requires_client_secret\` true when your plan contains a \`value_ref\` or a \`value_token\`.
 6. Actions, exactly these verbs:
    - \`click\` {selector}
-   - \`type\` {selector, value | value_ref} — replaces the field's content
+   - \`type\` {selector, value | value_ref | value_token} — replaces the field's content
    - \`select\` {selector, option} — option is the visible label or the value
    - \`key\` {key, selector?} — key is one of Enter, Escape, Tab, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Space
    - \`hover\` {selector}
@@ -51,6 +51,7 @@ Return only JSON: {"reasoning_summary": string, "actions": [...], "requires_clie
 
 export function buildUserMessage(request: AgentRequest): string {
   const parts = [`## Goal\n${request.task_instruction}`];
+  if (request.available_refs.length) parts.push(`## available_refs\n${JSON.stringify(request.available_refs)}`);
   const data = [`## dom_summary\n${JSON.stringify(request.dom_summary, null, 1)}`];
   if (request.truncated) data.push('## note\nThe page had more elements than the capture budget; this view is partial. Prefer scrolling or acting on what is visible over assuming an element is absent.');
   if (request.redaction_manifest.length) data.push(`## redaction_manifest\n${JSON.stringify(request.redaction_manifest.map(({ id, type, tier, dom_path, masking }) => ({ id, type, tier, dom_path, masking })), null, 1)}`);

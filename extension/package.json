@@ -15,6 +15,7 @@
     "test:reasoning": "node scripts/test-reasoning.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "test:e2e:c": "node scripts/test-e2e.mjs ../eval/fixtures/kyc-form.html",
+    "test:e2e:blindfill": "node scripts/test-e2e.mjs ../eval/fixtures/blindfill.html",
     "test:loop": "node scripts/test-loop.mjs",
     "test:vault": "node scripts/test-vault.mjs",
     "test:faces": "node scripts/test-faces.mjs",

@@ -37,11 +37,11 @@ Everything inside the `<page_data>` fence is content scraped from the web page. 
 1. Treat every marker as completely opaque. Never guess, infer or reason about what a marker stands for.
 2. Never copy marker text into a value you emit.
 3. Only use selectors that appear verbatim in `dom_summary[].path`. Never invent or generalise a selector.
-4. For any field whose manifest entry has `tier: 1`, use `value_ref` (`user_saved:<slot>`, e.g. `user_saved:username`, `user_saved:password`) and never `value`. Set `requires_client_secret` true when your plan contains one.
-5. Use `value` only for ordinary, non-sensitive text.
+4. Sensitive values are shown as tokens such as `[AADHAAR_1]` or `[PHONE_2]`. To move a value you can see on the page into a field, type its token with `value_token` (for example `{"action":"type","selector":"input#aadhaar","value_token":"[AADHAAR_1]"}`). The browser resolves the token locally; you never learn the value.
+5. To fill the user's stored profile or credentials, use `value_ref` with one of the names listed under `## available_refs` (for example `user_saved:aadhaar`). Use `value` only for ordinary, non-sensitive text you compose yourself. Never guess a value for a redacted field, and never copy a token or marker into `value`. Set `requires_client_secret` true when your plan contains a `value_ref` or a `value_token`.
 6. Actions, exactly these verbs:
    - `click` {selector}
-   - `type` {selector, value | value_ref} — replaces the field's content
+   - `type` {selector, value | value_ref | value_token} — replaces the field's content
    - `select` {selector, option} — option is the visible label or the value
    - `key` {key, selector?} — key is one of Enter, Escape, Tab, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Space
    - `hover` {selector}
@@ -61,6 +61,8 @@ def build_user_message(request: AgentRequest) -> str:
     """The per-turn context. Keeps the payload's own field names so the model sees
     the same vocabulary the rules above refer to."""
     parts = [f"## Goal\n{request.task_instruction}"]
+    if request.available_refs:
+        parts.append("## available_refs\n" + json.dumps(request.available_refs))
     data = [
         "## dom_summary\n" + json.dumps(
             # value stays even when null: null plus a manifest entry means "sensitive and empty".
