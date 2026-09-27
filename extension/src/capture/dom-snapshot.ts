@@ -398,9 +398,17 @@ function srcFile(el: Element): string | null {
  * video) reflects what actually loaded (post-srcset, post-redirect); a bare
  * `src` attribute is the fallback for media that doesn't have it (canvas, svg).
  */
+/**
+ * A digest of the image URL, not of its bytes: a same-URL image whose bytes
+ * changed (server-side swap, cache-busted by headers only) is NOT detected as
+ * changed, so DeltaVision will reuse its old face boxes; the full-frame face
+ * pass still runs every step. Long (e.g. data:) URLs hash only their first
+ * 2048 chars plus their length.
+ */
 function srcHash(el: Element): string | null {
   const current = (el as { currentSrc?: string }).currentSrc || el.getAttribute('src');
-  return current ? fnv1a(current) : null;
+  if (!current) return null;
+  return fnv1a(current.length > 2048 ? `${current.slice(0, 2048)}|${current.length}` : current);
 }
 
 // ---------------------------------------------------------------------------

@@ -9,9 +9,13 @@
  *
  * Invariant this module exists to protect: PII detection always runs on the
  * full snapshot (every node is hashed and compared, every text/DOM heuristic
- * still sees every node) — only face inference on unchanged media regions may
- * be skipped, and only because the previous, already-detected boxes for that
- * exact region are reused verbatim, never invented or widened.
+ * still sees every node), and the full-frame face pass runs on every step.
+ * The ONLY thing skipped is the per-region (upscaled crop) face pass of an
+ * <img>/<svg>/etc. media node whose hash is unchanged since the previous step;
+ * that node's previously-detected boxes are reused instead (padded by
+ * REUSE_PAD_PX, never invented). <video> and <canvas> are always re-scanned
+ * (their pixels change under a constant hash). A failed detection never
+ * becomes remembered state (`advance` keeps the previous state).
  */
 import type { BBox, RawDomNode } from './schema';
 
@@ -37,6 +41,8 @@ export interface DeltaReport {
   media_area_reprocessed_pct: number;
   faces_reused: number;
   first_step: boolean;
+  /** Always true: the full-frame face pass is never skipped. */
+  full_frame_pass: true;
 }
 
 /** FNV-1a, 32-bit, rendered as 8 lowercase hex chars. Never the input itself — only its digest crosses this boundary. */
@@ -81,10 +87,53 @@ function isMedia(n: RawDomNode): boolean {
   return n.media !== null && n.media !== 'iframe';
 }
 
+/** Pixels change while the node (and its hash) stays the same. */
+function alwaysChanged(n: RawDomNode): boolean {
+  return n.media === 'video' || n.media === 'canvas';
+}
+
+/** Bbox rounding can shift a box by up to 0.5 px; reused boxes are widened by this much per side. */
+export const REUSE_PAD_PX = 2;
+
+export function padBox(b: BBox, width: number, height: number, pad = REUSE_PAD_PX): BBox {
+  return [
+    Math.max(0, b[0] - pad),
+    Math.max(0, b[1] - pad),
+    Math.min(width, b[2] + pad),
+    Math.min(height, b[3] + pad),
+  ];
+}
+
+function iou(a: BBox, b: BBox): number {
+  const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+  const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const inter = ix * iy;
+  const union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+/** Drops a box whose IoU with an already-kept (earlier) box exceeds 0.8. */
+export function dedupeFaces(faces: FaceBox[]): FaceBox[] {
+  const kept: FaceBox[] = [];
+  for (const f of faces) if (!kept.some((k) => iou(k.bbox, f.bbox) > 0.8)) kept.push(f);
+  return kept;
+}
+
+export interface DeltaPlan {
+  /** Media whose per-region pass must run: new, hash changed, or video/canvas. */
+  changedMedia: RawDomNode[];
+  /** Every non-iframe media node in this capture. */
+  mediaNodes: RawDomNode[];
+  /** Unpadded boxes remembered for unchanged media (pad with padBox before redacting). */
+  reusedFaces: FaceBox[];
+  report: DeltaReport;
+  hashes: Map<string, string>;
+}
+
 export function planDelta(
   prev: StepState | null,
   nodes: RawDomNode[],
-): { changedMedia: RawDomNode[]; reusedFaces: FaceBox[]; report: DeltaReport; hashes: Map<string, string> } {
+): DeltaPlan {
   const firstStep = prev === null;
   const hashes = new Map<string, string>();
   const changedPaths = new Set<string>();
@@ -97,8 +146,8 @@ export function planDelta(
   }
 
   const mediaNodes = nodes.filter(isMedia);
-  const changedMedia = mediaNodes.filter((n) => changedPaths.has(n.path));
-  const unchangedMedia = mediaNodes.filter((n) => !changedPaths.has(n.path));
+  const changedMedia = mediaNodes.filter((n) => changedPaths.has(n.path) || alwaysChanged(n));
+  const unchangedMedia = mediaNodes.filter((n) => !changedMedia.includes(n));
 
   const reusedFaces: FaceBox[] = [];
   if (prev) {
@@ -120,28 +169,24 @@ export function planDelta(
     media_area_reprocessed_pct: totalMediaArea > 0 ? round1((changedMediaArea / totalMediaArea) * 100) : 0,
     faces_reused: reusedFaces.length,
     first_step: firstStep,
+    full_frame_pass: true,
   };
 
-  return { changedMedia, reusedFaces, report, hashes };
+  return { changedMedia, mediaNodes, reusedFaces, report, hashes };
 }
 
 /**
  * Builds the next step's state: `hashes` carried through unchanged, and a
  * fresh `facesByPath` built by assigning every face box in `faces` (newly
- * detected this step) and `reused` (carried over from the previous step) to
- * whichever of `mediaNodes` contains that face's centre point. `prev` is not
- * read here — reuse already happened in `planDelta`; it is accepted only to
- * keep the two functions' signatures symmetric for callers that thread one
- * state object through both.
+ * detected this step) and `reused` (carried over from the previous step),
+ * deduplicated, to whichever of `mediaNodes` contains that face's centre point.
  */
 export function nextState(
   hashes: Map<string, string>,
   mediaNodes: RawDomNode[],
   faces: FaceBox[],
   reused: FaceBox[],
-  prev: StepState | null,
 ): StepState {
-  void prev;
   const facesByPath = new Map<string, FaceBox[]>();
 
   const assign = (face: FaceBox) => {
@@ -158,8 +203,16 @@ export function nextState(
     }
   };
 
-  for (const f of faces) assign(f);
-  for (const f of reused) assign(f);
+  for (const f of dedupeFaces([...faces, ...reused])) assign(f);
 
   return { hashes, facesByPath };
+}
+
+/**
+ * The state the worker keeps after a step. `faces === null` means detection
+ * did not complete (no screenshot, detector error): the previous state is kept
+ * unchanged, so every region that changed this step is still "changed" next step.
+ */
+export function advance(prev: StepState | null, plan: DeltaPlan, faces: FaceBox[] | null): StepState | null {
+  return faces === null ? prev : nextState(plan.hashes, plan.mediaNodes, faces, plan.reusedFaces);
 }

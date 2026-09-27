@@ -16,7 +16,7 @@ await build({
   outfile: join(temp, 'delta.mjs'),
   bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error',
 });
-const { hashNode, planDelta, nextState, fnv1a } = await import(`file://${join(temp, 'delta.mjs')}`);
+const { hashNode, planDelta, nextState, advance, dedupeFaces, padBox, fnv1a } = await import(`file://${join(temp, 'delta.mjs')}`);
 await rm(temp, { recursive: true, force: true }).catch(() => {});
 
 let failures = 0;
@@ -61,7 +61,7 @@ console.log('\n(b) identical second step:');
 {
   const nodes = [node('p#a', { text: 'hi' }), img('img#one')];
   const step1 = planDelta(null, nodes);
-  const state1 = nextState(step1.hashes, [nodes[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], [], null);
+  const state1 = nextState(step1.hashes, [nodes[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], []);
   const step2 = planDelta(state1, nodes);
   check(step2.report.first_step === false, 'first_step is false on the second step');
   check(step2.report.nodes_changed === 0, `0 nodes changed (got ${step2.report.nodes_changed})`);
@@ -75,7 +75,7 @@ console.log('\n(c) one text node changes, media untouched:');
   const before = [node('p#a', { text: 'hi' }), img('img#one')];
   const state1 = (() => {
     const p = planDelta(null, before);
-    return nextState(p.hashes, [before[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], [], null);
+    return nextState(p.hashes, [before[1]], [{ bbox: [10, 10, 30, 30], confidence: 0.9 }], []);
   })();
   const after = [node('p#a', { text: 'bye' }), img('img#one')];
   const step2 = planDelta(state1, after);
@@ -99,7 +99,6 @@ console.log('\n(d) one image src_hash changes, the other is reused:');
       { bbox: [110, 10, 130, 30], confidence: 0.8 }, // centre (120,20) -> img#two
     ],
     [],
-    null,
   );
   const after = [
     img('img#one', { bbox: [0, 0, 100, 100], attrs: { ...node('x').attrs, src_hash: 'cccccccc' } }), // swapped image, same path/box/alt
@@ -118,7 +117,7 @@ console.log('\n(e) a node bbox moves:');
 {
   const before = [node('p#a', { text: 'hi', bbox: [0, 0, 50, 20] })];
   const p1 = planDelta(null, before);
-  const state1 = nextState(p1.hashes, [], [], [], null);
+  const state1 = nextState(p1.hashes, [], [], []);
   const after = [node('p#a', { text: 'hi', bbox: [0, 40, 50, 60] })];
   const step2 = planDelta(state1, after);
   check(step2.report.nodes_changed === 1, `moved node counts as changed (got ${step2.report.nodes_changed})`);
@@ -134,7 +133,7 @@ console.log('\n(f) a face is assigned to the media node containing its centre:')
     { bbox: [10, 10, 30, 30], confidence: 0.9 }, // centre (20,20) -> img#left
     { bbox: [210, 10, 230, 30], confidence: 0.8 }, // centre (220,20) -> img#right
   ];
-  const state = nextState(new Map(), mediaNodes, faces, [], null);
+  const state = nextState(new Map(), mediaNodes, faces, []);
   check(state.facesByPath.get('img#left')?.length === 1, 'left face assigned to img#left');
   check(state.facesByPath.get('img#right')?.length === 1, 'right face assigned to img#right');
 }
@@ -148,10 +147,78 @@ console.log('\n(g) percentages rounded to one decimal, never NaN with zero media
   check(!Number.isNaN(p1.report.nodes_changed_pct), 'nodes_changed_pct is not NaN');
 
   // One-decimal rounding: 1 of 3 nodes changed -> 33.3%, not 33.333...
-  const state1 = nextState(p1.hashes, [], [], [], null);
+  const state1 = nextState(p1.hashes, [], [], []);
   const after = [node('p#a', { text: 'hi' }), node('p#b', { text: 'CHANGED' }), node('p#c', { text: 'two' })];
   const step2 = planDelta(state1, after);
   check(step2.report.nodes_changed_pct === 33.3, `rounded to one decimal (got ${step2.report.nodes_changed_pct})`);
+}
+
+console.log('\n(K1) a face outside all media is not lost — full-frame pass every step:');
+{
+  const nodes = [node('p#a', { text: 'hi' }), img('img#one')];
+  const p1 = planDelta(null, nodes);
+  // face at (500,500) lies outside img#one: stored nowhere, so it must be re-found by the full-frame pass
+  const s1 = advance(null, p1, [{ bbox: [480, 480, 520, 520], confidence: 0.9 }]);
+  check(s1.facesByPath.size === 0, 'the off-media face is not stored under any path');
+  const p2 = planDelta(s1, nodes);
+  check(p2.report.full_frame_pass === true, 'step 2 report.full_frame_pass is true');
+  check(p1.report.full_frame_pass === true, 'step 1 report.full_frame_pass is true');
+  check(p2.changedMedia.length === 0, 'unchanged img#one has its region pass skipped (only that is skipped)');
+}
+
+console.log('\n(K3) video and canvas are always re-scanned, never reused:');
+{
+  const nodes = [
+    node('video#v', { tag: 'video', media: 'video', bbox: [0, 0, 100, 100] }),
+    node('canvas#c', { tag: 'canvas', media: 'canvas', bbox: [200, 0, 300, 100] }),
+  ];
+  const p1 = planDelta(null, nodes);
+  const s1 = advance(null, p1, [
+    { bbox: [10, 10, 30, 30], confidence: 0.9 },
+    { bbox: [210, 10, 230, 30], confidence: 0.9 },
+  ]);
+  const p2 = planDelta(s1, nodes);
+  check(p2.report.nodes_changed === 0, 'their hashes are unchanged');
+  check(p2.changedMedia.length === 2, `video and canvas are both in changedMedia (got ${p2.changedMedia.length})`);
+  check(p2.reusedFaces.length === 0, 'no face of theirs is reused');
+}
+
+console.log('\n(K4) a failed detection does not advance state:');
+{
+  const before = [img('img#one', { attrs: { ...node('x').attrs, src_hash: 'aaaaaaaa' } })];
+  const p1 = planDelta(null, before);
+  const s1 = advance(null, p1, [{ bbox: [10, 10, 30, 30], confidence: 0.9 }]);
+  const after = [img('img#one', { attrs: { ...node('x').attrs, src_hash: 'bbbbbbbb' } })];
+  const p2 = planDelta(s1, after);
+  check(p2.changedMedia.length === 1, 'the swapped image is changed on step 2');
+  const s2 = advance(s1, p2, null);
+  check(s2 === s1, 'advance(prev, plan, null) returns prev');
+  const p3 = planDelta(s2, after);
+  check(p3.changedMedia.length === 1, 'step 3 still re-processes the image that step 2 failed to scan');
+  check(advance(null, p1, null) === null, 'a failed first step leaves no state');
+}
+
+console.log('\n(K6) dedupe:');
+{
+  const a = { bbox: [0, 0, 100, 100], confidence: 0.9 };
+  const b = { bbox: [1, 1, 100, 100], confidence: 0.8 }; // IoU 0.9801
+  const c = { bbox: [0, 0, 100, 50], confidence: 0.8 };  // IoU 0.5
+  const kept = dedupeFaces([a, b, c]);
+  check(kept.length === 2 && kept[0] === a && kept[1] === c, 'a box with IoU > 0.8 to a kept box is dropped; IoU 0.5 kept');
+  const n = img('img#one', { bbox: [0, 0, 200, 200] });
+  const s = nextState(new Map(), [n], [a], [b]);
+  check(s.facesByPath.get('img#one').length === 1, 'new + reused duplicates are stored once');
+}
+
+console.log('\n(K7) padding:');
+{
+  check(JSON.stringify(padBox([10, 10, 30, 30], 100, 100)) === '[8,8,32,32]', 'padded by 2 px per side');
+  check(JSON.stringify(padBox([1, 0, 99, 100], 100, 100)) === '[0,0,100,100]', 'clamped to the viewport');
+  // stored boxes stay unpadded, so reuse over many steps does not grow them
+  const nodes = [img('img#one')];
+  let s = advance(null, planDelta(null, nodes), [{ bbox: [10, 10, 30, 30], confidence: 0.9 }]);
+  for (let i = 0; i < 3; i++) { const p = planDelta(s, nodes); s = advance(s, p, []); }
+  check(JSON.stringify(s.facesByPath.get('img#one')[0].bbox) === '[10,10,30,30]', 'stored box does not grow across steps');
 }
 
 console.log('\nfnv1a:');

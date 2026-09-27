@@ -27,7 +27,7 @@ import {
 } from '../shared/vault';
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
-import { planDelta, nextState, type DeltaReport, type FaceBox, type StepState } from '../shared/delta';
+import { planDelta, advance, padBox, type DeltaReport, type FaceBox, type StepState } from '../shared/delta';
 import {
   approve, drive, newRun, stop, type Run, type RunStatus,
 } from './agent/loop';
@@ -245,40 +245,25 @@ function toFaceDetection(f: FaceBox): FaceDetection {
  * machine where the runtime will not start must not cost the user their text
  * redaction. Failures are reported, not thrown.
  *
- * DeltaVision: only media regions whose node hash changed since `prev` (or
- * every region, on the first step / when there is no `prev`) are sent to the
- * detector; faces already known for unchanged regions are carried over from
- * `prev.facesByPath` and merged in, never dropped. On any doubt — no `prev`,
- * a hash mismatch, a missing model — the region is (re)processed; reuse only
- * ever narrows what is *sent*, never what is *redacted*.
+ * DeltaVision: the full-frame pass runs on every step. Only the per-region
+ * (crop) passes of media whose node hash is unchanged since `prev` are
+ * skipped; those regions' previously-known faces are reused (padded) and
+ * merged in. Video/canvas, new or changed media, and every region on the
+ * first step are always re-scanned. On any failure (no screenshot, detector
+ * error) the returned state is `prev` unchanged, so nothing that went
+ * unscanned is ever remembered as "no faces".
  */
 async function detectFaces(
   capture: CaptureResult,
   prev: StepState | null,
-): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState }> {
-  const { changedMedia, reusedFaces, report, hashes } = planDelta(prev, capture.snapshot.nodes);
-  const mediaNodes = capture.snapshot.nodes.filter((n) => n.media && n.media !== 'iframe');
-  const reusedDetections = reusedFaces.map(toFaceDetection);
+): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null }> {
+  const plan = planDelta(prev, capture.snapshot.nodes);
+  const { changedMedia, reusedFaces, report } = plan;
+  const { width, height } = capture.snapshot.viewport;
+  const reusedDetections = reusedFaces.map((f) => toFaceDetection({ ...f, bbox: padBox(f.bbox, width, height) }));
+  const failed = (note: string) => ({ faces: reusedDetections, note, report, state: advance(prev, plan, null) });
 
-  const skipReprocess = capture.screenshot_data_url === null;
-  const skipCall = changedMedia.length === 0 && !report.first_step;
-
-  if (skipReprocess) {
-    return {
-      faces: reusedDetections,
-      note: 'no screenshot to scan',
-      report,
-      state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
-    };
-  }
-  if (skipCall) {
-    return {
-      faces: reusedDetections,
-      note: `${reusedFaces.length} face(s) reused · 0 ms`,
-      report,
-      state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
-    };
-  }
+  if (capture.screenshot_data_url === null) return failed('no screenshot to scan');
 
   try {
     await ensureOffscreen();
@@ -290,34 +275,19 @@ async function detectFaces(
       type: 'athena:detect-faces',
       screenshot_data_url: capture.screenshot_data_url,
       regions,
-      viewport_width: capture.snapshot.viewport.width,
-      // The full-frame pass only runs on the first step; a later step with
-      // some changed media scans those regions only, not the whole frame again.
-      full_frame: report.first_step,
+      viewport_width: width,
+      // No full_frame knob exists: the whole-frame pass always runs (DeltaVision K1).
     })) as DetectFacesReply;
 
-    if (!reply?.ok) {
-      return {
-        faces: reusedDetections,
-        note: reply?.error ?? 'face detector returned nothing',
-        report,
-        state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
-      };
-    }
-    const state = nextState(hashes, mediaNodes, reply.faces.map(toFaceBox), reusedFaces, prev);
+    if (!reply?.ok) return failed(reply?.error ?? 'face detector returned nothing');
     return {
       faces: [...reply.faces, ...reusedDetections],
       note: `${reply.faces.length} new + ${reusedFaces.length} reused face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
       report,
-      state,
+      state: advance(prev, plan, reply.faces.map(toFaceBox)),
     };
   } catch (err) {
-    return {
-      faces: reusedDetections,
-      note: err instanceof Error ? err.message : String(err),
-      report,
-      state: nextState(hashes, mediaNodes, [], reusedFaces, prev),
-    };
+    return failed(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -331,7 +301,8 @@ async function buildPayload(
   const started = performance.now();
   try {
     const { faces, note, report, state } = await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
-    stepStates.set(registry.session_id, state);
+    if (state) stepStates.set(registry.session_id, state);
+    else stepStates.delete(registry.session_id);
     const { request, detections, firewall } = await buildAgentRequest({
       snapshot: capture.snapshot,
       screenshotDataUrl: capture.screenshot_data_url,
