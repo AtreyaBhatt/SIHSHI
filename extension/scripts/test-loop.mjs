@@ -86,6 +86,18 @@ console.log('mode approve-sensitive');
   check(run.status === 'done' && run.result === 'PAN and OTP are empty.' && run.history.length === 0, 'done with no actions ends without approval');
 }
 
+console.log('not done and no actions');
+{
+  const deps = fakeDeps([{ ...plan([]), guardrail_rejections: ['action[0] click: selector was not in dom_summary', 'action[1] type: needs exactly one of value / value_ref'] }]);
+  const run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
+  check(run.status === 'failed' && run.error === 'action[0] click: selector was not in dom_summary; action[1] type: needs exactly one of value / value_ref', `fails with the rejections (${run.status}: ${run.error})`);
+}
+{
+  const deps = fakeDeps([{ ...plan([]), reasoning_summary: 'No login form on this page.' }]);
+  const run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
+  check(run.status === 'failed' && run.error === 'No login form on this page.', `fails with the reasoning summary (${run.status}: ${run.error})`);
+}
+
 console.log('done with actions');
 {
   const deps = fakeDeps([plan([{ action: 'click', selector: 'button#go', risk: 'routine' }], true, 'Clicked.')]);

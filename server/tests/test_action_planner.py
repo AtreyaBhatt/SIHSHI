@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.action_planner import constrain, requires_client_secret
 from app.schemas import AgentAction, AgentRequest, PlanOutput
 
@@ -159,3 +161,29 @@ def test_value_only_applies_to_type(bank_login_payload):
     )
     assert kept == []
     assert all("value / value_ref only apply to type" in r for r in rejected)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        AgentAction(action="key", key="Enter"),
+        AgentAction(action="click", selector="button#submit"),
+        AgentAction(action="click", selector="body > header > nav > a:nth-of-type(1)"),
+        AgentAction(action="type", selector="input#reg-email", value="a@b.example"),
+        AgentAction(action="type", selector="input#password", value_ref="user_saved:password"),
+    ],
+)
+def test_risk_floor_forces_sensitive(bank_login_payload, action):
+    request = AgentRequest.model_validate(bank_login_payload)
+    kept, rejected = constrain(_plan(action), request)
+    assert rejected == []
+    assert kept[0].risk == "sensitive"
+
+
+def test_risk_floor_leaves_routine_alone(bank_login_payload):
+    request = AgentRequest.model_validate(bank_login_payload)
+    kept, _ = constrain(_plan(
+        AgentAction(action="key", key="Tab"),
+        AgentAction(action="type", selector="input#customer-id", value="x"),
+    ), request)
+    assert [a.risk for a in kept] == ["routine", "routine"]

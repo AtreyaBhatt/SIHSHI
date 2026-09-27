@@ -131,7 +131,7 @@ plan → gate → execute → settle, one step at a time, until the model calls
 | | |
 |---|---|
 | **Approve every step** | every planned action is shown for approval before it runs |
-| **Approve sensitive only** | routine-risk actions run automatically; sensitive-risk actions (submitting a form, anything destructive) still stop for approval |
+| **Approve sensitive only** | pauses for approval on: credentials (any `value_ref`), `navigate`, the Enter key, clicks on buttons and links, typing into any redacted field, and anything the model marks sensitive. Routine typing, selecting and scrolling proceed without a click |
 | **Stop** | ends the run immediately, mid-step if necessary |
 | Step cap | `storage.local` key `athena:max-steps` (default 25); no Settings control yet — set it via the extension's storage directly |
 

@@ -36,7 +36,7 @@ function optionalString(value: unknown): value is string | undefined {
  * dropped, not thrown: one bad action must not lose a good plan, and the
  * reasons travel back so the refusal is visible in the panel.
  */
-function constrainAction(candidate: unknown, index: number, allowedPaths: Set<string>, tier1Paths: Set<string>): { action?: AgentAction; rejection?: string } {
+function constrainAction(candidate: unknown, index: number, allowedPaths: Set<string>, tier1Paths: Set<string>, roles: Map<string, string | null>, redactedPaths: Set<string>): { action?: AgentAction; rejection?: string } {
   const label = `action[${index}]`;
   if (!isRecord(candidate) || !hasOnlyFields(candidate, ACTION_FIELDS)) return { rejection: `${label}: action has an unsupported shape` };
   if (typeof candidate.action !== 'string' || !ACTION_VERBS.has(candidate.action)) return { rejection: `${label}: unknown action verb ${JSON.stringify(candidate.action)}` };
@@ -64,7 +64,12 @@ function constrainAction(candidate: unknown, index: number, allowedPaths: Set<st
     if (value !== undefined && tier1Paths.has(selector!)) return { rejection: `${tag}: tier 1 fields must use value_ref` };
   }
 
-  const action: AgentAction = { action: verb, risk: verb === 'navigate' ? 'sensitive' : ((risk as ActionRisk | undefined) ?? 'routine') };
+  // Risk floor: these pause in approve-sensitive whatever the model said.
+  const floor = verb === 'navigate'
+    || (verb === 'key' && key === 'Enter')
+    || (verb === 'click' && ['button', 'link'].includes(roles.get(selector!) ?? ''))
+    || (verb === 'type' && redactedPaths.has(selector!));
+  const action: AgentAction = { action: verb, risk: floor ? 'sensitive' : ((risk as ActionRisk | undefined) ?? 'routine') };
   if (selector !== undefined) action.selector = selector;
   if (value !== undefined) action.value = value;
   if (valueRef !== undefined) action.value_ref = valueRef;
@@ -88,10 +93,12 @@ function parsePlan(raw: unknown, request: AgentRequest): AgentResponse {
 
   const allowedPaths = new Set(request.dom_summary.map((node) => node.path));
   const tier1Paths = new Set(request.redaction_manifest.filter((e) => e.tier === 1 && e.dom_path).map((e) => e.dom_path!));
+  const roles = new Map(request.dom_summary.map((node) => [node.path, node.role]));
+  const redactedPaths = new Set(request.redaction_manifest.filter((e) => e.dom_path).map((e) => e.dom_path!));
   const actions: AgentAction[] = [];
   const rejected: string[] = [];
   raw.actions.forEach((candidate, index) => {
-    const { action, rejection } = constrainAction(candidate, index, allowedPaths, tier1Paths);
+    const { action, rejection } = constrainAction(candidate, index, allowedPaths, tier1Paths, roles, redactedPaths);
     if (action) actions.push(action);
     if (rejection) rejected.push(rejection);
   });

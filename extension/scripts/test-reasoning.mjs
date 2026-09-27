@@ -34,7 +34,7 @@ const base = { reasoning_summary: 'x', requires_client_secret: false };
 
 console.log('shape');
 {
-  const r = run({ ...base, actions: [{ action: 'click', selector: 'button#go' }] });
+  const r = run({ ...base, actions: [{ action: 'click', selector: 'select#country' }] });
   check(r.done === false && r.result === null, 'done defaults false, result null');
   check(r.actions[0].risk === 'routine', 'risk defaults to routine');
 }
@@ -93,6 +93,21 @@ console.log('unchanged v1 rules');
   ] });
   check(r.actions.length === 1 && r.actions[0].value_ref === 'user_saved:password', 'only the value_ref type survives');
   check(r.requires_client_secret === true, 'requires_client_secret derived from actions');
+}
+
+console.log('risk floor');
+{
+  const r = run({ ...base, actions: [
+    { action: 'key', key: 'Enter', risk: 'routine' },
+    { action: 'click', selector: 'button#go', risk: 'routine' },
+    { action: 'type', selector: 'input#password', value_ref: 'user_saved:password', risk: 'routine' },
+    { action: 'key', key: 'Tab', risk: 'routine' },
+    { action: 'type', selector: 'input#user', value: 'abc', risk: 'routine' },
+  ] });
+  check(r.actions[0].risk === 'sensitive', 'key Enter is forced sensitive');
+  check(r.actions[1].risk === 'sensitive', 'click on a button is forced sensitive');
+  check(r.actions[2].risk === 'sensitive', 'type into a redacted field is forced sensitive');
+  check(r.actions[3].risk === 'routine' && r.actions[4].risk === 'routine', 'Tab and typing into a plain field stay routine');
 }
 
 console.log('value / value_ref only on type');

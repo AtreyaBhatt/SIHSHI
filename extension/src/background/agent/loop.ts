@@ -130,8 +130,9 @@ export async function drive(run: Run, deps: LoopDeps): Promise<Run> {
         }, deps);
         if (response.done && response.actions.length === 0) return transition(run, { status: 'done', result: response.result }, deps);
         if (response.actions.length === 0) {
-          // Nothing to do and not done: re-capturing would loop on the same page. Treat as cannot-advance.
-          return transition(run, { status: 'done', result: response.result ?? response.reasoning_summary }, deps);
+          // Nothing to do and not done: re-capturing would loop on the same page. The run cannot advance.
+          const why = response.guardrail_rejections?.length ? response.guardrail_rejections.join('; ') : response.reasoning_summary;
+          return transition(run, { status: 'failed', error: why }, deps);
         }
         run = await transition(run, { pending: response, status: needsApproval(run, response) ? 'awaiting_approval' : 'executing' }, deps);
         continue;

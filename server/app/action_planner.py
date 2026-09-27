@@ -45,6 +45,8 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
     """Returns (executable actions, human-readable rejections)."""
     allowed_paths = {node.path for node in request.dom_summary}
     tier1 = _tier1_paths(request)
+    roles = {node.path: node.role for node in request.dom_summary}
+    redacted = {e.dom_path for e in request.redaction_manifest if e.dom_path}
 
     kept: list[AgentAction] = []
     rejected: list[str] = []
@@ -92,7 +94,13 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
                 )
                 continue
 
-        if action.action == "navigate":
+        # Risk floor: these pause in approve-sensitive whatever the model said.
+        if (
+            action.action == "navigate"
+            or (action.action == "key" and action.key == "Enter")
+            or (action.action == "click" and roles.get(action.selector) in ("button", "link"))
+            or (action.action == "type" and action.selector in redacted)
+        ):
             action = action.model_copy(update={"risk": "sensitive"})
         kept.append(action)
 
