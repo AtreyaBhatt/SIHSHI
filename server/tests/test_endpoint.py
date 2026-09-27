@@ -72,9 +72,11 @@ def test_unknown_fields_are_rejected(bank_login_payload):
     assert client.post("/agent/plan", json=payload).status_code == 422
 
 
-@pytest.mark.parametrize("verb", ["delete", "navigate", "execute_script"])
+@pytest.mark.parametrize("verb", ["delete", "focus", "execute_script"])
 def test_action_grammar_is_closed(verb):
-    """PRD §3.2: a general automation DSL is an explicit non-goal."""
+    """PRD §3.2: a general automation DSL is an explicit non-goal. `navigate` is
+    a real v2 verb now, so it is no longer a good example of a rejected one —
+    `focus` is the verb v2 retired."""
     from app.schemas import AgentAction
 
     with pytest.raises(Exception):

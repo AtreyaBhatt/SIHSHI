@@ -48,17 +48,23 @@ class MockProvider:
 
         actions: list[AgentAction] = []
         if username_path:
-            actions.append(AgentAction(action="type", selector=username_path, value_ref="user_saved:username"))
+            actions.append(
+                AgentAction(action="type", selector=username_path, value_ref="user_saved:username", risk="routine")
+            )
         if password_path:
-            actions.append(AgentAction(action="type", selector=password_path, value_ref="user_saved:password"))
+            actions.append(
+                AgentAction(action="type", selector=password_path, value_ref="user_saved:password", risk="routine")
+            )
         if submit_path:
-            actions.append(AgentAction(action="click", selector=submit_path))
+            actions.append(AgentAction(action="click", selector=submit_path, risk="sensitive"))
 
         if not actions:
             return PlanOutput(
                 reasoning_summary="No login form was identifiable in the sanitized context.",
                 actions=[],
                 requires_client_secret=False,
+                done=True,
+                result="No login form was identifiable in the sanitized context.",
             )
 
         return PlanOutput(
@@ -68,6 +74,8 @@ class MockProvider:
             ),
             actions=actions,
             requires_client_secret=any(a.value_ref for a in actions),
+            done=False,
+            result=None,
         )
 
 

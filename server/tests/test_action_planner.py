@@ -110,3 +110,38 @@ def test_one_bad_action_does_not_lose_the_plan(bank_login_payload):
 
     assert len(kept) == 1 and kept[0].selector == good
     assert len(rejected) == 1
+
+
+def test_v2_verbs_survive_and_navigate_is_sensitive(bank_login_payload):
+    request = AgentRequest.model_validate(bank_login_payload)
+    path = request.dom_summary[0].path
+    kept, rejected = constrain(_plan(
+        AgentAction(action="hover", selector=path),
+        AgentAction(action="key", key="Enter"),
+        AgentAction(action="scroll", direction="up"),
+        AgentAction(action="navigate", url="https://example.com/x"),
+        AgentAction(action="go_back"),
+    ), request)
+    assert rejected == []
+    assert [a.action for a in kept] == ["hover", "key", "scroll", "navigate", "go_back"]
+    assert kept[3].risk == "sensitive"
+
+
+def test_v2_malformed_actions_are_dropped(bank_login_payload):
+    request = AgentRequest.model_validate(bank_login_payload)
+    path = request.dom_summary[0].path
+    kept, rejected = constrain(_plan(
+        AgentAction(action="select", selector=path),
+        AgentAction(action="navigate", url="javascript:alert(1)"),
+        AgentAction(action="hover"),
+        AgentAction(action="scroll", selector="input#not-sent"),
+    ), request)
+    assert kept == []
+    assert len(rejected) == 4
+
+
+def test_key_is_an_enum():
+    import pytest
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        AgentAction(action="key", key="F5")

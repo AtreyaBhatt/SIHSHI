@@ -21,7 +21,9 @@ MaskingStrategy = Literal["blackbox", "blur", "token", "partial"]
 
 # PRD §3.2 caps the action grammar at these verbs. Widening this is a product
 # decision, not a convenience — a general automation DSL is an explicit non-goal.
-ActionVerb = Literal["click", "type", "focus", "scroll", "read", "wait"]
+ActionVerb = Literal["click", "type", "select", "key", "hover", "scroll", "go_back", "navigate", "wait"]
+KeyName = Literal["Enter", "Escape", "Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace", "Space"]
+ActionRisk = Literal["routine", "sensitive"]
 
 
 class Strict(BaseModel):
@@ -55,6 +57,25 @@ class AgentAction(Strict):
     #: PRD §7.2 indirection. Names a locally-stored credential; the server never
     #: sees or supplies the secret itself.
     value_ref: str | None = None
+    #: select: visible option label (case-insensitive) or option value.
+    option: str | None = None
+    #: key.
+    key: KeyName | None = None
+    #: scroll, default down.
+    direction: Literal["up", "down"] | None = None
+    #: navigate, http(s) only.
+    url: str | None = None
+    #: Anything that submits, pays, sends, deletes, or leaves the site. navigate
+    #: is always sensitive.
+    risk: ActionRisk = "routine"
+
+
+class PriorAction(AgentAction):
+    """History entry: the action as executed plus what happened. `error` is
+    executor text, never a value."""
+
+    outcome: Literal["ok", "failed", "skipped"]
+    error: str | None = None
 
 
 class AgentRequest(Strict):
@@ -65,18 +86,22 @@ class AgentRequest(Strict):
     screenshot_redacted: str | None = None
     dom_summary: list[SanitizedDomNode]
     redaction_manifest: list[RedactionManifestEntry] = Field(default_factory=list)
-    prior_actions: list[AgentAction] = Field(default_factory=list)
+    prior_actions: list[PriorAction] = Field(default_factory=list)
     truncated: bool = False
 
 
 class AgentResponse(Strict):
-    """PRD §7.2, plus one addition.
+    """PRD §7.2, plus additions.
 
     `guardrail_rejections` is not in the PRD's response shape. It carries the
     actions the planner refused and why — an invented selector, a literal aimed
     at a Tier 1 field. Silent refusal would make the guardrail invisible exactly
     when it matters, and PRD §5 story 4 asks for an auditable trail. It is
     additive and clients may ignore it.
+
+    `done`/`result`: the model sets `done: true` when the goal is complete or
+    cannot be advanced and puts the answer or reason in `result`; `result`
+    never speculates about redacted content.
     """
 
     session_id: str
@@ -84,6 +109,8 @@ class AgentResponse(Strict):
     actions: list[AgentAction]
     requires_client_secret: bool
     guardrail_rejections: list[str] = Field(default_factory=list)
+    done: bool = False
+    result: str | None = None
 
 
 class PlanOutput(Strict):
@@ -92,3 +119,5 @@ class PlanOutput(Strict):
     reasoning_summary: str
     actions: list[AgentAction]
     requires_client_secret: bool
+    done: bool = False
+    result: str | None = None

@@ -41,4 +41,6 @@ async def plan_actions(request: AgentRequest) -> AgentResponse:
         # Derived from the surviving actions rather than trusted from the model.
         requires_client_secret=requires_client_secret(actions),
         guardrail_rejections=rejections,
+        done=plan.done,
+        result=plan.result,
     )

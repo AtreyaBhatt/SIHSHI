@@ -88,7 +88,9 @@ def test_pii_in_the_task_instruction_is_caught(bank_login_payload):
 
 def test_pii_echoed_through_prior_actions_is_caught(bank_login_payload, monkeypatch):
     payload = dict(bank_login_payload)
-    payload["prior_actions"] = [{"action": "type", "selector": "input#x", "value": RAW_EMAIL}]
+    payload["prior_actions"] = [
+        {"action": "type", "selector": "input#x", "value": RAW_EMAIL, "outcome": "ok"}
+    ]
     request = AgentRequest.model_validate(payload)
     report = inspect(request)
     assert any(f.dom_path == "prior_actions[0]" for f in report.findings)

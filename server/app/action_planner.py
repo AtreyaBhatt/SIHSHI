@@ -29,8 +29,8 @@ from .schemas import AgentAction, AgentRequest, PlanOutput
 
 VALUE_REF = re.compile(r"^user_saved:[A-Za-z0-9_.\-]{1,64}$")
 
-NEEDS_SELECTOR = frozenset({"click", "type", "focus"})
-FORBIDS_SELECTOR: frozenset[str] = frozenset()
+NEEDS_SELECTOR = frozenset({"click", "type", "select", "hover"})
+HTTP_URL = re.compile(r"^https?://\S+$")
 
 
 def _tier1_paths(request: AgentRequest) -> set[str]:
@@ -61,6 +61,13 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
             rejected.append(f"{label}: selector {action.selector!r} was not in dom_summary")
             continue
 
+        if action.action == "select" and not action.option:
+            rejected.append(f"{label}: requires an option"); continue
+        if action.action == "key" and action.key is None:
+            rejected.append(f"{label}: requires a key"); continue
+        if action.action == "navigate" and not (action.url and HTTP_URL.match(action.url)):
+            rejected.append(f"{label}: requires an http(s) url"); continue
+
         if action.value is not None and CONTAINS_MARKER.search(action.value):
             rejected.append(f"{label}: value echoes a redaction marker")
             continue
@@ -81,6 +88,8 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
                 )
                 continue
 
+        if action.action == "navigate":
+            action = action.model_copy(update={"risk": "sensitive"})
         kept.append(action)
 
     return kept, rejected
