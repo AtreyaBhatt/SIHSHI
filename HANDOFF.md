@@ -219,12 +219,14 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 | 21 | **A token can only be typed into a field a detector classified as the same type** | Fields with labels the DOM rules miss (for example "UID", "WhatsApp", non-English labels), fields resolved to a different single type, split card or Aadhaar inputs, and fields below the fold or inside iframes are refused by the guardrail; the user fills those by hand. |
 | 22 | **A same-URL image swap is invisible to DeltaVision** | `src_hash` (phase 5b) digests the image URL, not its bytes. A server-side swap of the image behind an unchanged URL is not seen as a change, so a stale face box from before the swap can be reused. The full-frame face pass still runs every step regardless — this only affects the per-region skip. |
 | 23 | **The QR rule is name-based, no decoding** | `dom:qr` matches on id/class/alt/filename (`qr`, `qrcode`, `scan-to-pay`, …). A real QR image with none of those names is missed; a non-QR image with such a name is over-redacted (declared `frame`, black-boxed) for nothing. |
-| 24 | **Every canvas over 32×32 px is black-boxed unconditionally** | Closes the "canvas paints text/an id the DOM walk never sees" gap, but cannot distinguish a sensitive canvas from a chart or any other decorative canvas — both are redacted the same way. |
+| 24 | **Every canvas over 32×32 px is black-boxed unconditionally** | Closes the "canvas paints text/an id the DOM walk never sees" gap, but cannot distinguish a sensitive canvas from anything else: canvas-based captchas, maps, signature pads, games and charts are black-boxed too, so the agent is blind to them and cannot complete a task that needs one. Black-boxed media (canvas, named QR) gets no region face crop; the full-frame pass still runs. |
 | 25 | **Split PIN boxes are undetected** | The OTP rule's context match excludes "PIN" on purpose (it is the standard Indian postal-code term; including it would false-positive every address field). A PIN split across several single-digit boxes is missed unless its own context also names it as an OTP/verification code. |
 | 26 | **Non-ASCII digit spans split across sibling elements do not group** | Digit folding (Devanagari, etc. → ASCII) happens inside `detectPii` over one node's already-assembled text; `group_id` assignment at capture time reads each span's raw text and never folds it. A card/Aadhaar/OTP written as adjacent `<span>`s of non-ASCII digits is neither grouped nor detected. |
 | 27 | **1×1 screen-reader-only text is over-dropped by the hidden-text rule** | The box-size camouflage rule (< 2×2 px) does not distinguish deliberate camouflage from the standard visually-hidden accessibility pattern; both are dropped and counted in `hidden_dropped`. Accepted as the conservative-by-default trade-off, not silently absorbed. |
 | 28 | **The metrics card's "panel JS heap" is the panel's own heap, not the worker's or the offscreen document's** | `performance.memory.usedJSHeapSize` is only ever available to the context that calls it; CPU and GPU usage are not exposed to extensions at all, and the card says so rather than estimating either one. |
 | 29 | **Pixel geometry stayed node-granular through phase 5b, and the corpus grew** | Tier-2 redaction precision (0.810, was 0.833 on the smaller phase 5a corpus) reflects the same known limitation (a detection inside a paragraph is masked with the paragraph's box) now measured against more Tier-2 items — not a regression in the masking itself. |
+| 30 | **An uncaptured textless overlay can hide and reveal an image without changing any hash** | DeltaVision's local `fx` digest (filter/opacity/visibility/clip-path/transform on a media node and on its filtered or translucent ancestors) catches a blur removed from a photo or its wrapper. An overlay element with no text that is not captured (not interactive, not media) can still cover and then uncover an image without any captured node changing; if nothing is removed from the snapshot either, the region pass is skipped. The always-on full-frame face pass is the only cover for that case. |
+| 31 | **Camouflage checks on names look at one element** | An interactive node's own-text name is checked against the node's own style only; a camouflaged child `<span>` inside a visible button still contributes to its name. Label sources hidden with `display:none`/`visibility:hidden` are treated per the same rules (a zero box is withheld; `visibility:hidden` is not a camouflage rule). |
 
 ---
 
@@ -322,6 +324,14 @@ Range `a00a1b8..HEAD`. Done.
   card-network prefix and card-like grouping, Aadhaar only matches a whole
   12-digit run. The demo switch only accepts detectors for types the firewall
   covers (email, card, Aadhaar, PAN, IFSC, SSN, phone) — no account ids.
+- Deferred from the phase 5b final review: a worker-level e2e with the
+  extension loaded (forced detector failure; `ServiceWorker.stopAllWorkers`);
+  span-level pixel boxes to recover IoU precision; split PIN boxes;
+  non-ASCII digit span grouping; a face is assigned to the first containing
+  media box only.
+- Split-field members (card/Aadhaar/OTP across sibling boxes) are sent as
+  fixed `[REDACTED:TYPE]` markers with per-member ids and no recorded value;
+  the guardrail rejects their ids as `value_token`.
 - Deferred from the final review: a worker-level BlindFill e2e that
   suspends the worker at approval (`ServiceWorker.stopAllWorkers`); removing
   the redundant `value`/`value_ref` type guard clause that the
@@ -357,15 +367,21 @@ Range `397587a..8cc0f13`. Done.
   `<input>`s, and split OTP boxes, grouped and detected as one item; QR images
   declared `frame` by element name (`qr`, `qrcode`, `scan-to-pay`, …), no
   decoding; every canvas over 32×32 px declared `frame` and black-boxed.
-- **Capture-time hidden-text rule.** Three camouflage checks — font under 2 px,
-  box under 2×2 px, text colour matching a *solid* ancestor background
-  (tolerance 8/channel) — drop text before any detector sees it and count the
-  drops into `hidden_dropped` (surfaced to the model and the metrics card as a
-  count only). Text over an image or gradient is exempted (the colour rule
-  can't speak to legibility there, so it errs toward keeping it). Camouflaged
-  text over a *sibling* overlay is not caught (only ancestor backgrounds are
-  walked) — accepted as a known limit (see §9 item 27 for one specific
-  over-drop case, 1×1 screen-reader text).
+- **Capture-time hidden-text rule** (heuristic). Camouflage checks — font
+  under 2 px; box under 2×2 px; effective opacity 0 (multiplied down the
+  ancestor chain); a fully transparent text colour; text colour matching the
+  effective *solid* background (walk includes `<html>`, tolerance 8/channel),
+  confirmed by `elementsFromPoint` at the text's centre — withhold text before
+  any detector sees it. Each withheld element is counted once into
+  `hidden_dropped` (surfaced to the model and the metrics card as a count
+  only). Text over an image or gradient is kept: a `background-image` in the
+  ancestor walk, or a non-ancestor `img`/`video`/`canvas`/`svg`/
+  `background-image` element under the text's centre, turns the colour rule
+  off. Plain text nodes that match are removed. Label sources (`<label for>`,
+  wrapping `<label>`, `aria-labelledby` targets, the sibling context label)
+  that match contribute nothing. Interactive nodes whose name comes from their
+  own visible text stay in the snapshot with `label: null`; interactive and
+  media nodes are never removed. See §9 items 27 and 31.
 - **DeltaVision** (`extension/src/shared/delta.ts`, pure — no `chrome.*`/DOM).
   PII text detection and the full-frame face pass are unconditional every
   step. The only thing ever skipped is the per-region (crop) face-detector
@@ -379,9 +395,12 @@ Range `397587a..8cc0f13`. Done.
   text redaction is unaffected. `eval/latency_stages.mjs --loop` demonstrates
   this: three captures of one page, no reload between them, printing
   `perception_ms`/`nodes_changed_pct`/`media_area_reprocessed_pct`/`faces_reused`
-  per step (see §7's sibling numbers in README.md's Results section — on
-  `application-portal.html`, step 1 re-processes 100% of media and finds 25
-  faces; steps 2–3 reuse all 25 with 0% media re-processed).
+  per step (see README.md's Results section — on `application-portal.html`,
+  step 1 re-processes 100% of media and finds 25 faces in the group
+  photograph `faces-2.jpg`; steps 2–3 reuse all 25 with 0% media
+  re-processed). Media nodes carry a local-only `fx` digest of their visual
+  effects so removing a blur is a change (§9 item 30 for what it misses).
+  Region scans are not sent for media a DOM rule already black-boxes.
 - **Metrics card.** A collapsed-by-default panel card, six groups (Privacy,
   Boundary, Performance, Resources, Delta, Benchmark), every number measured
   this run or read from `benchmark.json` (built from `eval/results/*.json`,
@@ -401,11 +420,12 @@ Range `397587a..8cc0f13`. Done.
   Corpus grew from 4 to 5 screens / 35 to 51 labelled items
   (`edge-cases-01`, `shadow-iframe-01`, `india-pii-01` added).
 
-**Known limits** (detail in the Known gaps table, §9, items 22–29):
+**Known limits** (detail in the Known gaps table, §9, items 22–31):
 - A same-URL image swap (server-side bytes change, URL unchanged) is invisible
   to DeltaVision's `src_hash` — the full-frame face pass still covers it.
-- The QR rule is name-based, not a decoder; the canvas rule over-redacts any
-  large canvas, sensitive or not.
+- The QR rule is name-based, not a decoder; the canvas rule black-boxes any
+  large canvas, sensitive or not — canvas captchas, maps, signature pads,
+  games and charts included, so the agent cannot see or use them.
 - Split PIN boxes (as opposed to OTP boxes) are undetected by design (the OTP
   context match excludes "PIN" — an Indian postal-code term).
 - Non-ASCII digit spans split across sibling elements are not grouped —

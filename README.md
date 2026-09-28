@@ -316,23 +316,46 @@ On top of the phase 5a cascade (DOM heuristics → regex/checksums → faces):
   missed and a non-QR image named `qr-something` is over-redacted.
 - **Every canvas larger than 32×32 px** is declared `frame` and black-boxed —
   closes the "canvas can paint text or an id the DOM walk never sees" gap.
-  Stated limit: this **over-redacts charts and other non-sensitive canvases**;
-  there is no way yet to tell a data visualization from a photographed card.
+  Stated limit: this **blinds the agent to every canvas-based widget** —
+  canvas captchas, maps, signature pads, games and charts are black-boxed
+  exactly like a canvas that paints an id; there is no way yet to tell them
+  apart. A task that needs to read or act on a canvas cannot be done.
+  Black-boxed media (canvas, named QR) gets no per-region face crop — its
+  pixels are filled anyway; the full-frame face pass still covers them.
 
 ## Hidden text (capture-time)
 
-Three rules drop text at capture, before any detector runs, and count what
-they drop into `hidden_dropped` (surfaced to the model in the prompt and on
-the metrics card, as a count only — never as which text):
+Heuristic rules withhold text at capture, before any detector runs, and count
+each withheld element once into `hidden_dropped` (surfaced to the model in the
+prompt and on the metrics card, as a count only — never as which text):
 
 1. Font size under 2 px.
 2. Box under 2×2 px.
-3. Text colour matching a **solid** ancestor background (walked up to
-   `<body>`, tolerance 8 per RGB channel).
+3. Effective opacity 0 — opacity multiplied down the ancestor chain, so text
+   inside an `opacity:0` parent is caught.
+4. A fully transparent text colour (`transparent`, `rgba(…, 0)`).
+5. Text colour matching the effective **solid** background (walked up to and
+   including `<html>`, tolerance 8 per RGB channel), confirmed with
+   `elementsFromPoint` at the text's centre.
 
-Text sitting over an image or a gradient is **kept** — rule 3 cannot tell
-whether it is legible there, so it does not apply, on purpose (better a false
-non-drop than blinding the model to a caption on a photo).
+Text over an image or a gradient is **kept**: a `background-image` in the
+ancestor walk, or an `img`/`video`/`canvas`/`svg`/`background-image` element
+(not the text's own ancestor) painted under the text's centre, turns rule 5
+off (better a false non-drop than blinding the model to a caption on a photo).
+`elementsFromPoint` skips `pointer-events: none` elements, so text over such
+an image can still be dropped.
+
+The rules apply where the text would reach the model:
+
+- **Plain text nodes** matching a rule are removed from the snapshot.
+- **Label sources** — `<label for>`, a wrapping `<label>`, `aria-labelledby`
+  targets, and the preceding `<dt>`/`<th>`/`<label>`/`<strong>`/`<b>` sibling
+  used as a context label — contribute nothing when they match a rule.
+- **Interactive nodes** whose name would come from their own visible text
+  (button, link, label, option, heading) **stay in the snapshot** so the agent
+  can still act on them, with `label: null`. Only the node's own style is
+  checked, not a camouflaged child span inside it.
+- Interactive and media nodes are never removed by these rules.
 
 **Accepted over-drop:** 1×1 screen-reader-only text (the classic
 visually-hidden accessibility pattern) is caught by rule 2 and dropped even
@@ -352,6 +375,12 @@ what can be skipped:
   reused (padded) instead of being re-detected.
 - `<video>` and `<canvas>` are **always** re-scanned — their pixels change
   under a constant hash.
+- A media node's hash includes a local-only `fx` digest of its filter,
+  opacity, visibility, clip-path and transform (and of any filtered or
+  translucent ancestor), so removing a blur is a change. It never leaves the
+  capture. Not covered: a textless overlay that is not captured can hide and
+  reveal an image without changing any hash — the full-frame pass is the
+  only cover there (HANDOFF §9 item 30).
 - A media node is forced back into the re-scan set when: it just finished
   loading (`attrs.loaded` flips), a changed or newly-added node's box
   overlaps it, or *any* node was removed since the last step (conservative —
@@ -378,8 +407,8 @@ nothing on it is hardcoded:
 | Privacy | regions detected, redacted tier 1/tier 2, firewall masked/blocked, hidden nodes dropped, payload size | never a value, a label, or a selector's text |
 | Boundary | **screenshot sent** — `redacted copy` or `none (withheld or unavailable)` | not a byte count of "what changed", just whether a screenshot left the device this step |
 | Performance | capture, screenshot, perception, redaction, firewall, provider (network), execute, settle — each in ms | provider/execute/settle are `—` until that stage of the step actually runs |
-| Resources | panel JS heap (`performance.memory.usedJSHeapSize`), CPU/GPU | CPU/GPU are **not exposed to extensions** and the card says so rather than guessing; the heap is the **panel's own**, not the worker's or the offscreen document's |
-| Delta | nodes changed, media re-processed, faces reused (from `PayloadPreview.delta`) | — |
+| Resources | panel JS heap (`performance.memory.usedJSHeapSize`), CPU/GPU, runtime + model size (bytes of `dist/ort/*.wasm` and `dist/models/*.onnx`, read at build time into `benchmark.json` `package_bytes`) | CPU/GPU are **not exposed to extensions** and the card says so rather than guessing; the heap is the **panel's own**, not the worker's or the offscreen document's |
+| Delta | nodes changed, media re-processed, faces reused, full-frame face pass (`ran`; from `PayloadPreview.delta`) | — |
 | Benchmark | detection tp/fp/fn (overall, tier 1, tier 2), redaction precision (IoU, tier 1 and tier 2), latency p50/p95 by stage, all dated `benchmark.generated_at` | a **snapshot from the last eval run**, not this session's own accuracy — it never changes while you use the extension |
 
 ## Portal demo script
@@ -607,7 +636,7 @@ captures of one page, no reload between them):
 | `video-call.html` (CSS-background tiles, no `<img>`/`<video>` nodes at all) | 1 | ~31 ms | 100% | 0% | 0 |
 | | 2 | ~33 ms | 0% | 0% | 0 |
 | | 3 | ~37 ms | 0% | 0% | 0 |
-| `application-portal.html` (real `<img>` photo + QR + canvas) | 1 | ~111 ms | 100% | 100% | 0 |
+| `application-portal.html` (real `<img>` photo + QR; canvas below the fold) | 1 | ~73 ms | 100% | 100% | 0 |
 | | 2 | ~28 ms | 0% | 0% | 25 |
 | | 3 | ~26 ms | 0% | 0% | 25 |
 
@@ -615,8 +644,15 @@ Read plainly: `video-call.html` has no media nodes at all (its tiles are CSS
 backgrounds), so it demonstrates the "nothing to reprocess" floor, not
 DeltaVision's own skip logic — that's why the brief has you also run it
 against `application-portal.html`, whose first step does a full region pass
-(finding 25 faces on the profile photo) and whose second and third steps skip
-every region pass and reuse all 25 boxes. What's actually skipped is the
+and whose second and third steps skip every region pass and reuse all 25
+boxes. The profile photo (`faces-2.jpg`) is a group photograph: the detector
+found 25 faces in it, which is why one profile picture yields 25 boxes. Only
+the photo gets a region crop: the QR image is black-boxed by `dom:qr`, so no
+region scan is sent for it. In the bench's 1280×800 window the canvas sits
+below the fold and is not captured (`media_total` is 2: photo and QR); when a
+canvas is on screen it is always counted as re-processed (its pixels change
+under a constant hash) but, being black-boxed by `dom:canvas`, gets no region
+crop either. What's actually skipped is the
 per-region face-detector pass, not the whole perception stage — PII text
 detection and the full-frame face pass ran on all six steps above; only the
 region crops on unchanged images were skipped.
@@ -666,8 +702,9 @@ Stated plainly, because overclaiming here is worse than underclaiming.
     is a QR code; conversely a non-QR image with such a name is over-redacted.
 12. **Every canvas over 32×32 px is black-boxed, unconditionally.** This closes
     a real leak (a canvas can paint text the DOM walk never sees) at the cost
-    of over-redacting charts and other non-sensitive canvas content — there is
-    no way yet to tell them apart.
+    of blinding the agent to canvas-based captchas, maps, signature pads,
+    games and charts — there is no way yet to tell them apart, and a task that
+    needs one of them cannot be done.
 13. **A same-URL image swap is invisible to DeltaVision.** `src_hash` digests
     the URL, not the bytes; a server-side image swap at an unchanged URL is
     not seen as changed, so a stale face box could be reused. The full-frame
