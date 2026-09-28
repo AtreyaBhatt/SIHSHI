@@ -28,6 +28,7 @@ import {
 import type { FaceDetection } from '../perception/face-detect';
 import type { DetectFacesReply } from '../perception/offscreen';
 import { planDelta, advance, padBox, type DeltaReport, type FaceBox, type StepState } from '../shared/delta';
+import { resolveFaceOutcome } from '../shared/face-outcome';
 import {
   approve, drive, newRun, stop, type Run, type RunStatus,
 } from './agent/loop';
@@ -241,41 +242,55 @@ function toFaceDetection(f: FaceBox): FaceDetection {
 }
 
 /**
- * Best-effort by design: a page with no faces, an absent model file, or a
- * machine where the runtime will not start must not cost the user their text
- * redaction. Failures are reported, not thrown.
- *
  * DeltaVision: the full-frame pass runs on every step. Only the per-region
  * (crop) passes of media whose node hash is unchanged since `prev` are
  * skipped; those regions' previously-known faces are reused (padded) and
  * merged in. Video/canvas, new or changed media, and every region on the
- * first step are always re-scanned. On any failure (no screenshot, detector
- * error) the returned state is `prev` unchanged, so nothing that went
- * unscanned is ever remembered as "no faces".
- */
-/**
- * `screenshotWithheld` is true only when the detector actually failed (an
- * `ok: false` reply, or a thrown error) — never for the "no screenshot to
- * scan" case, where there was nothing to withhold in the first place.
- * `buildPayload` uses it to drop the screenshot from this step's request
- * entirely: an unscanned image can hide an unblurred face, so a page that
- * cannot be proven face-clean must not leave the device as pixels. This holds
- * even when the page has no media nodes at all — a failed detector call means
- * the full-frame pass never ran, whether or not there was anything region-
- * specific to scan.
+ * first step are always re-scanned.
+ *
+ * Fail-closed, not best-effort: a detector call that actually fails (an
+ * `ok: false` reply, or a thrown error) withholds the screenshot for this
+ * step — an unscanned image can hide an unblurred face, so a page that
+ * cannot be proven face-clean must not leave the device as pixels. Text
+ * redaction is unaffected by this; the decision only ever gates the
+ * screenshot. This holds even when the page has no media nodes at all — a
+ * failed detector call means the full-frame pass never ran, whether or not
+ * there was anything region-specific to scan. On any failure the returned
+ * state is `prev` unchanged, so nothing that went unscanned is ever
+ * remembered as "no faces". The reply/error → outcome decision itself is the
+ * pure `resolveFaceOutcome` (shared/face-outcome.ts); this function's only
+ * job is to make the (side-effecting) detector call and hand it over.
  */
 async function detectFaces(
   capture: CaptureResult,
   prev: StepState | null,
-): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null; ms: number; screenshotWithheld: boolean }> {
+): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null; ms: number; screenshotWithheld: boolean; screenshotForRequest: string | null }> {
   const plan = planDelta(prev, capture.snapshot.nodes);
   const { changedMedia, reusedFaces, report } = plan;
   const { width, height } = capture.snapshot.viewport;
   const reusedDetections = reusedFaces.map((f) => toFaceDetection({ ...f, bbox: padBox(f.bbox, width, height) }));
-  const failed = (note: string, screenshotWithheld: boolean) =>
-    ({ faces: reusedDetections, note, report, state: advance(prev, plan, null), ms: 0, screenshotWithheld });
 
-  if (capture.screenshot_data_url === null) return failed('no screenshot to scan', false);
+  const finish = (reply: DetectFacesReply | null | undefined, thrown: unknown, ms: number) => {
+    const outcome = resolveFaceOutcome({
+      screenshotDataUrl: capture.screenshot_data_url,
+      reusedDetections,
+      reusedFacesCount: reusedFaces.length,
+      reply,
+      thrown,
+    });
+    const newFaces = outcome.failed || reply?.ok !== true ? null : reply.faces.map(toFaceBox);
+    return {
+      faces: outcome.faces,
+      note: outcome.note,
+      report,
+      state: advance(prev, plan, newFaces),
+      ms,
+      screenshotWithheld: outcome.failed,
+      screenshotForRequest: outcome.screenshotForRequest,
+    };
+  };
+
+  if (capture.screenshot_data_url === null) return finish(null, undefined, 0);
 
   try {
     await ensureOffscreen();
@@ -290,18 +305,9 @@ async function detectFaces(
       viewport_width: width,
       // No full_frame knob exists: the whole-frame pass always runs (DeltaVision K1).
     })) as DetectFacesReply;
-
-    if (!reply?.ok) return failed(reply?.error ?? 'face detector returned nothing', true);
-    return {
-      faces: [...reply.faces, ...reusedDetections],
-      note: `${reply.faces.length} new + ${reusedFaces.length} reused face(s) · ${reply.provider} · ${reply.inference_ms} ms`,
-      report,
-      state: advance(prev, plan, reply.faces.map(toFaceBox)),
-      ms: reply.inference_ms ?? 0,
-      screenshotWithheld: false,
-    };
+    return finish(reply, undefined, reply?.inference_ms ?? 0);
   } catch (err) {
-    return failed(err instanceof Error ? err.message : String(err), true);
+    return finish(null, err, 0);
   }
 }
 
@@ -314,15 +320,13 @@ async function buildPayload(
 ): Promise<PayloadPreview> {
   const started = performance.now();
   try {
-    const { faces, note, report, state, ms: perceptionMs, screenshotWithheld } =
+    const { faces, note: perceptionNote, report, state, ms: perceptionMs, screenshotForRequest } =
       await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
     if (state) stepStates.set(registry.session_id, state);
     else stepStates.delete(registry.session_id);
-    // A detector that actually failed (not merely "no screenshot to begin
-    // with") withholds the screenshot for this step: an unscanned image can
-    // hide an unblurred face, so unproven pixels do not leave the device.
-    const screenshotDataUrl = screenshotWithheld ? null : capture.screenshot_data_url;
-    const perceptionNote = screenshotWithheld ? 'face scan failed — screenshot withheld' : note;
+    // resolveFaceOutcome already decided whether this step's screenshot is
+    // withheld (a detector failure) or passed through — nothing to redo here.
+    const screenshotDataUrl = screenshotForRequest;
     const { request, detections, firewall, timings } = await buildAgentRequest({
       snapshot: capture.snapshot,
       screenshotDataUrl,

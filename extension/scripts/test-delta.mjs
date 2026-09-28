@@ -16,7 +16,15 @@ await build({
   outfile: join(temp, 'delta.mjs'),
   bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error',
 });
-const { hashNode, planDelta, nextState, advance, dedupeFaces, padBox, fnv1a } = await import(`file://${join(temp, 'delta.mjs')}`);
+const { hashNode, planDelta, nextState, advance, dedupeFaces, padBox, fnv1a, bboxIntersects } = await import(`file://${join(temp, 'delta.mjs')}`);
+
+await build({
+  entryPoints: ['src/shared/face-outcome.ts'],
+  outfile: join(temp, 'face-outcome.mjs'),
+  bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error',
+});
+const { resolveFaceOutcome } = await import(`file://${join(temp, 'face-outcome.mjs')}`);
+
 await rm(temp, { recursive: true, force: true }).catch(() => {});
 
 let failures = 0;
@@ -256,6 +264,45 @@ console.log('\n(F2) a new node overlapping the image forces it to re-process:');
   const after = [img('img#one', { bbox: [0, 0, 100, 100] }), node('div#overlay', { text: 'new', bbox: [20, 20, 60, 60] })];
   const step2 = planDelta(state1, after);
   check(step2.changedMedia.some((n) => n.path === 'img#one'), 'the image is re-processed when a new node overlaps it');
+}
+
+console.log('\n(M2) resolveFaceOutcome — reply/thrown -> outcome:');
+{
+  const reused = [{ bbox: [1, 1, 2, 2], score: 0.5 }];
+  const base = { screenshotDataUrl: 'data:image/png;base64,x', reusedDetections: reused, reusedFacesCount: 1 };
+
+  const notOk = resolveFaceOutcome({ ...base, reply: { ok: false, faces: [], error: 'boom' } });
+  check(notOk.screenshotForRequest === null, 'reply.ok false withholds the screenshot');
+  check(notOk.note === 'face scan failed — screenshot withheld', 'reply.ok false reports the withheld note');
+  check(notOk.failed === true, 'reply.ok false is reported as failed');
+
+  const thrown = resolveFaceOutcome({ ...base, reply: null, thrown: new Error('offscreen crashed') });
+  check(thrown.screenshotForRequest === null, 'a thrown error withholds the screenshot');
+  check(thrown.note === 'face scan failed — screenshot withheld', 'a thrown error reports the withheld note');
+  check(thrown.failed === true, 'a thrown error is reported as failed');
+
+  const ok = resolveFaceOutcome({
+    ...base,
+    reply: { ok: true, faces: [{ bbox: [5, 5, 6, 6], score: 0.9 }], provider: 'wasm', inference_ms: 12 },
+  });
+  check(ok.screenshotForRequest === base.screenshotDataUrl, 'a successful reply passes the screenshot through');
+  check(ok.failed === false, 'a successful reply is not a failure');
+  check(ok.faces.length === 2, 'a successful reply merges new + reused faces');
+
+  const noScreenshot = resolveFaceOutcome({ ...base, screenshotDataUrl: null, reply: null });
+  check(noScreenshot.screenshotForRequest === null, 'no screenshot to begin with stays null');
+  check(noScreenshot.note === 'no screenshot to scan', 'no screenshot to begin with keeps its own note');
+  check(noScreenshot.failed === false, 'no screenshot to begin with is not a failure');
+}
+
+console.log('\n(M3) bboxIntersects — touching edges and zero-area boxes:');
+{
+  check(!bboxIntersects([0, 0, 10, 10], [10, 0, 20, 10]), 'sharing only a vertical edge is not an intersection');
+  check(!bboxIntersects([0, 0, 10, 10], [0, 10, 10, 20]), 'sharing only a horizontal edge is not an intersection');
+  check(!bboxIntersects([0, 0, 10, 10], [10, 10, 20, 20]), 'sharing only a corner point is not an intersection');
+  check(!bboxIntersects([5, 5, 5, 20], [0, 0, 10, 10]), 'a zero-width box never intersects');
+  check(!bboxIntersects([5, 5, 20, 5], [0, 0, 10, 10]), 'a zero-height box never intersects');
+  check(bboxIntersects([0, 0, 10, 10], [5, 5, 15, 15]), 'overlapping boxes still intersect');
 }
 
 console.log('\nhashNode differs on tag/text/value/bbox/alt/media/src_hash:');

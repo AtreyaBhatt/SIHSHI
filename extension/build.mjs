@@ -115,12 +115,10 @@ async function writeBenchmark() {
       tier1: metrics.detection?.by_tier?.['1'] ?? null,
       tier2: metrics.detection?.by_tier?.['2'] ?? null,
     },
-    // Only tier1 IoU-based redaction precision is computed by run_eval.py
-    // today; tier2/overall stay null rather than being invented here.
     redaction_precision: {
       tier1: metrics.metrics?.tier1_redaction_precision ?? null,
-      tier2: null,
-      overall: null,
+      tier2: metrics.metrics?.tier2_redaction_precision ?? null,
+      overall: metrics.metrics?.overall_redaction_precision ?? null,
     },
     latency,
   };

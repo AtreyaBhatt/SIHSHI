@@ -236,6 +236,8 @@ def main() -> int:
         "tier1_recall": report.by_tier[1].recall,
         "overall_precision": report.overall.precision,
         "tier1_redaction_precision": report.redaction_hits[1].precision,
+        "tier2_redaction_precision": report.redaction_hits[2].precision,
+        "overall_redaction_precision": all_red.precision,
     }
     print("\nTARGETS (PRD §8)")
     failed = 0

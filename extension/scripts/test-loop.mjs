@@ -154,6 +154,10 @@ console.log('stop and permission');
   let run = await drive(newRun('g', 7, 'approve-sensitive', 25), deps);
   run = await approve(run, deps);
   check(run.status === 'needs_permission' && run.needs_origin === 'https://other.example', `navigation to an ungranted origin pauses (${run.status})`);
+  check(
+    run.last_metrics !== null && run.last_metrics.settle_ms === null,
+    `(M6) settle_ms is null in last_metrics after landing in needs_permission, even though settle() measured a duration (${JSON.stringify(run.last_metrics?.settle_ms)})`,
+  );
 }
 
 console.log('stop lands during execute (transition keeps the patch)');

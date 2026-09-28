@@ -490,7 +490,7 @@ function renderMetrics(): void {
   ].join('');
 
   $('metrics-boundary').innerHTML = !metrics ? none
-    : metrics.screenshot === 'redacted' ? metRow('raw pixels transmitted', '0') : metRow('screenshot', 'none');
+    : metRow('screenshot sent', metrics.screenshot === 'redacted' ? 'redacted copy' : 'none (withheld or unavailable)');
 
   $('metrics-performance').innerHTML = !metrics ? none : [
     metRow('capture', fmtMs(metrics.capture_ms)),

@@ -142,13 +142,17 @@ async function executePending(run: Run, deps: LoopDeps): Promise<Run> {
     }, deps);
   }
   const landed = await deps.settle(run.tab_id);
-  const afterSettle = { ...afterExecute, ...(landed.ms !== undefined ? { settle_ms: landed.ms } : {}) };
   if (!landed.granted) {
+    // No page-quiet wait was actually measured — settle bailed out onto an
+    // origin without host permission, so settle_ms must not carry whatever
+    // short duration that failed attempt took, as if it were a real settle.
+    const metrics = finalizeMetrics(run.last_preview, afterExecute);
     return transition(run, {
       status: 'needs_permission', needs_origin: originOf(landed.url) ?? undefined,
-      last_metrics: finalizeMetrics(run.last_preview, afterSettle), pending_metrics: null,
+      last_metrics: metrics ? { ...metrics, settle_ms: null } : null, pending_metrics: null,
     }, deps);
   }
+  const afterSettle = { ...afterExecute, ...(landed.ms !== undefined ? { settle_ms: landed.ms } : {}) };
   return transition(run, {
     status: 'capturing',
     last_metrics: finalizeMetrics(run.last_preview, afterSettle), pending_metrics: null,

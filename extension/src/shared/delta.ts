@@ -76,8 +76,13 @@ export function hashNode(n: RawDomNode): string {
   return fnv1a(key);
 }
 
-/** True when two boxes share any area — touching edges do not count. */
-function bboxIntersects(a: BBox, b: BBox): boolean {
+/**
+ * True when two boxes share any area — touching edges do not count, and
+ * neither does a zero-area (zero-width or zero-height) box: it has no area
+ * to share with anything.
+ */
+export function bboxIntersects(a: BBox, b: BBox): boolean {
+  if (a[2] <= a[0] || a[3] <= a[1] || b[2] <= b[0] || b[3] <= b[1]) return false;
   return a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 }
 
