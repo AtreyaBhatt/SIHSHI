@@ -121,6 +121,15 @@ console.log('\n(d) one image src_hash changes, the other is reused:');
   );
 }
 
+console.log('\n(d2) a blur is removed from a photo (only fx changes):');
+{
+  const before = [img('img#one', { bbox: [0, 0, 100, 100], attrs: { ...node('x').attrs, src_hash: 'aaaaaaaa', fx: '11111111' } })];
+  const state1 = nextState(planDelta(null, before).hashes, before, [], []);
+  const after = [img('img#one', { bbox: [0, 0, 100, 100], attrs: { ...node('x').attrs, src_hash: 'aaaaaaaa', fx: '22222222' } })];
+  const step2 = planDelta(state1, after);
+  check(step2.changedMedia.length === 1 && step2.changedMedia[0].path === 'img#one', 'the un-blurred image is reprocessed');
+}
+
 console.log('\n(e) a node bbox moves:');
 {
   const before = [node('p#a', { text: 'hi', bbox: [0, 0, 50, 20] })];

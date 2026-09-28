@@ -207,7 +207,8 @@ function accessibleName(el: Element, tag: string): string | null {
   if (labelledby) {
     const text = labelledby
       .split(/\s+/)
-      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .map((id) => document.getElementById(id))
+      .map((src) => (src && !withheld(src) ? src.textContent ?? '' : ''))
       .join(' ');
     const clipped = clip(text);
     if (clipped) return clipped;
@@ -223,7 +224,7 @@ function accessibleName(el: Element, tag: string): string | null {
   ) {
     const labels = el.labels;
     if (labels && labels.length > 0) {
-      const text = clip(Array.from(labels).map((l) => l.textContent ?? '').join(' '));
+      const text = clip(Array.from(labels).filter((l) => !withheld(l)).map((l) => l.textContent ?? '').join(' '));
       if (text) return text;
     }
     const placeholder = el.getAttribute('placeholder');
@@ -241,7 +242,8 @@ function accessibleName(el: Element, tag: string): string | null {
   }
 
   if (tag === 'button' || tag === 'a' || tag === 'label' || tag === 'option' || /^h[1-6]$/.test(tag)) {
-    const text = clip(el.textContent ?? '');
+    // Own visible text as the name: camouflaged text names nothing.
+    const text = withheld(el) ? '' : clip(el.textContent ?? '');
     if (text) return text;
   }
   return null;
@@ -255,7 +257,7 @@ function accessibleName(el: Element, tag: string): string | null {
  */
 function siblingLabel(el: Element): string | null {
   const prev = el.previousElementSibling;
-  if (!prev || !LABELLING_TAGS.has(prev.tagName.toLowerCase())) return null;
+  if (!prev || !LABELLING_TAGS.has(prev.tagName.toLowerCase()) || withheld(prev)) return null;
   const text = clip(prev.textContent ?? '');
   return text || null;
 }
@@ -332,7 +334,7 @@ function parseRgb(value: string): { r: number; g: number; b: number; a: number }
 type EffectiveBackground = { r: number; g: number; b: number } | 'unknown';
 
 /**
- * Walks from `el` itself up to `body`, returning the first background-color
+ * Walks from `el` itself up to `<html>`, returning the first background-color
  * with alpha > 0. Starts at `el`'s own already-resolved style (the caller
  * holds it already, so this only pays for `getComputedStyle` from the parent
  * upward) because a node's own background paints directly behind its own
@@ -344,10 +346,11 @@ type EffectiveBackground = { r: number; g: number; b: number } | 'unknown';
  * over imagery even when its colour matches some solid ancestor further up,
  * so the colour-match camouflage rule must not apply there.
  *
- * Known remaining limit: text coloured like a solid ancestor background is
- * still dropped even when a *sibling* element (not an ancestor) paints an
- * overlay that would make it legible in practice — this walk only ever looks
- * at the ancestor chain's own backgrounds.
+ * A colour match is then confirmed against what is actually painted at the
+ * text's centre (`isCamouflaged`): a non-ancestor image/video/canvas/svg or
+ * background-image there makes the answer 'unknown' too. Remaining limit:
+ * `elementsFromPoint` skips `pointer-events: none` elements, so text over such
+ * an image is still dropped (over-dropping, not a leak).
  */
 function effectiveBackground(el: Element, style: CSSStyleDeclaration): EffectiveBackground {
   let cur: Element | null = el;
@@ -357,7 +360,6 @@ function effectiveBackground(el: Element, style: CSSStyleDeclaration): Effective
     if (image && image !== 'none') return 'unknown';
     const bg = parseRgb(color);
     if (bg && bg.a > 0) return bg;
-    if (cur === document.body) break;
     cur = cur.parentElement;
     if (!cur) break;
     const parentStyle = getComputedStyle(cur);
@@ -367,23 +369,70 @@ function effectiveBackground(el: Element, style: CSSStyleDeclaration): Effective
   return { r: 255, g: 255, b: 255 };
 }
 
+/** Opacity multiplied down the ancestor chain; memoised per capture. */
+let opacityCache = new WeakMap<Element, number>();
+function effectiveOpacity(el: Element, style?: CSSStyleDeclaration): number {
+  const hit = opacityCache.get(el);
+  if (hit !== undefined) return hit;
+  const own = parseFloat((style ?? getComputedStyle(el)).opacity || '1');
+  const parent = el.parentElement;
+  const value = own === 0 || !parent ? own : own * effectiveOpacity(parent);
+  opacityCache.set(el, value);
+  return value;
+}
+
+const PAINTED_MEDIA = new Set(['img', 'video', 'canvas', 'svg']);
+
+/** True when something other than `el` and its ancestors paints imagery at the text's centre. */
+function imageryUnder(el: Element, rect: DOMRect): boolean {
+  const x = Math.min(Math.max(rect.left + rect.width / 2, 0), window.innerWidth - 1);
+  const y = Math.min(Math.max(rect.top + rect.height / 2, 0), window.innerHeight - 1);
+  const root = el.getRootNode() as Document | ShadowRoot;
+  for (const other of root.elementsFromPoint(x, y)) {
+    if (other === el || other.contains(el)) continue;
+    if (PAINTED_MEDIA.has(other.tagName.toLowerCase()) || other instanceof SVGElement) return true;
+    if (getComputedStyle(other).backgroundImage !== 'none') return true;
+  }
+  return false;
+}
+
 /**
- * The three capture-time camouflage rules (a fourth, screen-reader-only
- * clip-path/clip text, is deliberately NOT a rule here: that text is kept
- * unless one of these three also applies).
+ * The capture-time camouflage rules (screen-reader-only clip-path/clip text
+ * is deliberately NOT a rule of its own: that text is kept unless one of these
+ * also applies): sub-2px font, sub-2px box, an effective (ancestor-multiplied)
+ * opacity of 0, a fully transparent text colour, or a text colour matching the
+ * effective background with no imagery painted under the text. Heuristic.
  */
 function isCamouflaged(el: Element, style: CSSStyleDeclaration, rect: DOMRect): boolean {
   if (parseFloat(style.fontSize || '16') < MIN_READABLE_FONT_PX) return true;
   if (rect.width < MIN_READABLE_BOX_PX && rect.height < MIN_READABLE_BOX_PX) return true;
+  if (effectiveOpacity(el, style) === 0) return true;
   const fg = parseRgb(style.color);
   if (!fg) return false;
+  if (fg.a === 0) return true;
   const bg = effectiveBackground(el, style);
   if (bg === 'unknown') return false;
-  return (
+  const match =
     Math.abs(fg.r - bg.r) < COLOR_MATCH_TOLERANCE &&
     Math.abs(fg.g - bg.g) < COLOR_MATCH_TOLERANCE &&
-    Math.abs(fg.b - bg.b) < COLOR_MATCH_TOLERANCE
-  );
+    Math.abs(fg.b - bg.b) < COLOR_MATCH_TOLERANCE;
+  return match && !imageryUnder(el, rect);
+}
+
+/**
+ * Label sources and interactive names are text the model reads too. Each
+ * camouflaged element is counted in `hidden_dropped` once, however many
+ * nodes it would have labelled.
+ */
+let camouflagedSeen = new WeakSet<Element>();
+let camouflagedCount = 0;
+function withheld(el: Element): boolean {
+  if (!isCamouflaged(el, getComputedStyle(el), el.getBoundingClientRect())) return false;
+  if (!camouflagedSeen.has(el)) {
+    camouflagedSeen.add(el);
+    camouflagedCount++;
+  }
+  return true;
 }
 
 function srcFile(el: Element): string | null {
@@ -404,6 +453,24 @@ function srcHash(el: Element): string | null {
   const current = (el as { currentSrc?: string }).currentSrc || el.getAttribute('src');
   if (!current) return null;
   return fnv1a(current.length > 2048 ? `${current.slice(0, 2048)}|${current.length}` : current);
+}
+
+/**
+ * Visual-effect digest for a media node (local only, never serialized):
+ * FNV-1a of filter/opacity/visibility/clip-path/transform on the node itself
+ * and on every ancestor up to body that has a non-default filter or opacity
+ * < 1. Removing a `filter: blur()` from a photo, or from a wrapper around it,
+ * changes no text, box or src — this is what makes DeltaVision see it.
+ */
+function effectsHash(el: Element, style: CSSStyleDeclaration): string {
+  const fx = (s: CSSStyleDeclaration): string => `${s.filter}|${s.opacity}|${s.visibility}|${s.clipPath}|${s.transform}`;
+  const parts = [fx(style)];
+  for (let cur = el.parentElement; cur && cur !== document.documentElement; cur = cur.parentElement) {
+    const s = getComputedStyle(cur);
+    if ((s.filter && s.filter !== 'none') || parseFloat(s.opacity || '1') < 1) parts.push(fx(s));
+    if (cur === document.body) break;
+  }
+  return fnv1a(parts.join(';'));
 }
 
 /**
@@ -467,6 +534,9 @@ export function captureDomSnapshot(): RawSnapshot {
   const vh = window.innerHeight;
   let truncated = false;
   let hiddenDropped = 0;
+  opacityCache = new WeakMap();
+  camouflagedSeen = new WeakSet();
+  camouflagedCount = 0;
   const digitGroupCache = new WeakMap<Element, string | null>();
 
   const visit = (el: Element, root: Root): void => {
@@ -496,7 +566,10 @@ export function captureDomSnapshot(): RawSnapshot {
           // Camouflage rules apply only to plain text — never to interactive
           // controls or media regions, which the agent must still see and act on.
           if (!interactive && !media && text && isCamouflaged(el, style, rect)) {
-            hiddenDropped++;
+            if (!camouflagedSeen.has(el)) {
+              camouflagedSeen.add(el);
+              hiddenDropped++;
+            }
             return;
           }
 
@@ -528,6 +601,7 @@ export function captureDomSnapshot(): RawSnapshot {
               src_file: media ? srcFile(el) : null,
               src_hash: media ? srcHash(el) : null,
               loaded: loadedState(el, tag),
+              fx: media ? effectsHash(el, style) : null,
             },
             bbox: toBBox(rect),
             interactive,
@@ -537,7 +611,10 @@ export function captureDomSnapshot(): RawSnapshot {
         } else if (directText(el)) {
           // Already dropped by the pre-existing opacity:0/visibility:hidden
           // check; counted here so the model knows this much text vanished.
-          hiddenDropped++;
+          if (!camouflagedSeen.has(el)) {
+            camouflagedSeen.add(el);
+            hiddenDropped++;
+          }
         }
       }
     }
@@ -603,7 +680,7 @@ export function captureDomSnapshot(): RawSnapshot {
     nodes: kept,
     truncated,
     unscanned,
-    hidden_dropped: hiddenDropped,
+    hidden_dropped: hiddenDropped + camouflagedCount,
     timings: { dom_walk_ms: Math.round((performance.now() - start) * 100) / 100 },
   };
 }

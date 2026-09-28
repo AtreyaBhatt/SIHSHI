@@ -169,6 +169,13 @@ export interface RawDomNode {
      * its `src`/box/alt never changed.
      */
     loaded: string | null;
+    /**
+     * Local only: FNV-1a (8 hex) of the media node's filter/opacity/visibility/
+     * clip-path/transform and of any ancestor with a non-default filter or
+     * opacity < 1. Folded into `hashNode` so un-blurring a photo is a change.
+     * Never copied into SanitizedDomNode, the manifest or any report.
+     */
+    fx?: string | null;
   };
   bbox: BBox;
   interactive: boolean;

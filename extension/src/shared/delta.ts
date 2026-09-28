@@ -57,7 +57,8 @@ export function fnv1a(s: string): string {
 
 /**
  * One node's identity for change-detection purposes: what it is, what it says,
- * what it's worth, where it sits, and (for media) what image is behind it.
+ * what it's worth, where it sits, and (for media) what image is behind it
+ * and which visual effects (blur, opacity, clip) sit on it or its wrappers.
  * `src_hash` is the only way an image swap at the same path/box/alt is ever
  * caught — the URL itself never enters the snapshot (see dom-snapshot.ts).
  */
@@ -72,6 +73,7 @@ export function hashNode(n: RawDomNode): string {
     n.media ?? '',
     n.attrs.src_hash ?? '',
     n.attrs.loaded ?? '',
+    n.attrs.fx ?? '',
   ].join('|');
   return fnv1a(key);
 }
