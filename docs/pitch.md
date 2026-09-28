@@ -188,7 +188,7 @@ proves it, if you'd rather run one scenario than three.
 | Local pipeline p50/p95 | capture 1.0/2.1 · screenshot 34/59 · perception 12.4/18.6 · redaction 12.1/17.9 ms | < 300 ms |
 | Package | ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) | < 20 MB |
 | Corpus | 5 screens, 51 labelled items | ≥ 50 screens (PRD §8) |
-| Tests | 49 server tests + the full extension harness (capture, redaction, faces, scenario B, e2e A/C/BlindFill/portal, executor, guardrails + firewall, loop, vault, delta, provider, dom-heuristics) | — |
+| Tests | 50 server tests + the full extension harness (capture, redaction, faces, scenario B, e2e A/C/BlindFill/portal, executor, guardrails + firewall, loop, vault, delta, provider, dom-heuristics) | — |
 
 The caveat, verbatim, because a judge will ask: *"These are on five fixture
 screens written by the same people who wrote the detectors, scored against

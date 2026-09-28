@@ -16,7 +16,7 @@ Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preservin
 |---|---|
 | Milestones | PRD §12 M1–M6 complete |
 | Demo scenarios | A (credentials), B (faces), C (structured PII), portal (all of the above plus QR/canvas/hidden-text/firewall in one fixture) — all working end to end |
-| Tests | 49 server (pytest) + the extension harness (typecheck, build, smoke, and 15+ `test:*`/script commands — capture, redaction, faces, scenario-b, e2e ×4, executor, reasoning, loop, vault, delta, provider, dom-heuristics, preview:viewer) — **all green** as of phase 5b's harness run |
+| Tests | 50 server (pytest) + the extension harness (typecheck, build, smoke, and 15+ `test:*`/script commands — capture, redaction, faces, scenario-b, e2e ×4, executor, reasoning, loop, vault, delta, provider, dom-heuristics, preview:viewer) — **all green** as of phase 5b's harness run |
 | Eval | All three PRD §8 accuracy targets met, on a corpus of 5 self-authored screens, 51 labelled items (see §13 for phase 5b's numbers) |
 | Latency | ~66 ms local p50 against a 300 ms budget (mock provider); DeltaVision's `--loop` mode adds a second, steady-state measurement — see §13 |
 | Package | ~15 MB against a 20 MB budget |
