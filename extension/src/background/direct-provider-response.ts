@@ -110,7 +110,7 @@ function parsePlan(raw: unknown, request: AgentRequest): AgentResponse {
   const roles = new Map(request.dom_summary.map((node) => [node.path, node.role]));
   const redactedPaths = new Set(request.redaction_manifest.filter((e) => e.dom_path).map((e) => e.dom_path!));
   // Firewall-minted tokens mark values the cascade missed; they are masked, never typeable.
-  const tokenIds = new Map(request.redaction_manifest.filter((e) => !e.detector.startsWith('firewall:')).map((e) => [e.id, e.type]));
+  const tokenIds = new Map(request.redaction_manifest.filter((e) => !e.detector.startsWith('firewall:') && !e.detector.startsWith('group:')).map((e) => [e.id, e.type]));
   // A token may only fill a field the client declared as holding that same type.
   const targetTypes = new Set(request.redaction_manifest.filter((e) => e.dom_path).map((e) => `${e.dom_path}\n${e.type}`));
   const availableRefs = new Set(request.available_refs ?? []);

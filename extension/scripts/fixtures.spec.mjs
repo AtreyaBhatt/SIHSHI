@@ -165,6 +165,11 @@ export const FIXTURES = [
       ['Bank name value', 'dd#b1'],
       ['tracking number', 'p#t1'],
     ],
+    // Split-field members hold fragments: fixed markers, never resolvable tokens.
+    fixedMarkerFields: [
+      ...[1, 2, 3, 4].map((i) => [`split card part ${i}`, `input#c${i}`, '[REDACTED:CARD_NUMBER]']),
+      ...[1, 2, 3, 4, 5, 6].map((i) => [`split OTP digit ${i}`, `input#o${i}`, '[REDACTED:OTP]']),
+    ],
     manifestTypes: ['person_name', 'account_id', 'bank_account', 'aadhaar', 'card_number', 'otp', 'frame'],
   },
 ];

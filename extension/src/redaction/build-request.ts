@@ -111,14 +111,18 @@ function sanitizeField(
 
   const wholeField = detections.find((d) => d.span === null);
   if (wholeField) {
-    const id = tokens.idFor(wholeField.type, content, node.path);
+    // A split-field member holds a fragment, not the value: it gets a fixed
+    // marker and a per-member id with no value recorded, so no token for it
+    // can ever be resolved.
+    const member = wholeField.detector.startsWith("group:");
+    const id = tokens.idFor(wholeField.type, member ? null : content, node.path);
     manifest.push({
       id,
       type: wholeField.type,
       tier: wholeField.tier,
       bbox: wholeField.bbox,
       dom_path: node.path,
-      masking: maskingFor(wholeField.type, wholeField.tier),
+      masking: member ? "blackbox" : maskingFor(wholeField.type, wholeField.tier),
       detector: wholeField.detector,
       confidence: wholeField.confidence,
     });
@@ -127,6 +131,7 @@ function sanitizeField(
     // records an empty value as null; a password it declined to read is not
     // empty (value_omitted) and keeps its marker.
     if (!content && node.value_omitted === null && wholeField.tier === 1) return null;
+    if (member) return `[REDACTED:${wholeField.type.toUpperCase()}]`;
     return replacementFor(wholeField.type, wholeField.tier, id, content);
   }
 

@@ -137,6 +137,7 @@ console.log('value_token');
     { id: 'AADHAAR_2', type: 'aadhaar', tier: 1, bbox: null, dom_path: 'input#aadhaar', masking: 'token', detector: 't', confidence: 1 },
     { id: 'PHONE_2', type: 'phone', tier: 2, bbox: null, dom_path: 'input#mobile', masking: 'token', detector: 't', confidence: 1 },
     { id: 'EMAIL_2', type: 'email', tier: 2, bbox: null, dom_path: 'td#fw', masking: 'token', detector: 'firewall:email', confidence: 1 },
+    { id: 'AADHAAR_3', type: 'aadhaar', tier: 1, bbox: null, dom_path: 'input#aadhaar', masking: 'blackbox', detector: 'group:aadhaar', confidence: 0.9 },
   ], dom_summary: [...request.dom_summary,
     { path: 'input#aadhaar', role: 'textbox', label: 'Aadhaar', value: null },
     { path: 'input#mobile', role: 'textbox', label: 'Mobile', value: null },
@@ -176,6 +177,8 @@ console.log('value_token');
   // X4: a firewall-minted token is masked, never typeable; a cascade token of the same type is.
   const fw = run2({ ...base, actions: [{ action: 'type', selector: 'input#email', value_token: '[EMAIL_2]' }] });
   check(fw.actions.length === 0 && /not a token from this request/.test(fw.guardrail_rejections?.[0] ?? ''), `firewall-minted token rejected (${fw.guardrail_rejections?.join('; ')})`);
+  const grp = run2({ ...base, actions: [{ action: 'type', selector: 'input#aadhaar', value_token: '[AADHAAR_3]' }] });
+  check(grp.actions.length === 0 && /not a token from this request/.test(grp.guardrail_rejections?.[0] ?? ''), `split-field member id rejected as value_token (${grp.guardrail_rejections?.join('; ')})`);
   const cascade = run2({ ...base, actions: [{ action: 'type', selector: 'input#email', value_token: '[EMAIL_1]' }] });
   check(cascade.actions.length === 1 && !cascade.guardrail_rejections, 'cascade token of the same type into the same field survives');
 }
