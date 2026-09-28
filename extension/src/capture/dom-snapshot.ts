@@ -201,21 +201,40 @@ function role(el: Element, tag: string): string | null {
   return IMPLICIT_ROLE[tag] ?? null;
 }
 
-/** Simplified accname. Not spec-complete — enough for the server to identify a field. */
-function accessibleName(el: Element, tag: string): string | null {
+/**
+ * Simplified accname. Not spec-complete — enough for the server to identify a
+ * field. `hint` collects the text of any withheld (camouflaged) source tried
+ * along the way — never returned to the caller as `label`, only as a
+ * local-only clue for detection (`RawDomNode.hint_label`).
+ */
+function accessibleName(el: Element, tag: string): { label: string | null; hint: string | null } {
+  const hints: string[] = [];
+  const done = (label: string | null): { label: string | null; hint: string | null } => ({
+    label,
+    hint: hints.length ? clip(hints.join(' '), MAX_LABEL_CHARS) : null,
+  });
+
   const labelledby = el.getAttribute('aria-labelledby');
   if (labelledby) {
     const text = labelledby
       .split(/\s+/)
       .map((id) => document.getElementById(id))
-      .map((src) => (src && !withheld(src) ? src.textContent ?? '' : ''))
+      .map((src) => {
+        if (!src) return '';
+        if (withheld(src)) {
+          const t = clip(src.textContent ?? '');
+          if (t) hints.push(t);
+          return '';
+        }
+        return src.textContent ?? '';
+      })
       .join(' ');
     const clipped = clip(text);
-    if (clipped) return clipped;
+    if (clipped) return done(clipped);
   }
 
   const ariaLabel = el.getAttribute('aria-label');
-  if (ariaLabel?.trim()) return clip(ariaLabel);
+  if (ariaLabel?.trim()) return done(clip(ariaLabel));
 
   if (
     el instanceof HTMLInputElement ||
@@ -224,11 +243,20 @@ function accessibleName(el: Element, tag: string): string | null {
   ) {
     const labels = el.labels;
     if (labels && labels.length > 0) {
-      const text = clip(Array.from(labels).filter((l) => !withheld(l)).map((l) => l.textContent ?? '').join(' '));
-      if (text) return text;
+      const kept: string[] = [];
+      for (const l of Array.from(labels)) {
+        if (withheld(l)) {
+          const t = clip(l.textContent ?? '');
+          if (t) hints.push(t);
+        } else {
+          kept.push(l.textContent ?? '');
+        }
+      }
+      const text = clip(kept.join(' '));
+      if (text) return done(text);
     }
     const placeholder = el.getAttribute('placeholder');
-    if (placeholder?.trim()) return clip(placeholder);
+    if (placeholder?.trim()) return done(clip(placeholder));
   }
 
   for (const attr of ['alt', 'title', 'value'] as const) {
@@ -238,15 +266,21 @@ function accessibleName(el: Element, tag: string): string | null {
     // raw value as its "label" while the value field was tokenised.
     if (attr === 'value' && !(tag === 'input' && /^(button|submit|reset)$/.test((el as HTMLInputElement).type))) continue;
     const v = el.getAttribute(attr);
-    if (v?.trim()) return clip(v);
+    if (v?.trim()) return done(clip(v));
   }
 
   if (tag === 'button' || tag === 'a' || tag === 'label' || tag === 'option' || /^h[1-6]$/.test(tag)) {
-    // Own visible text as the name: camouflaged text names nothing.
-    const text = withheld(el) ? '' : clip(el.textContent ?? '');
-    if (text) return text;
+    // Own visible text as the name: camouflaged text names nothing (but still
+    // informs local detection via hint_label).
+    if (withheld(el)) {
+      const t = clip(el.textContent ?? '');
+      if (t) hints.push(t);
+      return done(null);
+    }
+    const text = clip(el.textContent ?? '');
+    if (text) return done(text);
   }
-  return null;
+  return done(null);
 }
 
 /**
@@ -255,11 +289,15 @@ function accessibleName(el: Element, tag: string): string | null {
  * structure is the cheapest classification signal on a page after the input
  * attributes themselves.
  */
-function siblingLabel(el: Element): string | null {
+function siblingLabel(el: Element): { label: string | null; hint: string | null } {
   const prev = el.previousElementSibling;
-  if (!prev || !LABELLING_TAGS.has(prev.tagName.toLowerCase()) || withheld(prev)) return null;
+  if (!prev || !LABELLING_TAGS.has(prev.tagName.toLowerCase())) return { label: null, hint: null };
+  if (withheld(prev)) {
+    const t = clip(prev.textContent ?? '');
+    return { label: null, hint: t || null };
+  }
   const text = clip(prev.textContent ?? '');
-  return text || null;
+  return { label: text || null, hint: null };
 }
 
 const GROUPABLE_INPUT = new Set(['text', 'tel', 'number']);
@@ -389,7 +427,10 @@ function imageryUnder(el: Element, rect: DOMRect): boolean {
   const y = Math.min(Math.max(rect.top + rect.height / 2, 0), window.innerHeight - 1);
   const root = el.getRootNode() as Document | ShadowRoot;
   for (const other of root.elementsFromPoint(x, y)) {
-    if (other === el || other.contains(el)) continue;
+    // Skip el's own ancestors (already excluded) and its own descendants — an
+    // inline icon (e.g. an <svg>) inside the text element itself is part of
+    // the text's own content, not imagery painted independently under it.
+    if (other === el || other.contains(el) || el.contains(other)) continue;
     if (PAINTED_MEDIA.has(other.tagName.toLowerCase()) || other instanceof SVGElement) return true;
     if (getComputedStyle(other).backgroundImage !== 'none') return true;
   }
@@ -576,14 +617,21 @@ export function captureDomSnapshot(): RawSnapshot {
           const inputType = tag === 'input' ? ((el as HTMLInputElement).type?.toLowerCase() ?? 'text') : null;
           const { value, omitted } = readValue(el, tag, inputType);
           const group = digitGroup(el, root, digitGroupCache);
+          const acc = accessibleName(el, tag);
+          const sib = siblingLabel(el);
+          // Deduped: a <label> that both precedes its input as a sibling and
+          // is the input's `for` target (the common case) would otherwise
+          // contribute the same withheld text twice.
+          const hintParts = [...new Set([acc.hint, sib.hint].filter((h): h is string => !!h))];
 
           nodes.push({
             path: cssPath(el, root),
             tag,
             role: elRole,
-            label: accessibleName(el, tag),
+            label: acc.label,
             text: text || null,
-            context_label: siblingLabel(el) ?? group?.context ?? null,
+            context_label: sib.label ?? group?.context ?? null,
+            hint_label: hintParts.length ? clip(hintParts.join(' '), MAX_LABEL_CHARS) : null,
             value,
             value_omitted: omitted,
             input_type: inputType,

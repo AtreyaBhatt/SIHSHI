@@ -132,6 +132,11 @@ export interface RawDomNode {
    * classify from its `<dt>Account number</dt>`.
    */
   context_label: string | null;
+  /**
+   * Label text withheld from the wire because its source is camouflaged; used
+   * only by local detection. Never sent.
+   */
+  hint_label: string | null;
   /** Raw form value. Deliberately null for password fields — see `value_omitted`. */
   value: string | null;
   /**

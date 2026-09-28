@@ -25,6 +25,7 @@ export function contextString(node: RawDomNode): string {
   return [
     node.label,
     node.context_label,
+    node.hint_label,
     node.attrs.name,
     node.attrs.id,
     node.attrs.placeholder,

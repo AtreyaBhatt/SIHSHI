@@ -66,6 +66,7 @@ export function hashNode(n: RawDomNode): string {
   const key = [
     n.tag,
     n.text ?? '',
+    n.hint_label ?? '',
     n.value ?? '',
     n.value_omitted ?? '',
     n.bbox.join(','),

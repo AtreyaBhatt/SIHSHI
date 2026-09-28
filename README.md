@@ -345,17 +345,20 @@ off (better a false non-drop than blinding the model to a caption on a photo).
 `elementsFromPoint` skips `pointer-events: none` elements, so text over such
 an image can still be dropped.
 
-The rules apply where the text would reach the model:
-
-- **Plain text nodes** matching a rule are removed from the snapshot.
-- **Label sources** — `<label for>`, a wrapping `<label>`, `aria-labelledby`
-  targets, and the preceding `<dt>`/`<th>`/`<label>`/`<strong>`/`<b>` sibling
-  used as a context label — contribute nothing when they match a rule.
-- **Interactive nodes** whose name would come from their own visible text
-  (button, link, label, option, heading) **stay in the snapshot** so the agent
-  can still act on them, with `label: null`. Only the node's own style is
-  checked, not a camouflaged child span inside it.
-- Interactive and media nodes are never removed by these rules.
+The rules apply where the text would reach the model. A plain text node
+matching a rule is removed from the snapshot outright. Camouflaged text that
+instead names something else is withheld from the model wherever it appears —
+as an element's own text, a `<label>` (via `for` or wrapping), a `dt`/`th`
+beside the field, or an `aria-labelledby` target. Buttons, links and form
+controls stay in the snapshot with their label withheld (`label: null`)
+rather than being dropped, so the agent can still act on them; only the
+node's own style is checked, not a camouflaged child span inside it.
+Interactive and media nodes themselves are never removed by these rules.
+The withheld label text is still used locally to classify the field
+(`RawDomNode.hint_label`, never sent to the server), so redaction is not
+weakened by withholding it from the model — a screen-reader-only
+`<label for>` that is the only clue a field holds a name still gets that
+field detected and masked.
 
 **Accepted over-drop:** 1×1 screen-reader-only text (the classic
 visually-hidden accessibility pattern) is caught by rule 2 and dropped even

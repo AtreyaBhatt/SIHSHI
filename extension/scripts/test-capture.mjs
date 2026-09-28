@@ -140,8 +140,12 @@ try {
   await evaluate(bundle);
   const hidden = JSON.parse(await evaluate(`ATHENA.run(null).then((x) => JSON.stringify(x))`));
   const hiddenPayload = JSON.stringify(hidden.request);
-  if (hidden.hidden_dropped === 8) pass(`snapshot.hidden_dropped === 8`);
-  else fail(`expected snapshot.hidden_dropped === 8, got ${hidden.hidden_dropped}`);
+  // 8 from the original camouflaged fixture elements (h1, h2, h3, sr, cb, q's
+  // label, op, tr) plus 2 added for this fix: the screen-reader-only
+  // <label for="srn"> (withheld, its text now flows into hint_label instead)
+  // and the white-on-white span#ico text = 10.
+  if (hidden.hidden_dropped === 10) pass(`snapshot.hidden_dropped === 10`);
+  else fail(`expected snapshot.hidden_dropped === 10, got ${hidden.hidden_dropped}`);
   const leaked = hidden.nodes.some((n) => (n.text ?? '').includes('ignore') || (n.text ?? '').includes('SYSTEM'));
   if (!leaked) pass('no node text in the snapshot contains "ignore" or "SYSTEM"');
   else fail(`camouflaged text survived into the snapshot: ${JSON.stringify(hidden.nodes.filter((n) => (n.text ?? '').includes('ignore') || (n.text ?? '').includes('SYSTEM')))}`);
@@ -150,9 +154,9 @@ try {
   else fail('button#go missing from the snapshot');
   if (!hiddenPayload.includes('ignore') && !hiddenPayload.includes('SYSTEM')) pass('the built request contains none of the hidden strings');
   else fail('the built request still contains a hidden string');
-  if (hidden.request.hidden_dropped === 8) pass('request.hidden_dropped === 8');
-  else fail(`expected request.hidden_dropped === 8, got ${hidden.request.hidden_dropped}`);
-  if (hidden.userMessage.includes('8 hidden or camouflaged text element(s)')) pass('user message reports "8 hidden or camouflaged text element(s)"');
+  if (hidden.request.hidden_dropped === 10) pass('request.hidden_dropped === 10');
+  else fail(`expected request.hidden_dropped === 10, got ${hidden.request.hidden_dropped}`);
+  if (hidden.userMessage.includes('10 hidden or camouflaged text element(s)')) pass('user message reports "10 hidden or camouflaged text element(s)"');
   else fail(`user message missing the hidden-text note: ${hidden.userMessage}`);
   const cb = hidden.nodes.find((n) => n.path === 'button#cb');
   if (cb && cb.label === null) pass('white-on-white button keeps its node but has no label');
@@ -175,6 +179,19 @@ try {
   else fail(`div#hero missing or wrong text: ${JSON.stringify(hero)}`);
   if (hiddenPayload.includes('Welcome back')) pass('"Welcome back" reaches the built request (it is legible, not camouflaged)');
   else fail('"Welcome back" was dropped from the request');
+
+  console.log('\nwithheld label still informs local detection (hint_label):');
+  const srn = hidden.nodes.find((n) => n.path === 'input#srn');
+  if (srn && srn.label === null && srn.hint_label === 'Full name') pass('input#srn has label === null and hint_label === "Full name"');
+  else fail(`input#srn: ${JSON.stringify(srn)}`);
+  if (!hiddenPayload.includes('Asha Verma')) pass('"Asha Verma" is absent from the built request');
+  else fail('"Asha Verma" reached the built request');
+  const srnEntry = hidden.request.redaction_manifest.find((e) => e.type === 'person_name' && e.dom_path === 'input#srn');
+  if (srnEntry) pass('manifest has a person_name entry for input#srn');
+  else fail(`no person_name manifest entry for input#srn: ${JSON.stringify(hidden.request.redaction_manifest)}`);
+  const icoText = hidden.nodes.some((n) => (n.text ?? '').includes('secret note'));
+  if (!icoText) pass('"secret note" (white-on-white text with an inline <svg> icon) is absent from the snapshot');
+  else fail('"secret note" survived into the snapshot — the inline <svg> icon switched the colour rule off');
 
   console.log('\nmedia effects hash (fx, local only):');
   const fx1 = hidden.nodes.find((n) => n.path === 'img#banner')?.attrs?.fx;
