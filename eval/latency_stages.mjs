@@ -20,6 +20,20 @@
  *    the split, and the waterfall is what shows it.
  *
  * Usage:  node eval/latency_stages.mjs [runs] [out.json]
+ *         node eval/latency_stages.mjs --loop [fixture.html] [out.json]
+ *
+ * --loop mode: three consecutive captures of the SAME fixture in the SAME
+ * page load (no reload between them, unlike the per-run mode above), feeding
+ * shared/delta.ts's planDelta/advance across the three so the second and
+ * third captures see the first's remembered state — exactly the one
+ * StepState per session the worker keeps. Prints, per step, perception_ms,
+ * nodes_changed_pct, media_area_reprocessed_pct, and faces_reused; writes
+ * the three steps under `loop.<fixture>` in the output file (merged in,
+ * not overwriting the per-run `runs` array a prior plain run may have
+ * written). Defaults to video-call.html — a fixture whose tiles are CSS
+ * backgrounds (no <img>/<video> media nodes at all) is also worth running
+ * this against explicitly, since it exercises the "nothing to reprocess"
+ * floor rather than DeltaVision's media-skip path.
  */
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -36,8 +50,12 @@ const EXT = resolve(HERE, '../extension');
 const SERVER_DIR = resolve(HERE, '../server');
 const { build } = createRequire(join(EXT, 'package.json'))('esbuild');
 
-const RUNS = Number(process.argv[2] ?? 10);
-const OUT = resolve(process.argv[3] ?? join(HERE, 'results/latency.json'));
+const cliArgs = process.argv.slice(2);
+const LOOP = cliArgs.includes('--loop');
+const rest = cliArgs.filter((a) => a !== '--loop');
+const RUNS = LOOP ? 3 : Number(rest[0] ?? 10);
+const FIXTURE = LOOP ? (rest[0] ?? 'video-call.html') : 'bank-login.html';
+const OUT = resolve(rest[1] ?? join(HERE, 'results/latency.json'));
 const CHROME = process.env.ATHENA_CHROME ?? 'google-chrome-stable';
 const CDP_PORT = Number(process.env.ATHENA_CDP_PORT ?? 9342);
 const HTTP_PORT = Number(process.env.ATHENA_HTTP_PORT ?? 8897);
@@ -63,6 +81,7 @@ import { buildAgentRequest } from '${join(EXT, 'src/redaction/build-request.ts')
 import { TokenRegistry } from '${join(EXT, 'src/redaction/tokens.ts')}';
 import { detectFaces } from '${join(EXT, 'src/perception/face-detect.ts')}';
 import { executeActions } from '${join(EXT, 'src/executor/execute.ts')}';
+import { planDelta, advance } from '${join(EXT, 'src/shared/delta.ts')}';
 
 const OPTS = { modelUrl: '/models/version-RFB-320.onnx', wasmBaseUrl: '/ort/' };
 const tokens = new TokenRegistry('bench-session');
@@ -116,6 +135,67 @@ export async function run(shotDataUrl) {
   };
 }
 
+// --loop mode only: one StepState carried across the three captures of a
+// single page load, exactly like the worker keeps one per session.
+let loopState = null;
+
+export async function loopStep(shotDataUrl) {
+  const t0 = performance.now();
+  const snapshot = captureDomSnapshot();
+  const capture_ms = performance.now() - t0;
+
+  const plan = planDelta(loopState, snapshot.nodes);
+  const { changedMedia, reusedFaces, report } = plan;
+  let faces = reusedFaces.map((f) => ({ bbox: f.bbox, score: f.confidence }));
+
+  let perception_ms = 0;
+  let newFaces = null;
+  if (${haveModel} && shotDataUrl) {
+    const bitmap = await createImageBitmap(dataUrlToBlob(shotDataUrl));
+    // Same region-in-device-pixel-space conversion the offscreen document
+    // does (perception/offscreen.ts): regions are CSS px from the snapshot,
+    // the bitmap is device px.
+    const cssPerDevice = snapshot.viewport.width > 0 ? snapshot.viewport.width / bitmap.width : 1;
+    const devicePerCss = cssPerDevice === 0 ? 1 : 1 / cssPerDevice;
+    const regions = changedMedia
+      .map((n) => n.bbox)
+      .map((b) => [
+        Math.max(0, Math.round(b[0] * devicePerCss)),
+        Math.max(0, Math.round(b[1] * devicePerCss)),
+        Math.min(bitmap.width, Math.round(b[2] * devicePerCss)),
+        Math.min(bitmap.height, Math.round(b[3] * devicePerCss)),
+      ])
+      .filter((b) => b[2] - b[0] >= 32 && b[3] - b[1] >= 32);
+    const t1 = performance.now();
+    const r = await detectFaces(bitmap, { ...OPTS, scale: cssPerDevice, regions });
+    perception_ms = performance.now() - t1;
+    newFaces = r.faces.map((f) => ({ bbox: f.bbox, confidence: f.score }));
+    faces = [...r.faces, ...faces];
+    bitmap.close();
+  }
+  loopState = advance(loopState, plan, newFaces);
+
+  const t2 = performance.now();
+  const { request } = await buildAgentRequest({
+    snapshot, screenshotDataUrl: shotDataUrl, taskInstruction: 'Log me in to this portal.',
+    tokens, threshold: 0.5, faces,
+  });
+  const redaction_ms = performance.now() - t2;
+
+  return {
+    capture_ms, perception_ms, redaction_ms,
+    nodes_total: report.nodes_total,
+    nodes_changed_pct: report.nodes_changed_pct,
+    media_total: report.media_total,
+    media_reprocessed: report.media_reprocessed,
+    media_area_reprocessed_pct: report.media_area_reprocessed_pct,
+    faces_reused: report.faces_reused,
+    faces_total: faces.length,
+    first_step: report.first_step,
+    payload_bytes: JSON.stringify(request).length,
+  };
+}
+
 export async function execute(actions, allowed) {
   const t = performance.now();
   const outcomes = await executeActions(actions, allowed);
@@ -145,21 +225,26 @@ const server = spawn('uv', ['run', 'uvicorn', 'main:app', '--port', String(SERVE
 const chrome = spawn(CHROME, [
   '--headless=new', `--remote-debugging-port=${CDP_PORT}`, '--window-size=1280,800',
   '--no-first-run', '--hide-scrollbars', '--force-device-scale-factor=1',
-  `--user-data-dir=${join(root, 'profile')}`, `http://127.0.0.1:${HTTP_PORT}/bank-login.html`,
+  `--user-data-dir=${join(root, 'profile')}`, `http://127.0.0.1:${HTTP_PORT}/${FIXTURE}`,
 ], { stdio: 'ignore' });
 
 const runs = [];
+let loopResult = null;
 let socket;
 let provider = 'unknown';
 let perceptionInit = null;
 
 try {
-  let health = null;
-  for (let i = 0; i < 80 && !health; i++) {
-    try { health = await (await fetch(`http://127.0.0.1:${SERVER_PORT}/healthz`)).json(); } catch { await sleep(250); }
+  if (!LOOP) {
+    // --loop doesn't plan/execute anything server-side, so it has no use for
+    // the mock provider — don't pay its startup/health-check cost.
+    let health = null;
+    for (let i = 0; i < 80 && !health; i++) {
+      try { health = await (await fetch(`http://127.0.0.1:${SERVER_PORT}/healthz`)).json(); } catch { await sleep(250); }
+    }
+    if (!health) throw new Error('server did not start');
+    provider = health.provider;
   }
-  if (!health) throw new Error('server did not start');
-  provider = health.provider;
 
   let pages = [];
   for (let i = 0; i < 60 && pages.length === 0; i++) {
@@ -184,7 +269,7 @@ try {
     return reply.result?.result?.value;
   };
   const load = async () => {
-    await call('Page.navigate', { url: `http://127.0.0.1:${HTTP_PORT}/bank-login.html` });
+    await call('Page.navigate', { url: `http://127.0.0.1:${HTTP_PORT}/${FIXTURE}` });
     for (let i = 0; i < 50; i++) {
       await sleep(120);
       if ((await evaluate('document.readyState')) === 'complete' && (await evaluate('typeof ATHENA'))) break;
@@ -198,55 +283,76 @@ try {
     await evaluate('ATHENA.warmPerception().then(r => JSON.stringify(r))');
   };
 
-  // Session init is a one-time cost per worker lifetime; measured once on a cold
-  // context and reported separately so it is not smeared across steady-state runs.
-  await call('Page.navigate', { url: `http://127.0.0.1:${HTTP_PORT}/bank-login.html` });
-  for (let i = 0; i < 50; i++) {
-    await sleep(120);
-    if ((await evaluate('document.readyState')) === 'complete') break;
-  }
-  await evaluate(bundle);
-  perceptionInit = JSON.parse(await evaluate('ATHENA.warmPerception().then(r => JSON.stringify(r))'));
-
-  for (let i = 0; i < RUNS; i++) {
+  if (LOOP) {
+    // One page load for all three captures — no reload between them — so
+    // the module-scoped loopState inside the bundle persists across the
+    // three ATHENA.loopStep() calls, exactly like the worker's one
+    // StepState per session.
     await load();
+    const steps = [];
+    for (let i = 0; i < RUNS; i++) {
+      const shot = await call('Page.captureScreenshot', { format: 'png' });
+      const shotDataUrl = `data:image/png;base64,${shot.result.data}`;
+      const step = JSON.parse(await evaluate(`ATHENA.loopStep(${JSON.stringify(shotDataUrl)}).then(r => JSON.stringify(r))`));
+      steps.push(step);
+      console.error(
+        `  step ${i + 1}/${RUNS}  perception ${step.perception_ms.toFixed(1)} ms  `
+        + `nodes_changed ${step.nodes_changed_pct}%  media_reprocessed ${step.media_area_reprocessed_pct}%  `
+        + `faces_reused ${step.faces_reused}`,
+      );
+    }
+    loopResult = { fixture: FIXTURE, model_present: haveModel, steps };
+  } else {
+    // Session init is a one-time cost per worker lifetime; measured once on a cold
+    // context and reported separately so it is not smeared across steady-state runs.
+    await call('Page.navigate', { url: `http://127.0.0.1:${HTTP_PORT}/${FIXTURE}` });
+    for (let i = 0; i < 50; i++) {
+      await sleep(120);
+      if ((await evaluate('document.readyState')) === 'complete') break;
+    }
+    await evaluate(bundle);
+    perceptionInit = JSON.parse(await evaluate('ATHENA.warmPerception().then(r => JSON.stringify(r))'));
 
-    const tShot = Date.now();
-    const shot = await call('Page.captureScreenshot', { format: 'png' });
-    const screenshot_ms = Date.now() - tShot;
-    const shotDataUrl = `data:image/png;base64,${shot.result.data}`;
+    for (let i = 0; i < RUNS; i++) {
+      await load();
 
-    const local = JSON.parse(await evaluate(`ATHENA.run(${JSON.stringify(shotDataUrl)}).then(r => JSON.stringify(r))`));
+      const tShot = Date.now();
+      const shot = await call('Page.captureScreenshot', { format: 'png' });
+      const screenshot_ms = Date.now() - tShot;
+      const shotDataUrl = `data:image/png;base64,${shot.result.data}`;
 
-    const tNet = Date.now();
-    const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/agent/plan`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(local.request),
-    });
-    const plan = await response.json();
-    const network_ms = Date.now() - tNet;
+      const local = JSON.parse(await evaluate(`ATHENA.run(${JSON.stringify(shotDataUrl)}).then(r => JSON.stringify(r))`));
 
-    const actions = plan.actions.filter((a) => a.action !== 'click').map((a) => ({
-      action: a.action, selector: a.selector, value: a.value_ref ? 'bench-value' : a.value,
-    }));
-    const allowed = local.request.dom_summary.map((n) => n.path);
-    const exec = JSON.parse(await evaluate(
-      `ATHENA.execute(${JSON.stringify(actions)}, ${JSON.stringify(allowed)}).then(r => JSON.stringify(r))`,
-    ));
+      const tNet = Date.now();
+      const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/agent/plan`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(local.request),
+      });
+      const plan = await response.json();
+      const network_ms = Date.now() - tNet;
 
-    runs.push({
-      capture_ms: local.capture_ms,
-      screenshot_ms,
-      perception_ms: local.perception_ms,
-      perception_preprocess_ms: local.perception_preprocess_ms,
-      perception_inference_ms: local.perception_inference_ms,
-      redaction_ms: local.redaction_ms,
-      network_ms,
-      execute_ms: exec.execute_ms,
-      faces: local.faces,
-      payload_bytes: JSON.stringify(local.request).length,
-      actions: plan.actions.length,
-    });
-    process.stderr.write(`  run ${i + 1}/${RUNS}\r`);
+      const actions = plan.actions.filter((a) => a.action !== 'click').map((a) => ({
+        action: a.action, selector: a.selector, value: a.value_ref ? 'bench-value' : a.value,
+      }));
+      const allowed = local.request.dom_summary.map((n) => n.path);
+      const exec = JSON.parse(await evaluate(
+        `ATHENA.execute(${JSON.stringify(actions)}, ${JSON.stringify(allowed)}).then(r => JSON.stringify(r))`,
+      ));
+
+      runs.push({
+        capture_ms: local.capture_ms,
+        screenshot_ms,
+        perception_ms: local.perception_ms,
+        perception_preprocess_ms: local.perception_preprocess_ms,
+        perception_inference_ms: local.perception_inference_ms,
+        redaction_ms: local.redaction_ms,
+        network_ms,
+        execute_ms: exec.execute_ms,
+        faces: local.faces,
+        payload_bytes: JSON.stringify(local.request).length,
+        actions: plan.actions.length,
+      });
+      process.stderr.write(`  run ${i + 1}/${RUNS}\r`);
+    }
   }
 } catch (err) {
   console.error(`FAIL ${err.message}`);
@@ -259,12 +365,21 @@ try {
   await rm(root, { recursive: true, force: true }).catch(() => {});
 }
 
+let existing = {};
+if (existsSync(OUT)) {
+  try { existing = JSON.parse(await readFile(OUT, 'utf8')); } catch { existing = {}; }
+}
+
+// Merge, never blindly overwrite: a --loop run must not erase the `runs`
+// array a prior plain run wrote (and vice versa) — they measure different
+// things and both belong in the same file.
+const output = LOOP
+  ? { ...existing, loop: { ...(existing.loop ?? {}), [FIXTURE]: loopResult } }
+  : { ...existing, provider, model_present: haveModel, perception_init_ms: perceptionInit?.init_ms ?? null, runs };
+
 await mkdir(dirname(OUT), { recursive: true });
-await writeFile(OUT, `${JSON.stringify({
-  provider,
-  model_present: haveModel,
-  perception_init_ms: perceptionInit?.init_ms ?? null,
-  runs,
-}, null, 2)}\n`);
-console.error(`\nwrote ${OUT} (${runs.length} runs)`);
-process.exit(runs.length > 0 ? 0 : 1);
+await writeFile(OUT, `${JSON.stringify(output, null, 2)}\n`);
+console.error(LOOP
+  ? `\nwrote ${OUT} (loop: ${FIXTURE}, ${loopResult?.steps.length ?? 0} step(s))`
+  : `\nwrote ${OUT} (${runs.length} runs)`);
+process.exit(LOOP ? (loopResult ? 0 : 1) : (runs.length > 0 ? 0 : 1));

@@ -109,6 +109,31 @@ Things to say while pointing at it:
   in one session and is regenerated for the next, so tokens never become a
   stable pseudonym.
 
+## 4b. What phase 5b added (detectors, hidden text, DeltaVision, metrics, portal demo)
+
+- **More detectors.** Bare name labels, UPI ids, mod-97-checked IBANs,
+  non-ASCII digit folding, split card/Aadhaar/OTP inputs, QR images (by name,
+  not decoded), any canvas over 32×32 px (black-boxed — closes the "canvas
+  paints an id as pixels" gap, at the cost of over-redacting charts too).
+- **A capture-time hidden-text rule.** Text too small, too tiny a box, or
+  colour-matched to a *solid* ancestor background is dropped before any
+  detector sees it — counted (`hidden_dropped`), never invented as if it had
+  been found and redacted.
+- **DeltaVision.** Between one capture and the next in the same session, only
+  the *per-region* face-detector pass on an unchanged image is skipped and its
+  old face boxes reused — PII text detection and the full-frame face pass run
+  on every single step, no exception. `eval/latency_stages.mjs --loop`
+  demonstrates it on three back-to-back captures of one page: on a fixture
+  with real photos, step 1 does a full pass and finds every face; steps 2–3
+  skip every region pass and reuse them all.
+- **A metrics card** in the panel: six groups, every number measured that run
+  or read from the bundled eval output with its date — nothing hardcoded, and
+  CPU/GPU say plainly they aren't available to an extension rather than
+  guessing.
+- **A portal demo fixture** that puts the whole story — tokens, stored refs, a
+  real face scan, a QR image, a canvas, hidden text, and the firewall — on one
+  page, proven end to end by `npm run test:e2e:portal`.
+
 ## 5. Demo script
 
 Setup (before you start talking): server running on :8787, fixtures served on
@@ -143,19 +168,29 @@ NER stage that closes it is on the roadmap. We report it, we don't hide it."*
 **Close (30 s).** Threshold slider: drag left → more redaction; *"the bias is
 deliberate — PRD §9 — over-redact rather than leak."* Then the eval table.
 
+**One-page alternative.** `application-portal.html` (task: *"Fill in the
+application from my verified profile and stop before submitting."*) puts
+tokens, stored refs, a face scan, a QR image, a canvas, hidden text and the
+firewall on a single screen — README.md's "Portal demo script" maps each of
+the eight things a judge should notice to what the panel shows and which test
+proves it, if you'd rather run one scenario than three.
+
 ## 6. The numbers (say them with the caveat)
 
 | Metric (PRD §8 targets) | Result | Target |
 |---|---|---|
 | Tier-1 detection recall | **1.000** | ≥ 0.90 |
 | Overall detection precision | **1.000** | ≥ 0.80 |
-| Tier-1 redaction precision (IoU ≥ 0.5) | **1.000** | ≥ 0.85 |
-| Overall recall | 0.943 (the two prose FNs) | — |
-| Local pipeline p50 | ~66 ms (capture 1 · screenshot ~40 · faces ~13 · redaction ~17) | < 300 ms |
+| Tier-1 redaction precision (IoU ≥ 0.5) | **0.929** | ≥ 0.85 |
+| Tier-2 redaction precision (IoU ≥ 0.5) | 0.810 | — (not a PRD §8 target) |
+| Overall redaction precision (IoU ≥ 0.5) | 0.878 | — |
+| Overall recall | 0.961 (the two prose FNs) | — |
+| Local pipeline p50/p95 | capture 1.0/2.1 · screenshot 34/59 · perception 12.4/18.6 · redaction 12.1/17.9 ms | < 300 ms |
 | Package | ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) | < 20 MB |
-| Tests | 12 browser/Node harnesses (capture, redaction, faces, scenario B, e2e A + C + BlindFill, executor, guardrails + firewall, loop, vault, provider) + 46 server tests | — |
+| Corpus | 5 screens, 51 labelled items | ≥ 50 screens (PRD §8) |
+| Tests | 49 server tests + the full extension harness (capture, redaction, faces, scenario B, e2e A/C/BlindFill/portal, executor, guardrails + firewall, loop, vault, delta, provider, dom-heuristics) | — |
 
-The caveat, verbatim, because a judge will ask: *"These are on three fixture
+The caveat, verbatim, because a judge will ask: *"These are on five fixture
 screens written by the same people who wrote the detectors, scored against
 labels we wrote. They measure internal consistency, not generalisation. The
 PRD calls for 50 screens; annotating real pages is the next eval milestone. A

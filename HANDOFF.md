@@ -1,6 +1,8 @@
 # ATHENA — handoff
 
-State of the repository as of 2026-09-10, for whoever picks this up next.
+State of the repository as of 2026-09-28 (phase 5b done), for whoever picks
+this up next. Sections 1–11 are the phase 5a snapshot, left as written;
+§13 below is phase 5b's own entry, in the same format as §12.
 
 Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preserving_Vision_Agent.md)
 (spec and rationale), [`CLAUDE.md`](CLAUDE.md) (working rules), [`README.md`](README.md)
@@ -13,15 +15,15 @@ Read alongside: [`PRD_Privacy_Preserving_Vision_Agent.md`](PRD_Privacy_Preservin
 | | |
 |---|---|
 | Milestones | PRD §12 M1–M6 complete |
-| Demo scenarios | A (credentials), B (faces), C (structured PII) — all working end to end |
-| Code | 4,361 lines of source (extension + server) · 2,547 lines of test/eval harness · 1,261 of fixtures and docs |
-| Tests | 49 server (pytest) + 14 extension harness commands (10 drive headless Chrome, 4 are Node-only) — **all green** as of the phase 5a final fix wave |
-| Eval | All three PRD §8 accuracy targets met, on a corpus of 4 self-authored screens |
-| Latency | 66 ms local p50 against a 300 ms budget |
+| Demo scenarios | A (credentials), B (faces), C (structured PII), portal (all of the above plus QR/canvas/hidden-text/firewall in one fixture) — all working end to end |
+| Tests | 49 server (pytest) + the extension harness (typecheck, build, smoke, and 15+ `test:*`/script commands — capture, redaction, faces, scenario-b, e2e ×4, executor, reasoning, loop, vault, delta, provider, dom-heuristics, preview:viewer) — **all green** as of phase 5b's harness run |
+| Eval | All three PRD §8 accuracy targets met, on a corpus of 5 self-authored screens, 51 labelled items (see §13 for phase 5b's numbers) |
+| Latency | ~66 ms local p50 against a 300 ms budget (mock provider); DeltaVision's `--loop` mode adds a second, steady-state measurement — see §13 |
 | Package | ~15 MB against a 20 MB budget |
-| Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 4 screens |
+| Not done | Self-hosted VLM never run against real weights; NER detector cut; corpus is 5 screens (target ≥ 50); see §13's known limits for what phase 5b left open |
 | Design spec phases (`docs/superpowers/specs/2026-09-11-athena-real-product-design.md`) | Phase 3 (action grammar v2: nine verbs, `risk`, `done`/`result`) and Phase 4 (agent loop: two approval modes, step cap, panel Start/Stop/history) **done** — `7b2b25e..HEAD` |
-| Phase 5a (BlindFill tokens, encrypted vault, privacy firewall) | **done** — `a00a1b8..HEAD`. See §12. |
+| Phase 5a (BlindFill tokens, encrypted vault, privacy firewall) | **done** — `a00a1b8..397587a`. See §12. |
+| Phase 5b (detector additions, hidden text, DeltaVision, metrics card, portal demo) | **done** — `397587a..HEAD`. See §13. |
 
 
 ---
@@ -150,16 +152,19 @@ says so if one closes.
 
 ## 7. Measured results
 
-Detection — 4 screens, 35 labelled items, threshold 0.5:
+Detection — 5 screens, 51 labelled items, threshold 0.5 (phase 5b numbers;
+see §13 for the corpus additions):
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.943 | 0.971 |
+| overall | 1.000 | 0.961 | 0.980 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.900 | 0.947 |
+| tier 2 | 1.000 | 0.913 | 0.955 |
 
-Redaction precision (pixel, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.833, overall 0.909.
-The tier 2 figure dropped from 0.882 when a prose email was added to the corpus: text redaction is exact, but the pixel mask covers the whole paragraph box (over-redaction, never under-redaction).
+Redaction precision (pixel, strict IoU ≥ 0.5): tier 1 **0.929**, tier 2
+**0.810**, overall **0.878** — phase 5b is the first time all three are
+computed (`run_eval.py` only ever produced tier 1 before). Both false
+negatives are the same known gap: names/addresses in free prose.
 All three PRD §8 targets met.
 
 Latency p50/p95 ms (10 runs, mock provider): capture 1.0/2.0 · screenshot 39.5/55.4 ·
@@ -212,6 +217,14 @@ rather than committed; `providers/` holds mock, anthropic and openai-compat only
 | 19 | **Vault slot values of 3 characters or fewer are never echo-masked** | And never trip the credential egress check. |
 | 20 | **The credential egress check has a narrow read surface** | It reads `dom_summary` labels and values, the task instruction, and prior-action values; it does not read prior-action error/option/url fields or DOM path strings. |
 | 21 | **A token can only be typed into a field a detector classified as the same type** | Fields with labels the DOM rules miss (for example "UID", "WhatsApp", non-English labels), fields resolved to a different single type, split card or Aadhaar inputs, and fields below the fold or inside iframes are refused by the guardrail; the user fills those by hand. |
+| 22 | **A same-URL image swap is invisible to DeltaVision** | `src_hash` (phase 5b) digests the image URL, not its bytes. A server-side swap of the image behind an unchanged URL is not seen as a change, so a stale face box from before the swap can be reused. The full-frame face pass still runs every step regardless — this only affects the per-region skip. |
+| 23 | **The QR rule is name-based, no decoding** | `dom:qr` matches on id/class/alt/filename (`qr`, `qrcode`, `scan-to-pay`, …). A real QR image with none of those names is missed; a non-QR image with such a name is over-redacted (declared `frame`, black-boxed) for nothing. |
+| 24 | **Every canvas over 32×32 px is black-boxed unconditionally** | Closes the "canvas paints text/an id the DOM walk never sees" gap, but cannot distinguish a sensitive canvas from a chart or any other decorative canvas — both are redacted the same way. |
+| 25 | **Split PIN boxes are undetected** | The OTP rule's context match excludes "PIN" on purpose (it is the standard Indian postal-code term; including it would false-positive every address field). A PIN split across several single-digit boxes is missed unless its own context also names it as an OTP/verification code. |
+| 26 | **Non-ASCII digit spans split across sibling elements do not group** | Digit folding (Devanagari, etc. → ASCII) happens inside `detectPii` over one node's already-assembled text; `group_id` assignment at capture time reads each span's raw text and never folds it. A card/Aadhaar/OTP written as adjacent `<span>`s of non-ASCII digits is neither grouped nor detected. |
+| 27 | **1×1 screen-reader-only text is over-dropped by the hidden-text rule** | The box-size camouflage rule (< 2×2 px) does not distinguish deliberate camouflage from the standard visually-hidden accessibility pattern; both are dropped and counted in `hidden_dropped`. Accepted as the conservative-by-default trade-off, not silently absorbed. |
+| 28 | **The metrics card's "panel JS heap" is the panel's own heap, not the worker's or the offscreen document's** | `performance.memory.usedJSHeapSize` is only ever available to the context that calls it; CPU and GPU usage are not exposed to extensions at all, and the card says so rather than estimating either one. |
+| 29 | **Pixel geometry stayed node-granular through phase 5b, and the corpus grew** | Tier-2 redaction precision (0.810, was 0.833 on the smaller phase 5a corpus) reflects the same known limitation (a detection inside a paragraph is masked with the paragraph's box) now measured against more Tier-2 items — not a regression in the masking itself. |
 
 ---
 
@@ -329,3 +342,85 @@ possible in principle, though the two are written independently to make that
 less likely. The vault protects against disk access and other extensions
 reading `storage.local`/`storage.session`; it does **not** protect against a
 compromised extension page, which can read the unlocked key while it is live.
+
+---
+
+## 13. Phase 5b — detector additions, hidden text, DeltaVision, metrics card, portal demo
+
+Range `397587a..8cc0f13`. Done.
+
+**What shipped:**
+- **New detectors.** Exact-match bare name labels (`person_name`, Tier 2); UPI
+  ids (`account_id`, Tier 2); IBAN validated by mod-97, case-insensitive
+  (`bank_account`, Tier 1); non-ASCII (e.g. Devanagari) digit folding, 1:1 in
+  length so spans stay valid; card and Aadhaar numbers split across sibling
+  `<input>`s, and split OTP boxes, grouped and detected as one item; QR images
+  declared `frame` by element name (`qr`, `qrcode`, `scan-to-pay`, …), no
+  decoding; every canvas over 32×32 px declared `frame` and black-boxed.
+- **Capture-time hidden-text rule.** Three camouflage checks — font under 2 px,
+  box under 2×2 px, text colour matching a *solid* ancestor background
+  (tolerance 8/channel) — drop text before any detector sees it and count the
+  drops into `hidden_dropped` (surfaced to the model and the metrics card as a
+  count only). Text over an image or gradient is exempted (the colour rule
+  can't speak to legibility there, so it errs toward keeping it). Camouflaged
+  text over a *sibling* overlay is not caught (only ancestor backgrounds are
+  walked) — accepted as a known limit (see §9 item 27 for one specific
+  over-drop case, 1×1 screen-reader text).
+- **DeltaVision** (`extension/src/shared/delta.ts`, pure — no `chrome.*`/DOM).
+  PII text detection and the full-frame face pass are unconditional every
+  step. The only thing ever skipped is the per-region (crop) face-detector
+  pass on an image/svg/etc. media node whose hash is unchanged since the
+  previous step — its previously-found face boxes are reused (padded, never
+  invented). `<video>`/`<canvas>` are always re-scanned. A media node is
+  forced back into the re-scan set on load-state change, on overlap with a
+  changed/new node, or when *any* node disappeared since the last step
+  (conservative: unknown what it covered). A face-detector call that actually
+  fails withholds that step's screenshot and never becomes remembered state —
+  text redaction is unaffected. `eval/latency_stages.mjs --loop` demonstrates
+  this: three captures of one page, no reload between them, printing
+  `perception_ms`/`nodes_changed_pct`/`media_area_reprocessed_pct`/`faces_reused`
+  per step (see §7's sibling numbers in README.md's Results section — on
+  `application-portal.html`, step 1 re-processes 100% of media and finds 25
+  faces; steps 2–3 reuse all 25 with 0% media re-processed).
+- **Metrics card.** A collapsed-by-default panel card, six groups (Privacy,
+  Boundary, Performance, Resources, Delta, Benchmark), every number measured
+  this run or read from `benchmark.json` (built from `eval/results/*.json`,
+  dated). CPU/GPU are not exposed to extensions and the card says so instead
+  of estimating; the JS-heap number is the **panel's own heap**
+  (`performance.memory.usedJSHeapSize`), not the worker's or the offscreen
+  document's — there is no cross-context memory API available here.
+- **Portal demo fixture** (`eval/fixtures/application-portal.html` +
+  `npm run test:e2e:portal`). One page exercising tokens, stored refs
+  (`value_ref`), a real face scan on a profile photo, a QR image, an
+  over-32×32 canvas, camouflaged hidden text, and the privacy firewall,
+  end to end — no planted profile value (name, card, Aadhaar, email, phone,
+  address, account number) ever appears in either request body.
+- **Eval.** `run_eval.py` now writes tier-2 and overall redaction precision
+  into `eval/results/metrics.json` (previously tier-1 only), so
+  `benchmark.json` and the metrics card's Benchmark group carry all three.
+  Corpus grew from 4 to 5 screens / 35 to 51 labelled items
+  (`edge-cases-01`, `shadow-iframe-01`, `india-pii-01` added).
+
+**Known limits** (detail in the Known gaps table, §9, items 22–29):
+- A same-URL image swap (server-side bytes change, URL unchanged) is invisible
+  to DeltaVision's `src_hash` — the full-frame face pass still covers it.
+- The QR rule is name-based, not a decoder; the canvas rule over-redacts any
+  large canvas, sensitive or not.
+- Split PIN boxes (as opposed to OTP boxes) are undetected by design (the OTP
+  context match excludes "PIN" — an Indian postal-code term).
+- Non-ASCII digit spans split across sibling elements are not grouped —
+  folding happens too late (inside `detectPii`, per already-assembled node
+  text) to affect `group_id` assignment at capture time.
+- The hidden-text rule over-drops 1×1 screen-reader-only text (the standard
+  accessibility pattern), same conservative-by-default trade-off as
+  everywhere else in this project — counted, not hidden.
+- The metrics card's heap number is scoped to the panel context only; CPU/GPU
+  are unavailable to any extension context, not just under-instrumented here.
+- Tier-2 redaction precision (0.810) reflects the node-granular pixel-mask
+  limitation (§9 item 4/29) measured against a larger, more Tier-2-heavy
+  corpus than phase 5a's — not a regression in the masking logic itself.
+
+**Say it plainly, not more:** every new detector, the hidden-text rule, and
+DeltaVision's skip logic are heuristics layered on an already-heuristic
+pipeline — none of them make a formal completeness claim, and each one's
+known miss modes are listed above rather than discovered later by a judge.

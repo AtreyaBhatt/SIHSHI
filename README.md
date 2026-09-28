@@ -291,6 +291,116 @@ does not defeat the other.
 
 ---
 
+## Detectors added in phase 5b
+
+On top of the phase 5a cascade (DOM heuristics → regex/checksums → faces):
+
+- **Exact-match bare name labels** — a label that is *exactly* `Name`,
+  `Applicant Name`, `Father's Name`, etc. (see `eval/corpus/README.md`'s list)
+  is `person_name`, Tier 2. `File name` / `Bank name` do not match.
+- **UPI ids** (`name@bank`) — Tier 2 `account_id`, lower confidence than email
+  so an overlapping email wins.
+- **IBAN**, case-insensitive, validated by mod-97 — Tier 1 `bank_account`.
+- **Non-ASCII digit folding** — Devanagari and other BMP decimal-digit ranges
+  are folded to ASCII 1:1 in length before matching, so spans stay valid
+  against the original string. Folding happens on one node's already-assembled
+  text; a card/OTP/Aadhaar **split across sibling `<span>`s of non-ASCII
+  digits is not grouped or detected** (known gap, see `eval/corpus/README.md`).
+- **Card and Aadhaar numbers split across sibling `<input>`s**, and **split OTP
+  boxes**, are grouped (`group_id`) and detected as one item. Split PIN boxes
+  are **not** — the OTP context match has no `pin` term (postal PIN codes would
+  false-positive).
+- **QR images**, by element name only (`qr`, `qrcode`, `scan-to-pay`, …) —
+  declared as `frame` (Tier 1) and black-boxed. **No decoding**: this is a
+  name-based rule, not a QR reader, so a QR image with a different name is
+  missed and a non-QR image named `qr-something` is over-redacted.
+- **Every canvas larger than 32×32 px** is declared `frame` and black-boxed —
+  closes the "canvas can paint text or an id the DOM walk never sees" gap.
+  Stated limit: this **over-redacts charts and other non-sensitive canvases**;
+  there is no way yet to tell a data visualization from a photographed card.
+
+## Hidden text (capture-time)
+
+Three rules drop text at capture, before any detector runs, and count what
+they drop into `hidden_dropped` (surfaced to the model in the prompt and on
+the metrics card, as a count only — never as which text):
+
+1. Font size under 2 px.
+2. Box under 2×2 px.
+3. Text colour matching a **solid** ancestor background (walked up to
+   `<body>`, tolerance 8 per RGB channel).
+
+Text sitting over an image or a gradient is **kept** — rule 3 cannot tell
+whether it is legible there, so it does not apply, on purpose (better a false
+non-drop than blinding the model to a caption on a photo).
+
+**Accepted over-drop:** 1×1 screen-reader-only text (the classic
+visually-hidden accessibility pattern) is caught by rule 2 and dropped even
+though it is not camouflage in the adversarial sense. This is stated as a
+known limit, not silently absorbed — see HANDOFF.md.
+
+## DeltaVision
+
+Between one capture and the next (same session), `shared/delta.ts` decides
+what can be skipped:
+
+- **PII text detection always runs on the full snapshot, every step, with no
+  exception.** DeltaVision never skips it.
+- **The full-frame face pass runs on every step.** Never skipped either.
+- **Only the per-region (crop) face pass of an image/svg/etc. media node
+  whose hash is unchanged is skipped** — its previously-found face boxes are
+  reused (padded) instead of being re-detected.
+- `<video>` and `<canvas>` are **always** re-scanned — their pixels change
+  under a constant hash.
+- A media node is forced back into the re-scan set when: it just finished
+  loading (`attrs.loaded` flips), a changed or newly-added node's box
+  overlaps it, or *any* node was removed since the last step (conservative —
+  something disappeared and it's unknown what it covered).
+- A face-detector call that actually fails (not "no screenshot to scan")
+  **withholds the screenshot for that step** and never becomes remembered
+  state — text redaction is unaffected either way.
+
+**Say the saving honestly:** what's skipped is the per-region face-detector
+passes, not the whole perception stage — text detection and the full-frame
+face pass are unconditional every step. `eval/latency_stages.mjs --loop`
+demonstrates this on three consecutive captures of one page with no reload
+between them (see [Results](#results)).
+
+## Metrics card
+
+A collapsed-by-default card in the side panel, six groups, every number
+either measured in that run or copied from the bundled eval output
+(`benchmark.json`, generated at build time from `eval/results/*.json`) —
+nothing on it is hardcoded:
+
+| Group | Rows | What it cannot show |
+|---|---|---|
+| Privacy | regions detected, redacted tier 1/tier 2, firewall masked/blocked, hidden nodes dropped, payload size | never a value, a label, or a selector's text |
+| Boundary | **screenshot sent** — `redacted copy` or `none (withheld or unavailable)` | not a byte count of "what changed", just whether a screenshot left the device this step |
+| Performance | capture, screenshot, perception, redaction, firewall, provider (network), execute, settle — each in ms | provider/execute/settle are `—` until that stage of the step actually runs |
+| Resources | panel JS heap (`performance.memory.usedJSHeapSize`), CPU/GPU | CPU/GPU are **not exposed to extensions** and the card says so rather than guessing; the heap is the **panel's own**, not the worker's or the offscreen document's |
+| Delta | nodes changed, media re-processed, faces reused (from `PayloadPreview.delta`) | — |
+| Benchmark | detection tp/fp/fn (overall, tier 1, tier 2), redaction precision (IoU, tier 1 and tier 2), latency p50/p95 by stage, all dated `benchmark.generated_at` | a **snapshot from the last eval run**, not this session's own accuracy — it never changes while you use the extension |
+
+## Portal demo script
+
+`eval/fixtures/application-portal.html` is the one fixture built to carry a
+judge through the whole story in one page. Eight moments, each backed by a
+specific harness:
+
+| # | Judge sees | Panel / DOM shows | Proven by |
+|---|---|---|---|
+| 1 | The browser sees the real data locally | Demo view's own-page column: real name, Aadhaar, card, photo, QR, canvas | `npm run test:e2e:portal` (asserts the real DOM values exist before capture) |
+| 2 | The privacy view shows tokens | `[AADHAAR_1]`-style tokens and masked values in "View what will be shared" | `test:e2e:portal` — on-page Tier-1 values are tokenised, not just masked |
+| 3 | The network inspector shows no raw values | DevTools Network tab on the `/agent/plan` request body | `test:e2e:portal`'s `portalPlantedSecrets` check — none of the fixture's planted name/card/Aadhaar/email/phone/address/account values appear in the request body |
+| 4 | The server receives placeholders | Request body's `dom_summary`/`redaction_manifest` — types and tokens, no values | same assertion, plus `qrEntry`/`canvasEntry`/`faceEntry` manifest checks (QR and canvas as `frame`, a face entry present) |
+| 5 | The server returns token actions | The plan: `value_ref`/`value_token` actions, never a literal secret | `test:e2e:portal`'s plan-body check (no planted secret in the response either) |
+| 6 | The browser resolves locally | The form fills with the real stored profile values after approval | `test:e2e:portal`'s execution phase (typed values match the vault/profile, never the token text) |
+| 7 | DeltaVision shows what was re-processed | The Delta card: nodes/media changed this step vs. reused | `npm run test:delta` (the state-machine logic `test:e2e:portal` itself doesn't re-run captures, so the multi-step behavior is Node-tested separately) |
+| 8 | The firewall catches a value when a detector is switched off | The Privacy card's red "detectors off: …" chip, and the value still masked | `npm run test:redaction`'s disabled-detector pass — rebuilds the payload with a cascade detector off by name and confirms the firewall still masks that value |
+
+---
+
 ## Demo scenarios
 
 Serve the fixtures (avoids the file-URL toggle):
@@ -370,21 +480,26 @@ npm run test:scenario-b  # 22 faces detected → 0 after blurring
 npm run test:e2e         # Scenario A end to end: no secret out, no secret back, field still filled
 npm run test:e2e:c       # Scenario C end to end: the model answers without acting
 npm run test:e2e:blindfill # BlindFill end to end: value_token + value_ref fill a form, no profile/vault value ever leaves the device
+npm run test:e2e:portal  # the portal demo fixture end to end: tokens, stored refs, faces, QR, canvas, hidden text and the firewall together
 npm run test:executor    # the nine verbs against a live DOM, incl. Enter→requestSubmit and Tab focus
 npm run test:reasoning   # guardrails (verbs, value/value_ref/value_token, risk floor, typed-secret masking) and the plan split, incl. the privacy firewall
 npm run test:loop        # the agent loop state machine, in Node — no browser
 npm run test:vault       # the encrypted vault: create/unlock, idle relock, session-key restore across a worker restart, lock-wins-over-in-flight-access
+npm run test:delta       # DeltaVision as a pure state machine, in Node — no browser
 npm run preview:viewer   # renders the demo view with real data -> eval/results/viewer.png
+node scripts/test-provider.mjs      # provider settings, direct request formats, response guardrails, the dom:qr/dom:canvas media rules
+node scripts/test-dom-heuristics.mjs # the DOM/attribute detector rules in isolation, in Node
 
 cd ../server && uv run pytest    # ingress, planner guardrails, endpoint, provider failure modes
 ```
 
 Each harness starts its own Chrome (and, where needed, its own server) and cleans
-up after itself. `test:e2e`, `test:e2e:c`, `test:e2e:blindfill`, `test:scenario-b`
-and `preview:viewer` need `npm run fetch:model`; `test:scenario-b` also needs
-`fetch:demo-faces`. `test:capture` covers `shadow-iframe.html`, `long-page.html`
-and `many-controls.html`. `test:loop` and `test:vault` run as pure Node state
-machines with no browser at all.
+up after itself. `test:e2e`, `test:e2e:c`, `test:e2e:blindfill`, `test:e2e:portal`,
+`test:scenario-b` and `preview:viewer` need `npm run fetch:model`; `test:scenario-b`
+also needs `fetch:demo-faces`; `test:e2e:portal` scans its own fixture photo, no
+separate fetch needed. `test:capture` covers `shadow-iframe.html`, `long-page.html`
+and `many-controls.html`. `test:loop`, `test:vault`, `test:delta`, `test-provider.mjs`
+and `test-dom-heuristics.mjs` run as pure Node, no browser at all.
 
 ## Eval
 
@@ -395,7 +510,15 @@ python3 eval/run_eval.py                      # precision / recall / F1 / IoU
 
 node eval/latency_stages.mjs 20               # 20 timed runs
 python3 eval/latency_bench.py                 # waterfall with p50 / p95
+
+node eval/latency_stages.mjs --loop           # 3 captures, one page, DeltaVision between them (default fixture: video-call.html)
+node eval/latency_stages.mjs --loop application-portal.html  # same, against a fixture that actually has media/faces to skip
 ```
+
+`--loop` writes its steps under `loop.<fixture>` in `eval/results/latency.json`,
+merged in alongside (never overwriting) a plain run's `runs` array. See
+[DeltaVision](#deltavision) and [Results](#results) below for what it measures
+and what came out of it.
 
 Adding a screen: write `eval/corpus/labels/<id>.labels.json` naming each
 sensitive item by CSS selector, put its page under `eval/fixtures/`, re-run the
@@ -451,25 +574,56 @@ password into a real password field while the server only ever sees
 
 ## Results
 
-4 screens, 35 labelled items, threshold 0.5:
+5 screens, 51 labelled items, threshold 0.5 (phase 5b: added `edge-cases-01`,
+`shadow-iframe-01`, `india-pii-01` on top of the phase 5a `bank-login-01` /
+`kyc-form-01`):
 
 | | precision | recall | F1 |
 |---|---|---|---|
-| overall | 1.000 | 0.943 | 0.971 |
+| overall | 1.000 | 0.961 | 0.980 |
 | tier 1 | 1.000 | 1.000 | 1.000 |
-| tier 2 | 1.000 | 0.900 | 0.947 |
+| tier 2 | 1.000 | 0.913 | 0.955 |
 
-Redaction precision (pixel regions, IoU ≥ 0.5): tier 1 **1.000**, tier 2 0.833, overall 0.909.
-The tier 2 figure dropped from 0.882 when a prose email was added to the corpus: text redaction is exact, but the pixel mask covers the whole paragraph box (over-redaction, never under-redaction).
+Redaction precision (pixel regions, strict IoU ≥ 0.5): tier 1 **0.929**, tier 2
+**0.810**, overall **0.878** — all three now computed and carried through to
+`benchmark.json` (phase 5a only ever computed tier 1). Both misses are the same
+known gap: names/addresses in free prose (`kyc-form-01`'s `b13`/`b14`). The two
+tier-2 off-target regions dropping precision below 1.0 are the same
+node-granular-pixel-mask limitation as before, now with more surface area
+(more Tier-2 items in the corpus) to show it on.
 All three PRD §8 targets met.
 
-Latency p50/p95 ms — capture 1.0/2.0 · screenshot 39.5/55.4 · perception
-12.6/16.8 · redaction 13.0/17.6 · network 4.0/6.0 · execute 0.8/1.5 →
-**total 72.3/89.7**, local portion 66.2 ms against a 300 ms budget.
+Latency p50/p95 ms (10 timed runs via `node eval/latency_stages.mjs`, mock
+provider, as bundled in `eval/results/latency.json`) — capture 1.0/2.1 ·
+screenshot 34/59 · perception 12.4/18.6 · redaction 12.1/17.9 · network 4/6 ·
+execute 0.8/1.7. Numbers move run to run with headless Chrome's own jitter;
+treat them as an order of magnitude, not a fixed budget line.
+
+**DeltaVision loop mode** (`node eval/latency_stages.mjs --loop`, three
+captures of one page, no reload between them):
+
+| fixture | step | perception | nodes changed | media re-processed | faces reused |
+|---|---|---|---|---|---|
+| `video-call.html` (CSS-background tiles, no `<img>`/`<video>` nodes at all) | 1 | ~31 ms | 100% | 0% | 0 |
+| | 2 | ~33 ms | 0% | 0% | 0 |
+| | 3 | ~37 ms | 0% | 0% | 0 |
+| `application-portal.html` (real `<img>` photo + QR + canvas) | 1 | ~111 ms | 100% | 100% | 0 |
+| | 2 | ~28 ms | 0% | 0% | 25 |
+| | 3 | ~26 ms | 0% | 0% | 25 |
+
+Read plainly: `video-call.html` has no media nodes at all (its tiles are CSS
+backgrounds), so it demonstrates the "nothing to reprocess" floor, not
+DeltaVision's own skip logic — that's why the brief has you also run it
+against `application-portal.html`, whose first step does a full region pass
+(finding 25 faces on the profile photo) and whose second and third steps skip
+every region pass and reuse all 25 boxes. What's actually skipped is the
+per-region face-detector pass, not the whole perception stage — PII text
+detection and the full-frame face pass ran on all six steps above; only the
+region crops on unchanged images were skipped.
 
 Package ~15 MB (13.3 MB ONNX runtime + 1.2 MB model) against a 20 MB budget.
 
-**Read the detection numbers as an upper bound, not an estimate.** Four fixture
+**Read the detection numbers as an upper bound, not an estimate.** Five fixture
 screens written by the same author as the detectors measure internal
 consistency, not generalisation. PRD §8 calls for ≥ 50 screens.
 
@@ -507,3 +661,27 @@ Stated plainly, because overclaiming here is worse than underclaiming.
     custom elements, so their pixels are not masked. Open shadow roots are walked.
 10. **Frames are masked, not read.** An iframe's contents are black-boxed in the
     screenshot and declared as a `frame`; same-origin frames are not walked.
+11. **The QR rule is name-based, not a decoder.** An element whose id/class/alt/
+    filename doesn't mention `qr`/`qrcode`/`scan-to-pay` is missed even if it
+    is a QR code; conversely a non-QR image with such a name is over-redacted.
+12. **Every canvas over 32×32 px is black-boxed, unconditionally.** This closes
+    a real leak (a canvas can paint text the DOM walk never sees) at the cost
+    of over-redacting charts and other non-sensitive canvas content — there is
+    no way yet to tell them apart.
+13. **A same-URL image swap is invisible to DeltaVision.** `src_hash` digests
+    the URL, not the bytes; a server-side image swap at an unchanged URL is
+    not seen as changed, so a stale face box could be reused. The full-frame
+    face pass still runs every step regardless.
+14. **1×1 screen-reader-only text is over-dropped** by the hidden-text rule
+    (box under 2×2 px) even though it is the standard accessibility pattern,
+    not camouflage. Counted in `hidden_dropped`, not silently absorbed.
+15. **Non-ASCII digit spans split across sibling elements are not grouped.**
+    Folding happens on one node's already-assembled text; a card/Aadhaar/OTP
+    written as adjacent `<span>`s of Devanagari (or other non-ASCII) digits is
+    not detected. Split PIN boxes (as opposed to OTP boxes) are also undetected
+    — the OTP context match deliberately excludes "PIN" (an Indian postal code
+    term) to avoid turning every address field into a false OTP match.
+16. **A BlindFill token can only be typed into a field of the same detected
+    type.** A field the DOM rules mislabel, a field resolved to a different
+    type, split card/Aadhaar inputs, or a field below the fold or inside an
+    iframe refuses the fill by design; the user fills those by hand.
