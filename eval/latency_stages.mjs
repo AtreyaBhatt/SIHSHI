@@ -82,6 +82,7 @@ import { TokenRegistry } from '${join(EXT, 'src/redaction/tokens.ts')}';
 import { detectFaces } from '${join(EXT, 'src/perception/face-detect.ts')}';
 import { executeActions } from '${join(EXT, 'src/executor/execute.ts')}';
 import { planDelta, advance } from '${join(EXT, 'src/shared/delta.ts')}';
+import { isBlackboxedMedia } from '${join(EXT, 'src/pii-detection/dom-heuristics.ts')}';
 
 const OPTS = { modelUrl: '/models/version-RFB-320.onnx', wasmBaseUrl: '/ort/' };
 const tokens = new TokenRegistry('bench-session');
@@ -157,7 +158,9 @@ export async function loopStep(shotDataUrl) {
     // the bitmap is device px.
     const cssPerDevice = snapshot.viewport.width > 0 ? snapshot.viewport.width / bitmap.width : 1;
     const devicePerCss = cssPerDevice === 0 ? 1 : 1 / cssPerDevice;
+    // As the worker does: media a DOM rule black-boxes (canvas, named QR) gets no region crop.
     const regions = changedMedia
+      .filter((n) => !isBlackboxedMedia(n, 0.5))
       .map((n) => n.bbox)
       .map((b) => [
         Math.max(0, Math.round(b[0] * devicePerCss)),

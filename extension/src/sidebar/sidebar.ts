@@ -47,6 +47,8 @@ interface Benchmark {
   detection?: { overall: BenchmarkCounts | null; tier1: BenchmarkCounts | null; tier2: BenchmarkCounts | null };
   redaction_precision?: { tier1: number | null; tier2: number | null; overall: number | null };
   latency?: Record<string, BenchmarkStage> | null;
+  /** Byte sizes of dist/ort/*.wasm and dist/models/*.onnx, read at build time. */
+  package_bytes?: { runtime: number; model: number };
 }
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -507,12 +509,16 @@ function renderMetrics(): void {
   $('metrics-resources').innerHTML = [
     metRow('panel JS heap', typeof heap === 'number' ? `${(heap / (1024 * 1024)).toFixed(1)} MB` : '—'),
     metRow('CPU / GPU', 'not exposed to extensions — see Chrome Task Manager'),
+    metRow('runtime + model size', benchmark?.package_bytes
+      ? `${(benchmark.package_bytes.runtime / (1024 * 1024)).toFixed(1)} MB + ${(benchmark.package_bytes.model / (1024 * 1024)).toFixed(1)} MB`
+      : '—'),
   ].join('');
 
   $('metrics-delta').innerHTML = !delta ? none : [
     metRow('nodes changed', `${delta.nodes_changed} / ${delta.nodes_total} (${delta.nodes_changed_pct}%)`),
     metRow('media re-processed', `${delta.media_reprocessed} / ${delta.media_total} (${delta.media_area_reprocessed_pct}%)`),
     metRow('faces reused', String(delta.faces_reused)),
+    metRow('full-frame face pass', delta.full_frame_pass ? 'ran' : 'skipped'),
   ].join('');
 
   if (!benchmark || benchmark.missing) {

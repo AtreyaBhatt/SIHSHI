@@ -187,9 +187,20 @@ export const MEDIA_RULES: DomRule[] = [
     // DOM walk never sees (audit item D4). Any canvas big enough to hold real
     // content — bigger than a spinner or a sizing hack — is black-boxed and
     // declared like a QR image or an iframe, whatever it was drawn to show.
+    // Deliberate over-redaction: a canvas captcha, map, signature pad, game or
+    // chart is black-boxed too, so the agent cannot see what it shows.
     type: 'frame',
     detector: 'dom:canvas',
     confidence: 0.85,
     test: (n) => n.tag === 'canvas' && n.bbox[2] - n.bbox[0] > 32 && n.bbox[3] - n.bbox[1] > 32,
   },
 ];
+
+/**
+ * True when a MEDIA_RULE black-boxes `n` at this threshold with these
+ * detectors enabled. The worker skips region face scans for such nodes: their
+ * pixels are filled anyway (the full-frame pass still runs).
+ */
+export function isBlackboxedMedia(n: RawDomNode, threshold: number, disabled?: Set<string>): boolean {
+  return MEDIA_RULES.some((r) => r.confidence >= threshold && !disabled?.has(r.detector) && r.test(n, contextString(n)));
+}

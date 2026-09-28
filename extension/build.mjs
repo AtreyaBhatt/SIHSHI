@@ -1,6 +1,6 @@
 import { build, context } from 'esbuild';
 import {
-  cp, mkdir, readFile, rm, stat, writeFile,
+  cp, mkdir, readdir, readFile, rm, stat, writeFile,
 } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
@@ -88,9 +88,17 @@ function percentile(values, p) {
   return sorted[idx];
 }
 
+/** Bytes of the copied files in `dir` ending in `ext` — read from dist, never hardcoded. */
+async function bytesOf(dir, ext) {
+  let total = 0;
+  for (const f of await readdir(dir)) if (f.endsWith(ext)) total += (await stat(`${dir}/${f}`)).size;
+  return total;
+}
+
 async function writeBenchmark() {
+  const packageBytes = { runtime: await bytesOf('dist/ort', '.wasm'), model: await bytesOf('dist/models', '.onnx') };
   if (!existsSync(METRICS_PATH)) {
-    await writeFile('dist/assets/benchmark.json', JSON.stringify({ missing: true }, null, 2));
+    await writeFile('dist/assets/benchmark.json', JSON.stringify({ missing: true, package_bytes: packageBytes }, null, 2));
     return;
   }
   const metrics = JSON.parse(await readFile(METRICS_PATH, 'utf8'));
@@ -121,6 +129,7 @@ async function writeBenchmark() {
       overall: metrics.metrics?.overall_redaction_precision ?? null,
     },
     latency,
+    package_bytes: packageBytes,
   };
   await writeFile('dist/assets/benchmark.json', JSON.stringify(benchmark, null, 2));
 }

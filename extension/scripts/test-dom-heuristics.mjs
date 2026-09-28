@@ -17,7 +17,7 @@ await build({
   outfile: join(temp, 'dom-heuristics.mjs'),
   bundle: true, format: 'esm', platform: 'node', target: 'node20', logLevel: 'error',
 });
-const { MEDIA_RULES } = await import(`file://${join(temp, 'dom-heuristics.mjs')}`);
+const { MEDIA_RULES, isBlackboxedMedia } = await import(`file://${join(temp, 'dom-heuristics.mjs')}`);
 await rm(temp, { recursive: true, force: true }).catch(() => {});
 
 let failures = 0;
@@ -56,6 +56,13 @@ const media = (tag, bbox) => ({ tag, bbox, attrs: { alt: null, title: null, id: 
 check(canvasRule.test(media('canvas', [0, 0, 240, 40]), ''), 'a 240x40 canvas matches dom:canvas');
 check(!canvasRule.test(media('canvas', [0, 0, 20, 20]), ''), 'a 20x20 canvas does NOT match dom:canvas (too small)');
 check(!canvasRule.test(media('img', [0, 0, 240, 40]), ''), 'an img the same size does NOT match dom:canvas');
+
+const withCtx = (tag, bbox, attrs = {}) => ({ ...media(tag, bbox), label: null, text: null, context_label: null, attrs: { ...media(tag, bbox).attrs, ...attrs } });
+check(isBlackboxedMedia(withCtx('canvas', [0, 0, 240, 240]), 0.7), 'a large canvas is black-boxed, so its region face scan is skipped');
+check(isBlackboxedMedia(withCtx('img', [0, 0, 120, 120], { alt: 'UPI QR' }), 0.7), 'a named QR image is black-boxed, so its region face scan is skipped');
+check(!isBlackboxedMedia(withCtx('img', [0, 0, 240, 240], { alt: 'profile photo' }), 0.7), 'a photo is not black-boxed and is still region-scanned');
+check(!isBlackboxedMedia(withCtx('canvas', [0, 0, 240, 240]), 0.9), 'above the rule confidence the canvas is region-scanned');
+check(!isBlackboxedMedia(withCtx('canvas', [0, 0, 240, 240]), 0.7, new Set(['dom:canvas'])), 'with dom:canvas switched off the canvas is region-scanned');
 
 console.log(failures === 0 ? '\nPASS' : `\nFAIL — ${failures} problem(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -33,6 +33,7 @@ import {
   approve, drive, newRun, stop, type Run, type RunStatus,
 } from './agent/loop';
 import { DEFAULT_THRESHOLD } from '../pii-detection/detect';
+import { isBlackboxedMedia } from '../pii-detection/dom-heuristics';
 import { readDisabledDetectors, setDisabledDetectors } from './debug-detectors';
 
 /**
@@ -264,6 +265,8 @@ function toFaceDetection(f: FaceBox): FaceDetection {
 async function detectFaces(
   capture: CaptureResult,
   prev: StepState | null,
+  threshold: number,
+  disabled: Set<string> | undefined,
 ): Promise<{ faces: FaceDetection[]; note: string | null; report: DeltaReport; state: StepState | null; ms: number; screenshotWithheld: boolean; screenshotForRequest: string | null }> {
   const plan = planDelta(prev, capture.snapshot.nodes);
   const { changedMedia, reusedFaces, report } = plan;
@@ -296,8 +299,11 @@ async function detectFaces(
     await ensureOffscreen();
     // Frames are black-boxed unconditionally (build-request emits a `frame`
     // entry), so scanning their pixels for faces is inference spent on a
-    // region that is already gone.
-    const regions = changedMedia.map((n) => n.bbox);
+    // region that is already gone. The same holds for media a DOM rule
+    // black-boxes (canvas, named QR) under this step's threshold and switches:
+    // they stay in the manifest, only their region crop is not scanned. The
+    // full-frame pass still covers their pixels.
+    const regions = changedMedia.filter((n) => !isBlackboxedMedia(n, threshold, disabled)).map((n) => n.bbox);
     const reply = (await api.runtime.sendMessage({
       type: 'athena:detect-faces',
       screenshot_data_url: capture.screenshot_data_url,
@@ -320,8 +326,9 @@ async function buildPayload(
 ): Promise<PayloadPreview> {
   const started = performance.now();
   try {
+    const disabledDetectors = await readDisabledDetectors();
     const { faces, note: perceptionNote, report, state, ms: perceptionMs, screenshotForRequest } =
-      await detectFaces(capture, stepStates.get(registry.session_id) ?? null);
+      await detectFaces(capture, stepStates.get(registry.session_id) ?? null, threshold, disabledDetectors);
     if (state) stepStates.set(registry.session_id, state);
     else stepStates.delete(registry.session_id);
     // resolveFaceOutcome already decided whether this step's screenshot is
@@ -333,7 +340,7 @@ async function buildPayload(
       taskInstruction,
       tokens: registry,
       threshold,
-      disabledDetectors: await readDisabledDetectors(),
+      disabledDetectors,
       priorActions: history,
       faces,
       forceTier1Paths: typedSecretPaths.get(registry.session_id),

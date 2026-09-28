@@ -300,7 +300,6 @@ try {
   let faces = [];
   if (isPortalFixture) {
     const viewportWidth = await evaluate('window.innerWidth');
-    const viewportHeight = await evaluate('window.innerHeight');
     const photoBBox = JSON.parse(await evaluate(`JSON.stringify(ATHENA.elementBBox('img#pf-photo'))`));
     // The photo is a realistic profile-card thumbnail (CSS width 160px) showing
     // a group photo — at the default 1x screenshot the whole group would be
@@ -361,7 +360,7 @@ try {
     else fail(`QR image manifest entry was ${JSON.stringify(qrEntry)}`);
 
     const canvasEntry = request.redaction_manifest.find((e) => e.dom_path === 'canvas#pf-canvas');
-    if (canvasEntry?.type === 'frame') pass('canvas region declared as a frame');
+    if (canvasEntry?.type === 'frame' && canvasEntry.detector === 'dom:canvas') pass('canvas region declared as a frame by dom:canvas');
     else fail(`canvas manifest entry was ${JSON.stringify(canvasEntry)}`);
 
     const faceEntry = request.redaction_manifest.find((e) => e.type === 'face');
