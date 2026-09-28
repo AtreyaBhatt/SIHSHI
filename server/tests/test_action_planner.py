@@ -299,3 +299,18 @@ def test_firewall_minted_token_is_not_typeable(bank_login_payload):
         AgentRequest.model_validate(bank_login_payload),
     )
     assert rejected_ok == [] and ok[0].value_token == "[PAN_1]"
+
+
+def test_split_field_member_token_is_not_typeable(bank_login_payload):
+    """A member of a split card or Aadhaar holds a fragment, not the value: its id
+    must never resolve as a value_token (mirrors direct-provider-response.ts)."""
+    payload = {**bank_login_payload, "redaction_manifest": [
+        {**e, "detector": "group:card"} if e["id"] == "PAN_1" else e
+        for e in bank_login_payload["redaction_manifest"]
+    ]}
+    kept, rejected = constrain(
+        _plan(AgentAction(action="type", selector="input#pan", value_token="[PAN_1]")),
+        AgentRequest.model_validate(payload),
+    )
+    assert kept == []
+    assert "not a token from this request" in rejected[0]

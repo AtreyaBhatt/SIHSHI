@@ -76,7 +76,8 @@ def constrain(plan: PlanOutput, request: AgentRequest) -> tuple[list[AgentAction
     redacted = {e.dom_path for e in request.redaction_manifest if e.dom_path}
     # Firewall-minted tokens mark values the cascade missed; they are masked, never typeable.
     token_entries: dict[str, RedactionManifestEntry] = {
-        e.id: e for e in request.redaction_manifest if not e.detector.startswith("firewall:")
+        e.id: e for e in request.redaction_manifest
+        if not e.detector.startswith(("firewall:", "group:"))
     }
     # A token may only fill a field the client declared as holding that same type.
     target_types = {(e.dom_path, e.type) for e in request.redaction_manifest if e.dom_path}
